@@ -128,5 +128,12 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-### Pycharm
+# Pycharm
 .idea/
+
+# model file
+model
+performance
+store_performance
+data/test.graph
+data/*.csv
