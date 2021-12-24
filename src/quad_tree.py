@@ -6,6 +6,7 @@ from  src.common_utils import Point
 import pandas as pd
 
 # settings
+from src.index import Index
 MAX_ELE_NUM = 100
 
 QUADRANT_RU = 1
@@ -33,18 +34,15 @@ class QuadTreeNode:
         self.items = []  # ElePoitems[MAX_ELE_NUM]
 
 
-class QuadTree:
-    def __init__(self, region, max_num=MAX_ELE_NUM):
+class QuadTree(Index):
+    def __init__(self, region=Region(-90, 90, -180, 180), max_num=MAX_ELE_NUM):
         """
         初始化非满四叉树，超过阈值就分裂
         :param max_num: 节点内的点数据数量预置
         """
+        super(QuadTree, self).__init__("QuadTree")
         self.max_num = max_num
         self.root_node = QuadTreeNode(region=region)
-
-    def build(self, points):
-        for point in points:
-            self.insert(point)
 
     def insert(self, point, node=None):
         """
@@ -157,9 +155,6 @@ class QuadTree:
         node.LU = None
         node.RB = None
         node.LB = None
-
-    def predict(self, point):
-        return self.search(point, self.root_node)
 
     def search(self, point, node=None):
         if node is None:

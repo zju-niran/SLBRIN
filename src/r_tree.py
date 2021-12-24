@@ -4,10 +4,12 @@ import random
 from rtree import index
 
 from src.common_utils import Point
+from src.index import Index
 
 
-class RTree:
+class RTree(Index):
     def __init__(self):
+        super(RTree, self).__init__("RTree")
         p = index.Property()
         self.index = index.Index(properties=p)
 
