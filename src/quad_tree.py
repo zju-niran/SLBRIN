@@ -1,12 +1,11 @@
 import csv
 import os
 import random
-import time
-from  src.common_utils import Point
-import pandas as pd
 
+from src.common_utils import Point, read_data_and_search
 # settings
 from src.index import Index
+
 MAX_ELE_NUM = 100
 
 QUADRANT_RU = 1
@@ -21,6 +20,7 @@ class Region:
         self.bottom = bottom
         self.left = left
         self.right = right
+
 
 class QuadTreeNode:
     def __init__(self, region, depth=1, is_leaf=1):
@@ -208,50 +208,10 @@ def create_data(path):
             writer.writerow([lng, lat, index])
 
 
-def read_data_and_search(path):
-    data = pd.read_csv(path, header=None)
-    train_set_point = []
-    test_set_point = []
-    test_ratio = 0.5  # 测试集占总数据集的比例
-    for i in range(int(data.shape[0])):
-        train_set_point.append(Point(data.iloc[i, 0], data.iloc[i, 1], data.iloc[i, 2]))
-    test_set_point = train_set_point[:int(len(train_set_point) * test_ratio)]
-
-    # build BTree index
-    print("*************start QuadTree************")
-    root_region = Region(-90, 90, -180, 180)
-    quad_tree = QuadTree(region=root_region)
-    print("Start Build")
-    start_time = time.time()
-    quad_tree.build(train_set_point)
-    end_time = time.time()
-    build_time = end_time - start_time
-    print("Build QuadTree time ", build_time)
-    err = 0
-    print("Calculate error")
-    start_time = time.time()
-    for ind in range(len(test_set_point)):
-        pre = quad_tree.predict(test_set_point[ind])
-        err += abs(pre - test_set_point[ind].index)
-        if err != 0:
-            flag = 1
-            pos = pre
-            off = 1
-            while pos != test_set_point[ind].index:
-                pos += flag * off
-                flag = -flag
-                off += 1
-    end_time = time.time()
-    search_time = (end_time - start_time) / len(test_set_point)
-    print("Search time ", search_time)
-    mean_error = err * 1.0 / len(test_set_point)
-    print("mean error = ", mean_error)
-    print("*************end QuadTree************")
-
-
 if __name__ == '__main__':
     os.chdir('D:\\Code\\Paper\\st-learned-index')
     path = 'data/test_x_y_index.csv'
     # create_data(path)
-    create_data_and_search()
-    # read_data_and_search(path)
+    # create_data_and_search()
+    index = QuadTree()
+    read_data_and_search(path, index)

@@ -3,7 +3,7 @@ import random
 
 from rtree import index
 
-from src.common_utils import Point
+from src.common_utils import Point, read_data_and_search
 from src.index import Index
 
 
@@ -44,5 +44,6 @@ if __name__ == '__main__':
     os.chdir('D:\\Code\\Paper\\st-learned-index')
     path = 'data/test_x_y_index.csv'
     # create_data(path)
-    create_data_and_search()
-    # read_data_and_search(path)
+    # create_data_and_search()
+    index = RTree()
+    read_data_and_search(path, index)
