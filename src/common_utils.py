@@ -75,16 +75,7 @@ def read_data_and_search(path, index):
     print("Calculate error")
     start_time = time.time()
     for ind in range(len(test_set_point)):
-        pre = index.predict(test_set_point[ind])
-        err += abs(pre - test_set_point[ind].index)
-        if err != 0:
-            flag = 1
-            pos = pre
-            off = 1
-            while pos != test_set_point[ind].index:
-                pos += flag * off
-                flag = -flag
-                off += 1
+        err += index.predict(test_set_point[ind])
     end_time = time.time()
     search_time = (end_time - start_time) / len(test_set_point)
     print("Search time ", search_time)

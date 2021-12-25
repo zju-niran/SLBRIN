@@ -10,7 +10,7 @@ class Index:
         return
 
     def predict(self, point):
-        return self.search(point)
+        return 0
 
     def search(self, point):
         return []
