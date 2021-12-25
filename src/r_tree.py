@@ -22,27 +22,11 @@ class RTree(Index):
         return search_result_list[0] if len(search_result_list) != 0 else -1
 
     def delete(self, point):
-        return self.index.delete(point.index, (point.lng, point.lat))
-
-
-def create_data_and_search():
-    r_tree = RTree()
-    lat, lng, index = 0, 0, 0
-    for i in range(101):
-        lng = random.uniform(-180, 180)
-        lat = random.uniform(-90, 90)
-        index += 1
-        r_tree.insert(Point(lng, lat, index))
-    test_point = Point(lng, lat)
-    search_index = r_tree.search(test_point)
-    print("{0} is found in {1}".format(test_point, search_index))
-    delete_index = r_tree.delete(test_point)
-    print("{0} is deleted in {1}".format(test_point, delete_index))
+        self.index.delete(point.index, (point.lng, point.lat))
 
 
 if __name__ == '__main__':
     os.chdir('D:\\Code\\Paper\\st-learned-index')
     path = 'data/test_x_y_index.csv'
-    # create_data_and_search()
     index = RTree()
     read_data_and_search(path, index)

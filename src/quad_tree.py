@@ -172,25 +172,9 @@ class QuadTree(Index):
                 return self.search(point, node.LB)
 
 
-def create_data_and_search():
-    root_region = Region(-90, 90, -180, 180)
-    quad_tree = QuadTree(region=root_region)
-    lat, lng, index = 0, 0, 0
-    for i in range(101):
-        lng = random.uniform(-180, 180)
-        lat = random.uniform(-90, 90)
-        index += 1
-        quad_tree.insert(Point(lng, lat, index))
-    test_point = Point(lng, lat)
-    search_index = quad_tree.search(test_point)
-    print("{0} is found in {1}".format(test_point, search_index))
-    delete_index, _ = quad_tree.delete(test_point)
-    print("{0} is deleted in {1}".format(test_point, delete_index))
-
 
 if __name__ == '__main__':
     os.chdir('D:\\Code\\Paper\\st-learned-index')
     path = 'data/test_x_y_index.csv'
-    # create_data_and_search()
     index = QuadTree()
     read_data_and_search(path, index)
