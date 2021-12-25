@@ -1,8 +1,7 @@
-import csv
 import os
 import random
 
-from src.common_utils import Point, read_data_and_search
+from src.common_utils import Point, read_data_and_search, Region
 # settings
 from src.index import Index
 
@@ -12,14 +11,6 @@ QUADRANT_RU = 1
 QUADRANT_LU = 2
 QUADRANT_LB = 3
 QUADRANT_RB = 4
-
-
-class Region:
-    def __init__(self, bottom, up, left, right):
-        self.up = up
-        self.bottom = bottom
-        self.left = left
-        self.right = right
 
 
 class QuadTreeNode:
@@ -197,21 +188,9 @@ def create_data_and_search():
     print("{0} is deleted in {1}".format(test_point, delete_index))
 
 
-def create_data(path):
-    with open(path, 'w', newline='') as csv_file:
-        writer = csv.writer(csv_file)
-        index = 0
-        for i in range(100000):
-            lng = random.uniform(-180, 180)
-            lat = random.uniform(-90, 90)
-            index += 1
-            writer.writerow([lng, lat, index])
-
-
 if __name__ == '__main__':
     os.chdir('D:\\Code\\Paper\\st-learned-index')
     path = 'data/test_x_y_index.csv'
-    # create_data(path)
     # create_data_and_search()
     index = QuadTree()
     read_data_and_search(path, index)

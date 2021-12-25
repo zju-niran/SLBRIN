@@ -1,3 +1,5 @@
+import csv
+import random
 import time
 
 import pandas as pd
@@ -30,6 +32,28 @@ class Point:
             return False
 
 
+class Region:
+    def __init__(self, bottom, up, left, right):
+        self.bottom = bottom
+        self.up = up
+        self.left = left
+        self.right = right
+
+    def contain(self, point):
+        return self.up >= point.lat >= self.bottom and self.right >= point.lng >= self.left
+
+
+def create_data(path):
+    with open(path, 'w', newline='') as csv_file:
+        writer = csv.writer(csv_file)
+        index = 0
+        for i in range(100000):
+            lng = random.uniform(-180, 180)
+            lat = random.uniform(-90, 90)
+            index += 1
+            writer.writerow([index, lng, lat])
+
+
 def read_data_and_search(path, index):
     index_name = index.name
     data = pd.read_csv(path, header=None)
@@ -37,7 +61,7 @@ def read_data_and_search(path, index):
     test_set_point = []
     test_ratio = 0.5  # 测试集占总数据集的比例
     for i in range(int(data.shape[0])):
-        train_set_point.append(Point(data.iloc[i, 0], data.iloc[i, 1], data.iloc[i, 2]))
+        train_set_point.append(Point(data.iloc[i, 1], data.iloc[i, 2], data.iloc[i, 0]))
     test_set_point = train_set_point[:int(len(train_set_point) * test_ratio)]
 
     print("*************start %s************" % index_name)

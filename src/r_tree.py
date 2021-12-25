@@ -43,7 +43,6 @@ def create_data_and_search():
 if __name__ == '__main__':
     os.chdir('D:\\Code\\Paper\\st-learned-index')
     path = 'data/test_x_y_index.csv'
-    # create_data(path)
     # create_data_and_search()
     index = RTree()
     read_data_and_search(path, index)
