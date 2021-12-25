@@ -7,10 +7,13 @@ class Index:
             self.insert(point)
 
     def insert(self, point):
-        return None
+        return
 
     def predict(self, point):
         return self.search(point)
 
     def search(self, point):
-        return None
+        return []
+
+    def delete(self, point):
+        return

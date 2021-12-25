@@ -1,9 +1,8 @@
 import os
-import random
 
 from rtree import index
 
-from src.common_utils import Point, read_data_and_search
+from src.common_utils import read_data_and_search
 from src.index import Index
 
 
@@ -18,8 +17,7 @@ class RTree(Index):
 
     def search(self, point):
         search_result = self.index.intersection((point.lng, point.lat))
-        search_result_list = list(search_result)
-        return search_result_list[0] if len(search_result_list) != 0 else -1
+        return list(search_result)
 
     def delete(self, point):
         self.index.delete(point.index, (point.lng, point.lat))

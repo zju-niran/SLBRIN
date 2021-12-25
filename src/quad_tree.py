@@ -1,7 +1,6 @@
 import os
-import random
 
-from src.common_utils import Point, read_data_and_search, Region
+from src.common_utils import read_data_and_search, Region
 # settings
 from src.index import Index
 
@@ -109,30 +108,28 @@ class QuadTree(Index):
             node = self.root_node
         if node.is_leaf == 1:
             for i in range(len(node.items)):
-                if node.items[i] == point:
-                    delete_index = node.items[i].index
+                if node.items[i] == point and node.items[i].index == point.index:
                     combine_flag = True
                     del node.items[i]
-                    return delete_index, combine_flag
-            return -1, combine_flag
+            return combine_flag
         else:
             y_center = (node.region.up + node.region.bottom) / 2
             x_center = (node.region.left + node.region.right) / 2
             if point.lat > y_center:
                 if point.lng > x_center:
-                    delete_index, combine_flag = self.delete(point, node.RU)
+                    combine_flag = self.delete(point, node.RU)
                 else:
-                    delete_index, combine_flag = self.delete(point, node.LU)
+                    combine_flag = self.delete(point, node.LU)
             else:
                 if point.lng > x_center:
-                    delete_index, combine_flag = self.delete(point, node.RB)
+                    combine_flag = self.delete(point, node.RB)
                 else:
-                    delete_index, combine_flag = self.delete(point, node.LB)
+                    combine_flag = self.delete(point, node.LB)
             if combine_flag:
                 if (len(node.RU.items) + len(node.LU.items) + len(node.RB.items) + len(node.LB.items)) <= self.max_num:
                     self.combine_node(node)
                     combine_flag = False
-            return delete_index, combine_flag
+            return combine_flag
 
     def combine_node(self, node):
         """
@@ -152,11 +149,12 @@ class QuadTree(Index):
             node = self.root_node
         # 节点内部查找：遍历
         if node.is_leaf == 1:
+            search_result = []
             for item in node.items:
                 if item == point:
                     # if point.near(item):
-                    return item.index
-            return -1
+                    search_result.append(item.index)
+            return search_result
 
         y_center = (node.region.up + node.region.bottom) / 2
         x_center = (node.region.left + node.region.right) / 2
