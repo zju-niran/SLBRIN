@@ -188,7 +188,7 @@ class QuadTree(Index):
 
 
 if __name__ == '__main__':
-    os.chdir('D:\\Code\\Paper\\st-learned-index')
+    os.chdir('/')
     path = 'data/test_x_y_index.csv'
     index = QuadTree()
     read_data_and_search(path, index)

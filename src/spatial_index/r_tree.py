@@ -41,7 +41,7 @@ class RTree(Index):
 
 
 if __name__ == '__main__':
-    os.chdir('D:\\Code\\Paper\\st-learned-index')
+    os.chdir('/')
     path = 'data/test_x_y_index.csv'
     index = RTree()
     read_data_and_search(path, index)
