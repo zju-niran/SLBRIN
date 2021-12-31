@@ -1,11 +1,19 @@
 # Main file for storage optimization
 
-import pandas as pd
+import csv
+import gc
+import getopt
+import json
+import math
+import sys
+import time
+
 import numpy as np
-from src.rmi import TrainedNN, ParameterPool, set_data_type, AbstractNN
-from src.b_tree import BTree
+import pandas as pd
+
 from data.create_data import create_data_storage, Distribution
-import time, json, math, getopt, sys, gc, csv
+from src.b_tree import BTree
+from src.rmi import TrainedNN, ParameterPool, set_data_type, AbstractNN
 
 # setting
 STORE_NUMBER = 100000
@@ -51,6 +59,7 @@ useThresholdPool = {
     Distribution.EXPONENTIAL: [True, False],
 }
 
+
 # binary search for data segment
 def part_binary_search(data_list, pos_list, key):
     start = 0
@@ -69,6 +78,7 @@ def part_binary_search(data_list, pos_list, key):
     else:
         return mid
 
+
 # binary search for position in data segment
 def pos_binary_search(data_list, key):
     start = 0
@@ -86,6 +96,7 @@ def pos_binary_search(data_list, key):
         return mid - 1
     else:
         return mid
+
 
 # function for train index
 def hybrid_training(threshold, use_threshold, stage_nums, core_nums, train_step_nums, batch_size_nums,
@@ -114,9 +125,10 @@ def hybrid_training(threshold, use_threshold, stage_nums, core_nums, train_step_
             else:
                 labels = tmp_labels[i][j]
                 test_labels = test_data_y
-            tmp_index = TrainedNN(threshold[i], use_threshold[i], core_nums[i], train_step_nums[i], batch_size_nums[i],
+            tmp_index = TrainedNN(inputs, labels,
+                                  threshold[i], use_threshold[i], core_nums[i], train_step_nums[i], batch_size_nums[i],
                                   learning_rate_nums[i],
-                                  keep_ratio_nums[i], inputs, labels, test_inputs, test_labels)
+                                  keep_ratio_nums[i])
             tmp_index.train()
             index[i][j] = AbstractNN(tmp_index.get_weights(), tmp_index.get_bias(), core_nums[i], tmp_index.cal_err())
             del tmp_index
@@ -138,6 +150,7 @@ def hybrid_training(threshold, use_threshold, stage_nums, core_nums, train_step_
             index[stage_length - 1][i] = BTree(2)
             index[stage_length - 1][i].build(tmp_inputs[stage_length - 1][i], tmp_labels[stage_length - 1][i])
     return index
+
 
 # calculate data distribution
 def learn_density(threshold, use_threshold, distribution, train_set_x, train_set_y, test_set_x, test_set_y):
@@ -174,8 +187,10 @@ def learn_density(threshold, use_threshold, distribution, train_set_x, train_set
 
     return trained_index
 
+
 # main function for storage optimization
-def optimize_storage(do_compare, do_record, threshold, use_threshold, data_part_distance, learning_percent, distribution):
+def optimize_storage(do_compare, do_record, threshold, use_threshold, data_part_distance, learning_percent,
+                     distribution):
     store_path = storePath[distribution]
     to_store_path = toStorePath[distribution]
 
@@ -219,7 +234,7 @@ def optimize_storage(do_compare, do_record, threshold, use_threshold, data_part_
                 pre1 = stage_size - 1
             pre2 = trained_index[1][pre1].predict(pre_data)
             if pre2 > store_block_num:
-                pre2 = store_block_num            
+                pre2 = store_block_num
             if pre2 <= last_pre:
                 continue
             if pre2 >= store_block_num - 1:
@@ -245,12 +260,12 @@ def optimize_storage(do_compare, do_record, threshold, use_threshold, data_part_
         # move data to new position
         for i in range(data_part_num, 0, -1):
             block_pos -= int(round(data_density[i - 1] * total_data_num))
-            if block_pos <= 0:                
-                data_optimization_pos.insert(0, 0)                
+            if block_pos <= 0:
+                data_optimization_pos.insert(0, 0)
                 data_free_pos.insert(0, data_density_pos[i])
                 break
             # record first data position in every data segment
-            data_optimization_pos.insert(0, block_pos)            
+            data_optimization_pos.insert(0, block_pos)
             # move data to new position
             store_data[block_pos: block_pos + data_density_pos[i] - data_density_pos[i - 1]] = \
                 store_data[data_density_pos[i - 1]:data_density_pos[i]]
@@ -259,7 +274,7 @@ def optimize_storage(do_compare, do_record, threshold, use_threshold, data_part_
                 store_data[data_density_pos[i - 1]:block_pos] = [-1] * (block_pos - data_density_pos[i - 1])
             else:
                 store_data[data_density_pos[i - 1]:data_density_pos[i]] = [-1] * (
-                        data_density_pos[i] - data_density_pos[i - 1])
+                    data_density_pos[i] - data_density_pos[i - 1])
             # record first free position (for insertion) in every data segment
             data_free_pos.insert(0, block_pos + data_density_pos[i] - data_density_pos[i - 1])
         end_time = time.time()
@@ -282,7 +297,7 @@ def optimize_storage(do_compare, do_record, threshold, use_threshold, data_part_
         move_steps = len(train_set_x)
         # test optimization
         print("************With Optimization**************")
-        start_time = time.time()        
+        start_time = time.time()
         for i in range(to_store_data.shape[0]):
             pre_data = to_store_data.iloc[i, 0]
             # calculate isertion position
@@ -313,7 +328,7 @@ def optimize_storage(do_compare, do_record, threshold, use_threshold, data_part_
                    "Average Optimizing Time": average_optimize_time, "Average Insert Time": average_insert_time,
                    "Mean Density": mean_density, "Density Standard Deviation": std_deviation}]
         with open("store_performance/" + pathString[distribution] + "/optimization/" + str(
-                data_part_distance) + "_" + str(learning_percent) + ".json", "w") as jsonFile:
+            data_part_distance) + "_" + str(learning_percent) + ".json", "w") as jsonFile:
             json.dump(result, jsonFile)
 
         if do_record:
@@ -347,6 +362,7 @@ def optimize_storage(do_compare, do_record, threshold, use_threshold, data_part_
                   + str(learning_percent) + ".json", "w") as jsonFile:
             json.dump(result, jsonFile)
 
+
 # help message
 def show_help_message(msg):
     help_message = {
@@ -369,6 +385,7 @@ def show_help_message(msg):
     else:
         print(help_message['command'])
         print('Error! ' + help_message[msg])
+
 
 # command line
 def main(argv):
@@ -433,7 +450,7 @@ def main(argv):
                 show_help_message('noDistributionError')
                 return
             do_create = not (int(arg) == 0)
-        
+
         elif opt == '-r':
             if not is_distribution:
                 show_help_message('noDistributionError')
