@@ -1,6 +1,7 @@
 import csv
 import random
 import time
+from math import log10
 
 import morton
 import pandas as pd
@@ -94,9 +95,18 @@ def create_data_z(input_path, output_path, lng_col, lat_col):
     df = pd.read_csv(input_path, header=None)
     z_order = ZOrder()
     z_values = []
+    z_values_normalization = []
     for i in range(df.count()[0]):
-        z_values.append(z_order.point_to_z(df[lng_col][i], df[lat_col][i]))
+        z_value = z_order.point_to_z(df[lng_col][i], df[lat_col][i])
+        z_values.append(z_value)
+    # z归一化
+    min_z_value = min(z_values)
+    max_z_value = max(z_values)
+    for i in range(df.count()[0]):
+        z_value_normalization = (z_values[i] - min_z_value) / (max_z_value - min_z_value)
+        z_values_normalization.append(z_value_normalization)
     df["z_value"] = z_values
+    df["z_value_normalization"] = z_values_normalization
     df = df.rename(columns={lng_col: "lng", lat_col: "lat"})
     df = df.sort_values(['z_value'], ascending=[True])
     df = df.reset_index()
@@ -108,7 +118,6 @@ def read_data_and_search(path, index, lng_col, lat_col, z_col, index_col):
     index_name = index.name
     data = pd.read_csv(path)
     train_set_point = []
-    test_set_point = []
     test_ratio = 0.5  # 测试集占总数据集的比例
     if lng_col and lat_col:
         for i in range(int(data.shape[0])):

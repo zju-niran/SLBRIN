@@ -2,7 +2,7 @@ import os
 
 from rtree import index
 
-from src.common_utils import read_data_and_search
+from src.spatial_index.common_utils import read_data_and_search
 from src.index import Index
 
 
@@ -41,7 +41,7 @@ class RTree(Index):
 
 
 if __name__ == '__main__':
-    os.chdir('/')
-    path = 'data/test_x_y_index.csv'
+    os.chdir(os.path.dirname(os.path.realpath(__file__)))
+    path = '../../data/test_x_y_index.csv'
     index = RTree()
-    read_data_and_search(path, index)
+    read_data_and_search(path, index, 1, 2, None, 0)
