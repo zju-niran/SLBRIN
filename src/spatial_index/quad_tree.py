@@ -1,6 +1,9 @@
 import os
+import time
 
-from src.common_utils import read_data_and_search, Region
+import pandas as pd
+
+from src.spatial_index.common_utils import Region, Point, Geohash
 # settings
 from src.index import Index
 
@@ -33,6 +36,8 @@ class QuadTree(Index):
         super(QuadTree, self).__init__("QuadTree")
         self.max_num = max_num
         self.root_node = QuadTreeNode(region=region)
+        self.leaf_list = []
+        self.node_geohash = None
 
     def insert(self, point, node=None):
         """
@@ -186,9 +191,46 @@ class QuadTree(Index):
                 err += abs(pre - point.index)
         return err
 
+    def geohash(self, node=None, parent_geohash=None):
+        if node is None:
+            node = self.root_node
+        if parent_geohash is None:
+            parent_geohash = ""
+        # 节点内部查找：遍历
+        if node.is_leaf == 1:
+            self.leaf_list.append(parent_geohash)
+            node.geohash = parent_geohash
+            return
+        else:
+            self.geohash(node.LB, parent_geohash + "00")
+            self.geohash(node.LU, parent_geohash + "01")
+            self.geohash(node.RB, parent_geohash + "10")
+            self.geohash(node.RU, parent_geohash + "11")
+
 
 if __name__ == '__main__':
-    os.chdir('/')
-    path = 'data/test_x_y_index.csv'
+    os.chdir(os.path.dirname(os.path.realpath(__file__)))
+    path = '../../data/test_x_y_index.csv'
     index = QuadTree()
-    read_data_and_search(path, index)
+    # read_data_and_search(path, index, 1, 2, None, 0)
+    data = pd.read_csv(path, header=None)
+    train_set_point = []
+    for i in range(int(data.shape[0])):
+        geohash = Geohash()
+        geohash_value = geohash.encode(data.iloc[i, 1], data.iloc[i, 2], 24)
+        train_set_point.append(Point(data.iloc[i, 1], data.iloc[i, 2], geohash_value, data.iloc[i, 0]))
+    index.build(train_set_point)
+    index.geohash()
+    geohash_list = index.leaf_list
+    geohash_max_length = max([len(geohash_list_member) for geohash_list_member in geohash_list])
+    test_ratio = 0.5  # 测试集占总数据集的比例
+    test_set_point = train_set_point[:int(len(train_set_point) * test_ratio)]
+    err = 0
+    start_time = time.time()
+    for ind in range(len(test_set_point)):
+        err += index.predict(test_set_point[ind])
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(test_set_point)
+    print("Search time ", search_time)
+    mean_error = err * 1.0 / len(test_set_point)
+    print("mean error = ", mean_error)

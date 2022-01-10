@@ -70,6 +70,130 @@ class ZOrder:
         return self.morton.pack(lng_zoom, lat_zoom)
 
 
+class Geohash:
+    """
+    source code from https://github.com/vinsci/geohash
+    modified: change geohash code into 2 bit encode
+    """
+
+    def decode_exactly(self, geohash):
+        """
+        Decode the geohash to its exact values, including the error
+        margins of the result.  Returns four float values: latitude,
+        longitude, the plus/minus error for latitude (as a positive
+        number) and the plus/minus error for longitude (as a positive
+        number).
+        """
+        lat_interval, lon_interval = (-90.0, 90.0), (-180.0, 180.0)
+        lat_err, lon_err = 90.0, 180.0
+        is_even = True
+        for c in geohash:
+            if is_even:  # adds longitude info
+                lon_err /= 2
+                if c == "1":
+                    lon_interval = ((lon_interval[0] + lon_interval[1]) / 2, lon_interval[1])
+                else:
+                    lon_interval = (lon_interval[0], (lon_interval[0] + lon_interval[1]) / 2)
+            else:  # adds latitude info
+                lat_err /= 2
+                if c == "1":
+                    lat_interval = ((lat_interval[0] + lat_interval[1]) / 2, lat_interval[1])
+                else:
+                    lat_interval = (lat_interval[0], (lat_interval[0] + lat_interval[1]) / 2)
+            is_even = not is_even
+        lat = (lat_interval[0] + lat_interval[1]) / 2
+        lon = (lon_interval[0] + lon_interval[1]) / 2
+        return lat, lon, lat_err, lon_err
+
+    def decode(self, geohash):
+        """
+        Decode geohash, returning two strings with latitude and longitude
+        containing only relevant digits and with trailing zeroes removed.
+        """
+        lat, lon, lat_err, lon_err = self.decode_exactly(geohash)
+        # Format to the number of decimals that are known
+        lats = "%.*f" % (max(1, int(round(-log10(lat_err)))) - 1, lat)
+        lons = "%.*f" % (max(1, int(round(-log10(lon_err)))) - 1, lon)
+        if '.' in lats: lats = lats.rstrip('0')
+        if '.' in lons: lons = lons.rstrip('0')
+        return lons, lats
+
+    def encode(self, longitude, latitude, precision=12):
+        """
+        Encode a position given in float arguments latitude, longitude to
+        a geohash which will have the character count precision.
+        """
+        lat_interval, lon_interval = (-90.0, 90.0), (-180.0, 180.0)
+        geohash = []
+        even = True
+        while len(geohash) < precision:
+            if even:  # 本来是经度放偶数位，形成经度维度经度维度，但是下面是从左往右下的，所以先写经度
+                mid = (lon_interval[0] + lon_interval[1]) / 2
+                if longitude > mid:
+                    geohash += "1"
+                    lon_interval = (mid, lon_interval[1])
+                else:
+                    geohash += "0"
+                    lon_interval = (lon_interval[0], mid)
+            else:
+                mid = (lat_interval[0] + lat_interval[1]) / 2
+                if latitude > mid:
+                    geohash += "1"
+                    lat_interval = (mid, lat_interval[1])
+                else:
+                    geohash += "0"
+                    lat_interval = (lat_interval[0], mid)
+            even = not even
+        return ''.join(geohash)
+
+    @staticmethod
+    def compare_with_python_geohash():
+        """
+        对比python-geohash和geohash的encode性能
+        Python-Geohash create time  2.742764949798584e-06
+        My geohash create time  1.8420519828796385e-05
+        """
+        import os
+        os.chdir(os.path.dirname(os.path.realpath(__file__)))
+        path = '../../data/test_x_y_index.csv'
+        data = pd.read_csv(path, header=None)
+        train_set_point = []
+        for i in range(int(data.shape[0])):
+            train_set_point.append(Point(data.iloc[i, 1], data.iloc[i, 2], None, data.iloc[i, 0]))
+        # python geohash
+        import geohash as pygeohash
+        _base32 = '0123456789bcdefghjkmnpqrstuvwxyz'
+        _base32_map = {}
+        for i in range(len(_base32)):
+            _base32_map[_base32[i]] = i
+        del i
+        start_time = time.time()
+        for ind in range(len(train_set_point)):
+            hashcode = pygeohash.encode(train_set_point[ind].lat, train_set_point[ind].lng, precision=5)
+        end_time = time.time()
+        search_time = (end_time - start_time) / len(train_set_point)
+        print("Python-Geohash create time ", search_time)
+        # my geohash
+        start_time = time.time()
+        for ind in range(len(train_set_point)):
+            hashcode = Geohash().encode(train_set_point[ind].lng, train_set_point[ind].lat, precision=25)
+        end_time = time.time()
+        search_time = (end_time - start_time) / len(train_set_point)
+        print("My geohash create time ", search_time)
+
+    @staticmethod
+    def test_python_geohash():
+        import geohash
+        longitude = -5.6
+        latitude = 42.6
+        hashcode = geohash.encode(latitude, longitude, precision=5)
+        latitude, longitude = geohash.decode(hashcode, delta=False)  # 解码, 返回中间坐标
+        latitude, longitude, latitude_delta, longitude_delta = geohash.decode(hashcode, delta=True)  # 解码，返回中间坐标和半径
+        bbox_dict = geohash.bbox(hashcode)  # 边界经纬度，返回四至坐标
+        nergnbors_list = geohash.neighbors(hashcode)  # 8个近邻编码
+        b = geohash.expand(hashcode)  # 拓展编码 = 8个近邻编码和自己
+
+
 def create_data(path):
     with open(path, 'w', newline='') as csv_file:
         writer = csv.writer(csv_file)
@@ -145,3 +269,10 @@ def read_data_and_search(path, index, lng_col, lat_col, z_col, index_col):
     mean_error = err * 1.0 / len(test_set_point)
     print("mean error = ", mean_error)
     print("*************end %s************" % index_name)
+
+
+if __name__ == '__main__':
+    geohash = Geohash()
+    print(geohash.encode(-5.6, 42.6, precision=25))
+    print(geohash.decode('0110111111110000010000010'))
+    geohash.compare_with_python_geohash()
