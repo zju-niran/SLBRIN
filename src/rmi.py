@@ -163,18 +163,19 @@ class TrainedNN:
                 err = self.sess.run(self.loss, feed_dict={self.h_fc_drop[0]: np.array([self.train_x]).T,
                                                           self.y_: np.array([self.train_y]).T,
                                                           self.keep_prob: 1.0})
-            print("loss: %f" % err)
-            if step == 0:
+                print("step: %d loss: %f" % (step, err))
+                if step == 0:
+                    last_err = err
+                # use threhold to stop train
+                if self.use_threshold:
+                    if err < self.threshold_nums:
+                        return
+                # not use threshold, stop when error stop decreasing
+                elif err > last_err:
+                    err_count += 1
+                    if err_count == 10:
+                        return
                 last_err = err
-            # use threhold to stop train
-            if self.use_threshold:
-                if err < self.threshold_nums:
-                    return
-            # not use threshold, stop when error stop decreasing
-            elif err > last_err:
-                err_count += 1
-                if err_count == 10:
-                    return
             self.next_batch()
 
     # calculate mean error
