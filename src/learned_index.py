@@ -86,8 +86,8 @@ def hybrid_training(threshold, use_threshold, stage_nums, core_nums, train_step_
             else:
                 labels = tmp_labels[i][j]
                 test_labels = test_data_y
-                # train model
             tmp_index = TrainedNN(inputs, labels, threshold[i], use_threshold[i], core_nums[i], train_step_nums[i],
+            # train model
                                   batch_size_nums[i], learning_rate_nums[i], keep_ratio_nums[i])
             tmp_index.train()
             # get parameters in model (weight matrix and bias matrix)
@@ -203,7 +203,8 @@ def train_index(threshold, use_threshold, distribution, path):
                 for ni in node.items:
                     if ni is None:
                         continue
-                    item = {"key": ni.k, "value": ni.v} # TODO: 如果报错TypeError: Object of type int64 is not JSON serializable， 就加个int强制转换
+                    item = {"key": ni.k,
+                            "value": ni.v}  # TODO: 如果报错TypeError: Object of type int64 is not JSON serializable， 就加个int强制转换
                 tmp = {"index": node.index, "isLeaf": node.isLeaf, "children": node.children, "items": item,
                        "numberOfkeys": node.numberOfKeys}
                 tmp_result.append(tmp)

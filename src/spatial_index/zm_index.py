@@ -28,7 +28,7 @@ class ZMIndex(Index):
         train_labels = [[[] for i in range(self.stages[i])] for i in range(stage_length)]
         index = [[None for i in range(self.stages[i])] for i in range(stage_length)]
         train_inputs[0][0] = [point.z for point in points]
-        train_labels[0][0] = [point.index/self.block_size for point in points]
+        train_labels[0][0] = [point.index for point in points]
         # 构建stage_nums结构的树状NNs
         for i in range(0, stage_length):
             for j in range(0, self.stages[i]):

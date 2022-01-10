@@ -240,7 +240,7 @@ def create_data_z(input_path, output_path, lng_col, lat_col):
 
 def read_data_and_search(path, index, lng_col, lat_col, z_col, index_col):
     index_name = index.name
-    data = pd.read_csv(path)
+    data = pd.read_csv(path, header=None)
     train_set_point = []
     test_ratio = 0.5  # 测试集占总数据集的比例
     if lng_col and lat_col:
