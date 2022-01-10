@@ -2,7 +2,7 @@ import gc
 import os
 
 from src.b_tree import BTree
-from src.common_utils import read_data_and_search
+from src.spatial_index.common_utils import read_data_and_search
 from src.index import Index
 from src.rmi import TrainedNN, AbstractNN
 
@@ -13,13 +13,13 @@ class ZMIndex(Index):
         self.block_size = 100
         self.total_number = 200000
         self.use_thresholds = [True, False]
-        self.thresholds = [1, 4]
-        self.stages = [1, 10]
-        self.cores = [[1, 1], [1, 1]]
-        self.train_steps = [20000, 20000]
+        self.thresholds = [5, 1000]
+        self.stages = [1, 100]
+        self.cores = [[1, 8, 8, 8, 1], [1, 16, 16, 16, 1]]
+        self.train_steps = [2000000, 20000]
         self.batch_sizes = [50, 50]
-        self.learning_rates = [0.0001, 0.0001]
-        self.keep_ratios = [1.0, 1.0]
+        self.learning_rates = [0.00001, 0.0001]
+        self.keep_ratios = [0.9, 1.0]
         self.index = None
 
     def build(self, points):
@@ -28,7 +28,7 @@ class ZMIndex(Index):
         train_labels = [[[] for i in range(self.stages[i])] for i in range(stage_length)]
         index = [[None for i in range(self.stages[i])] for i in range(stage_length)]
         train_inputs[0][0] = [point.z for point in points]
-        train_labels[0][0] = [point.index for point in points]
+        train_labels[0][0] = [point.index/self.block_size for point in points]
         # 构建stage_nums结构的树状NNs
         for i in range(0, stage_length):
             for j in range(0, self.stages[i]):
@@ -92,8 +92,7 @@ class ZMIndex(Index):
 
 
 if __name__ == '__main__':
-    os.chdir('/')
-    path = 'data/test_x_y_index.csv'
+    os.chdir(os.path.dirname(os.path.realpath(__file__)))
+    path = '../../data/trip_data_2_100000_random_z.csv'
     index = ZMIndex()
-    read_data_and_search(path, index)
-    # TODO: z order logic
+    read_data_and_search(path, index, None, None, 7, 0)

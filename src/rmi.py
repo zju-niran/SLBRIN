@@ -142,10 +142,10 @@ class TrainedNN:
         for i in range(len(self.core_nums) - 1):
             self.h_fc[i] = tf.nn.relu(tf.matmul(self.h_fc_drop[i], self.w_fc[i]) + self.b_fc[i])
             self.h_fc_drop[i + 1] = tf.nn.dropout(self.h_fc[i], self.keep_prob)
-        self.cross_entropy = tf.reduce_mean(tf.losses.mean_squared_error(self.y_, self.h_fc[len(self.core_nums) - 2]))
-        self.train_step = tf.train.AdamOptimizer(self.learning_rate).minimize(self.cross_entropy)
-        # 定义损失函数
+        # 定义损失函数，reduce_mean了两边的感觉
+        self.loss = tf.reduce_mean(tf.losses.mean_squared_error(self.y_, self.h_fc[len(self.core_nums) - 2]))
         # 梯度下降最小化损失函数
+        self.train_step = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.loss)
         # 全局变量初始化
         self.sess.run(tf.global_variables_initializer())
         # 输出网络结构
@@ -159,7 +159,7 @@ class TrainedNN:
                                      self.y_: self.batch_y,
                                      self.keep_prob: self.keep_ratio})
             # check every 100 steps
-            if step % 100 == 0:
+            if step % 1000 == 0:
                 err = self.sess.run(self.loss, feed_dict={self.h_fc_drop[0]: np.array([self.train_x]).T,
                                                           self.y_: np.array([self.train_y]).T,
                                                           self.keep_prob: 1.0})

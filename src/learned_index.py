@@ -77,6 +77,7 @@ def hybrid_training(threshold, use_threshold, stage_nums, core_nums, train_step_
             # 非叶子结点决定下一层要用的NN是哪个
             if i == 0:
                 # first stage, calculate how many models in next stage
+                # TODO: 根据数据量的均匀划分，导致z曲线数据的rmi收敛不了
                 divisor = stage_nums[i + 1] * 1.0 / (TOTAL_NUMBER / BLOCK_SIZE)
                 for k in tmp_labels[i][j]:
                     labels.append(int(k * divisor))
@@ -140,7 +141,7 @@ def train_index(threshold, use_threshold, distribution, path):
         return
     stage_set = parameter.stage_set
     # set number of models for second stage (1 model deal with 10000 records)
-    stage_set[1] = int(round(data.shape[0] / 10000))
+    # stage_set[1] = int(round(data.shape[0] / 10000))
     core_set = parameter.core_set
     train_step_set = parameter.train_step_set
     batch_size_set = parameter.batch_size_set
@@ -202,7 +203,7 @@ def train_index(threshold, use_threshold, distribution, path):
                 for ni in node.items:
                     if ni is None:
                         continue
-                    item = {"key": ni.k, "value": ni.v}
+                    item = {"key": ni.k, "value": ni.v} # TODO: 如果报错TypeError: Object of type int64 is not JSON serializable， 就加个int强制转换
                 tmp = {"index": node.index, "isLeaf": node.isLeaf, "children": node.children, "items": item,
                        "numberOfkeys": node.numberOfKeys}
                 tmp_result.append(tmp)
