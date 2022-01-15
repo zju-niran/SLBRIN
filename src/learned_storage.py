@@ -13,7 +13,7 @@ import pandas as pd
 
 from data.create_data import create_data_storage, Distribution
 from src.b_tree import BTree
-from src.rmi import TrainedNN, ParameterPool, set_data_type, AbstractNN
+from src.rmi_tensorflow import TrainedNN, ParameterPool, set_data_type, AbstractNN
 
 # setting
 STORE_NUMBER = 100000

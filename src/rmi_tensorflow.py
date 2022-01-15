@@ -97,10 +97,12 @@ class AbstractNN:
 
 # Netural Network Model
 class TrainedNN:
-    def __init__(self, train_x, train_y, threshold, use_threshold, cores, train_step_num, batch_size, learning_rate,
+    def __init__(self, model_path, train_x, train_y, threshold, use_threshold, cores, train_step_num, batch_size,
+                 learning_rate,
                  keep_ratio):
         if cores is None:
             cores = []
+        self.model_path = model_path
         self.threshold_nums = threshold
         self.use_threshold = use_threshold
         self.core_nums = cores
@@ -110,7 +112,7 @@ class TrainedNN:
         self.keep_ratio = keep_ratio
         self.train_x = train_x
         self.train_y = train_y
-        self.sess = tf.Session()
+        self.sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=True))
         self.batch = 1
         self.batch_x = np.array([self.train_x[0:self.batch_size]]).T
         self.batch_y = np.array([self.train_y[0:self.batch_size]]).T
@@ -148,8 +150,14 @@ class TrainedNN:
         self.train_step = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.loss)
         # 全局变量初始化
         self.sess.run(tf.global_variables_initializer())
+        saver = tf.train.Saver()
+        # saver.restore(self.sess, savedir + "linear.cpkt-" + str(self.train_step_nums))
+        cpkt = tf.train.get_checkpoint_state(self.model_path)
+        if cpkt and cpkt.model_checkpoint_path:
+            saver.restore(self.sess, cpkt.model_checkpoint_path)
+
         # 输出网络结构
-        write = tf.summary.FileWriter("data/test.graph", self.sess.graph)
+        # write = tf.summary.FileWriter("data/test.graph", self.sess.graph)
 
         last_err = 0
         err_count = 0
@@ -166,7 +174,7 @@ class TrainedNN:
                 print("step: %d loss: %f" % (step, err))
                 if step == 0:
                     last_err = err
-                # use threhold to stop train
+                # use threshold to stop train
                 if self.use_threshold:
                     if err < self.threshold_nums:
                         return
@@ -175,7 +183,11 @@ class TrainedNN:
                     err_count += 1
                     if err_count == 10:
                         return
-                last_err = err
+                # loss下降就保存到checkpoint
+                if err < last_err:
+                    print("step: %d loss decrease" % step)
+                    saver.save(self.sess, self.model_path, global_step=step)
+                    last_err = err
             self.next_batch()
 
     # calculate mean error

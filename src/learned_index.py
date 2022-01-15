@@ -13,7 +13,7 @@ import pandas as pd
 
 from data.create_data import create_data, Distribution
 from src.b_tree import BTree
-from src.rmi import TrainedNN, ParameterPool, set_data_type, AbstractNN
+from src.rmi_tensorflow import TrainedNN, ParameterPool, set_data_type, AbstractNN
 
 # Setting
 BLOCK_SIZE = 100
@@ -86,8 +86,11 @@ def hybrid_training(threshold, use_threshold, stage_nums, core_nums, train_step_
             else:
                 labels = tmp_labels[i][j]
                 test_labels = test_data_y
-            tmp_index = TrainedNN(inputs, labels, threshold[i], use_threshold[i], core_nums[i], train_step_nums[i],
             # train model
+            model_path = "model_" + str(i) + "_" + str(j) + "/"
+            print("start train nn in stage: %d, %d" % (i, j))
+            tmp_index = TrainedNN(model_path, inputs, labels, threshold[i], use_threshold[i], core_nums[i],
+                                  train_step_nums[i],
                                   batch_size_nums[i], learning_rate_nums[i], keep_ratio_nums[i])
             tmp_index.train()
             # get parameters in model (weight matrix and bias matrix)
