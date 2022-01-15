@@ -4,6 +4,7 @@ import time
 from math import log10
 
 import morton
+import numpy
 import pandas as pd
 
 
@@ -235,6 +236,7 @@ def create_data_z(input_path, output_path, lng_col, lat_col):
     df = df.sort_values(['z_value'], ascending=[True])
     df = df.reset_index()
     df = df.drop(columns=["index"])
+    df["index"] = numpy.divide(numpy.array(range(df.count()[0])), 100)  # 100是block size
     df.to_csv(output_path, index_label="index", header=None)
 
 
