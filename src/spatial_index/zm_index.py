@@ -1,28 +1,34 @@
 import gc
 import os
+import sys
+import time
+
+import pandas as pd
 
 from src.spatial_index.spatial_index import SpatialIndex
+
+sys.path.append('D:/Code/Paper/st-learned-index')
 from src.b_tree import BTree
-from src.spatial_index.common_utils import read_data_and_search
-from src.rmi import TrainedNN, AbstractNN
+from src.rmi_keras import TrainedNN, AbstractNN
 
 
 class ZMIndex(SpatialIndex):
     def __init__(self):
         super(ZMIndex, self).__init__("ZM Index")
         self.block_size = 100
-        self.total_number = 200000
+        self.total_number = None
         self.use_thresholds = [True, False]
-        self.thresholds = [5, 1000]
+        self.thresholds = [0.4, 0.5]
         self.stages = [1, 100]
-        self.cores = [[1, 8, 8, 8, 1], [1, 16, 16, 16, 1]]
-        self.train_steps = [2000000, 20000]
-        self.batch_sizes = [50, 50]
-        self.learning_rates = [0.00001, 0.0001]
-        self.keep_ratios = [0.9, 1.0]
+        self.cores = [[1, 8, 8, 8, 1], [1, 8, 8, 8, 1]]
+        self.train_steps = [20000, 20000]
+        self.batch_sizes = [5000, 500]
+        self.learning_rates = [0.0001, 0.0001]
+        self.keep_ratios = [0.9, 0.9]
         self.index = None
 
     def build(self, points):
+        self.total_number = len(points)
         stage_length = len(self.stages)
         train_inputs = [[[] for i in range(self.stages[i])] for i in range(stage_length)]
         train_labels = [[[] for i in range(self.stages[i])] for i in range(stage_length)]
@@ -45,7 +51,9 @@ class ZMIndex(SpatialIndex):
                 else:
                     labels = train_labels[i][j]
                 # train model
-                tmp_index = TrainedNN(inputs, labels,
+                model_path = "model_0.0001_5000_adam_drop/" + str(i) + "_" + str(j) + "/"
+                print("start train nn in stage: %d, %d" % (i, j))
+                tmp_index = TrainedNN(model_path, inputs, labels,
                                       self.thresholds[i],
                                       self.use_thresholds[i],
                                       self.cores[i],
@@ -56,9 +64,9 @@ class ZMIndex(SpatialIndex):
                 tmp_index.train()
                 # get parameters in model (weight matrix and bias matrix)
                 index[i][j] = AbstractNN(tmp_index.get_weights(),
-                                         tmp_index.get_bias(),
                                          self.cores[i],
-                                         tmp_index.cal_err())
+                                         tmp_index.err,
+                                         tmp_index.threshold)
                 del tmp_index
                 gc.collect()
                 if i < stage_length - 1:
@@ -89,6 +97,22 @@ class ZMIndex(SpatialIndex):
         for i in range(0, stage_length):
             pre = self.index[i][pre].predict(point.z)
         return pre
+
+    def binary_search(self, nums, x):
+        """
+        nums: Sorted array from smallest to largest
+        x: Target number
+        """
+        left, right = 0, len(nums) - 1
+        while left <= right:
+            mid = (left + right) // 2
+            if nums[mid] == x:
+                return mid
+            if nums[mid] < x:
+                left = mid + 1
+            else:
+                right = mid - 1
+        return None
 
 
 if __name__ == '__main__':
