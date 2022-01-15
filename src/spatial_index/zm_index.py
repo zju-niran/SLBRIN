@@ -1,13 +1,13 @@
 import gc
 import os
 
+from src.spatial_index.spatial_index import SpatialIndex
 from src.b_tree import BTree
 from src.spatial_index.common_utils import read_data_and_search
-from src.index import Index
 from src.rmi import TrainedNN, AbstractNN
 
 
-class ZMIndex(Index):
+class ZMIndex(SpatialIndex):
     def __init__(self):
         super(ZMIndex, self).__init__("ZM Index")
         self.block_size = 100
