@@ -33,8 +33,8 @@ class ZMIndex(SpatialIndex):
         train_inputs = [[[] for i in range(self.stages[i])] for i in range(stage_length)]
         train_labels = [[[] for i in range(self.stages[i])] for i in range(stage_length)]
         index = [[None for i in range(self.stages[i])] for i in range(stage_length)]
-        train_inputs[0][0] = [point.z for point in points]
-        train_labels[0][0] = [point.index for point in points]
+        train_inputs[0][0] = points["z"].tolist()
+        train_labels[0][0] = points["index"].tolist()
         # 构建stage_nums结构的树状NNs
         for i in range(0, stage_length):
             for j in range(0, self.stages[i]):
@@ -71,32 +71,34 @@ class ZMIndex(SpatialIndex):
                 gc.collect()
                 if i < stage_length - 1:
                     # allocate data into training set for models in next stage
-                    for ind in range(len(train_inputs[i][j])):
-                        # pick model in next stage with output of this model
-                        p = index[i][j].predict(train_inputs[i][j][ind])
-                        if p > self.stages[i + 1] - 1:
-                            p = self.stages[i + 1] - 1
-                        train_inputs[i + 1][p].append(train_inputs[i][j][ind])
-                        train_labels[i + 1][p].append(train_labels[i][j][ind])
+                    pres = index[i][j].predict(train_inputs[i][j])
+                    pres[pres > self.stages[i + 1] - 1] = self.stages[i + 1] - 1
+                    for ind in range(len(pres)):
+                        train_inputs[i + 1][round(pres[ind])].append(train_inputs[i][j][ind])
+                        train_labels[i + 1][round(pres[ind])].append(train_labels[i][j][ind])
 
         # 如果叶节点NN的精度低于threshold，则使用Btree来代替
         for i in range(self.stages[stage_length - 1]):
             if index[stage_length - 1][i] is None:
                 continue
-            mean_abs_err = index[stage_length - 1][i].mean_err
-            if mean_abs_err > self.thresholds[stage_length - 1]:
+            mean_abs_err = index[stage_length - 1][i].err
+            if mean_abs_err > max(index[stage_length - 1][i].threshold):
                 # replace model with BTree if mean error > threshold
-                print("Using BTree")
+                print("Using BTree in leaf model %d with err %f" % (i, mean_abs_err))
                 index[stage_length - 1][i] = BTree(2)
                 index[stage_length - 1][i].build(train_inputs[stage_length - 1][i], train_labels[stage_length - 1][i])
         self.index = index
 
-    def predict(self, point):
+    def predict(self, points):
         stage_length = len(self.stages)
-        pre = 0
-        for i in range(0, stage_length):
-            pre = self.index[i][pre].predict(point.z)
-        return pre
+        leaf_model = 0
+        for i in range(0, stage_length - 1):
+            leaf_model = self.index[i][leaf_model].predict(points.z)
+        pre = self.index[i][leaf_model].predict(points.z)
+        err = self.index[i][leaf_model].mean_err
+        scope = list(range((pre - err) * self.block_size, (pre + err) * self.block_size))
+        value = self.binary_search(scope, points.index * self.block_size)
+        return value
 
     def binary_search(self, nums, x):
         """
@@ -119,4 +121,28 @@ if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     path = '../../data/trip_data_2_100000_random_z.csv'
     index = ZMIndex()
-    read_data_and_search(path, index, None, None, 7, 0)
+    # read_data_and_search(path, index, None, None, 7, 8)
+    path, index, z_col, index_col = path, index, 7, 8
+    index_name = index.name
+    train_set_point = pd.read_csv(path, header=None, usecols=[z_col, index_col], names=["z", "index"])
+    test_ratio = 0.5  # 测试集占总数据集的比例
+    test_set_point = train_set_point.sample(n=int(len(train_set_point) * test_ratio), random_state=1)
+
+    print("*************start %s************" % index_name)
+    print("Start Build")
+    start_time = time.time()
+    index.build(train_set_point)
+    end_time = time.time()
+    build_time = end_time - start_time
+    print("Build %s time " % index_name, build_time)
+    err = 0
+    print("Calculate error")
+    start_time = time.time()
+    for ind in range(len(test_set_point)):
+        err += index.predict(test_set_point[ind])
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(test_set_point)
+    print("Search time ", search_time)
+    mean_error = err * 1.0 / len(test_set_point)
+    print("mean error = ", mean_error)
+    print("*************end %s************" % index_name)
