@@ -60,6 +60,10 @@ class AbstractNN:
         tmp_res[tmp_res < 0] = 0
         return np.asarray(tmp_res).flatten()
 
+    @staticmethod
+    def init_by_dict(d: dict):
+        return AbstractNN(d['weights'], d['core_nums'], d['err'], d['threshold'])
+
 
 # Neural Network Model
 class TrainedNN:
@@ -74,7 +78,7 @@ class TrainedNN:
         self.keep_ratio = keep_ratio
         self.train_x = train_x
         self.train_y = train_y
-        self.model_path = model_path + "weights.best.hdf5"
+        self.model_path = model_path
         self.use_threshold = use_threshold
         # 根据label范围和误差百分比计算误差范围
         # 因为block_size=100，所以index最小间隔是0.01，0.005在四舍五入的时候是最小单位，可以避免train_y长度是0的情况
