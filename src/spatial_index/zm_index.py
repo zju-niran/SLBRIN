@@ -1,13 +1,16 @@
 import gc
+import json
+import multiprocessing
 import os
 import sys
 import time
 
+import numpy as np
 import pandas as pd
 
-from src.spatial_index.spatial_index import SpatialIndex
-
 sys.path.append('D:/Code/Paper/st-learned-index')
+from src.spatial_index.common_utils import ZOrder
+from src.spatial_index.spatial_index import SpatialIndex
 from src.b_tree import BTree
 from src.rmi_keras import TrainedNN, AbstractNN
 
@@ -16,40 +19,66 @@ class ZMIndex(SpatialIndex):
     def __init__(self):
         super(ZMIndex, self).__init__("ZM Index")
         self.block_size = 100
-        self.total_number = None
-        self.use_thresholds = [True, False]
+        self.use_thresholds = [True, True]
         self.thresholds = [0.4, 0.5]
         self.stages = [1, 100]
+        self.stage_length = len(self.stages)
         self.cores = [[1, 8, 8, 8, 1], [1, 8, 8, 8, 1]]
         self.train_steps = [20000, 20000]
         self.batch_sizes = [5000, 500]
         self.learning_rates = [0.0001, 0.0001]
         self.keep_ratios = [0.9, 0.9]
-        self.index = None
+        self.index = [[None for i in range(self.stages[i])] for i in range(self.stage_length)]
+        self.train_data_length = 0
+        self.normalization_values = [0, 0]
+        self.train_inputs = [[[] for i in range(self.stages[i])] for i in range(self.stage_length)]
+        self.train_labels = [[[] for i in range(self.stages[i])] for i in range(self.stage_length)]
 
-    def build(self, points):
-        self.total_number = len(points)
-        stage_length = len(self.stages)
-        train_inputs = [[[] for i in range(self.stages[i])] for i in range(stage_length)]
-        train_labels = [[[] for i in range(self.stages[i])] for i in range(stage_length)]
-        index = [[None for i in range(self.stages[i])] for i in range(stage_length)]
-        train_inputs[0][0] = points["z"].tolist()
-        train_labels[0][0] = points["index"].tolist()
+    def init_train_data(self, data: pd.DataFrame):
+        """
+        init train data from x/y data
+        1. compute z from data.x and data.y
+        2. normalize z by z.min and z.max
+        3. sort z and reset index
+        4. inputs = z and labels = index / block_size
+        :param data: pd.dataframe, [x, y]
+        :return: None
+        """
+        z_order = ZOrder()
+        z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y), 1)
+        z_values_min = z_values.min()
+        z_values_max = z_values.max()
+        self.normalization_values = [z_values_min, z_values_max]
+        # z归一化
+        z_values_normalization = (z_values - z_values_min) / (z_values_max - z_values_min)
+        self.train_data_length = z_values_normalization.size
+        self.train_inputs[0][0] = z_values_normalization.sort_values(ascending=True).tolist()
+        self.train_labels[0][0] = pd.Series(np.arange(0, self.train_data_length) / self.block_size).tolist()
+
+    def build(self, data: pd.DataFrame):
+        """
+        build index
+        1. init train z->index data from x/y data
+        2. create rmi for train z->index data
+        """
+        # 1. init train z->index data from x/y data
+        self.init_train_data(data)
+        # 2. create rmi for train z->index data
         # 构建stage_nums结构的树状NNs
-        for i in range(0, stage_length):
+        for i in range(0, self.stage_length):
             for j in range(0, self.stages[i]):
-                if len(train_labels[i][j]) == 0:
+                if len(self.train_labels[i][j]) == 0:
                     continue
-                inputs = train_inputs[i][j]
+                inputs = self.train_inputs[i][j]
                 labels = []
                 # 非叶子结点决定下一层要用的NN是哪个
-                if i < stage_length - 1:
+                if i < self.stage_length - 1:
                     # first stage, calculate how many models in next stage
-                    divisor = self.stages[i + 1] * 1.0 / (self.total_number / self.block_size)
-                    for k in train_labels[i][j]:
+                    divisor = self.stages[i + 1] * 1.0 / (self.train_data_length / self.block_size)
+                    for k in self.train_labels[i][j]:
                         labels.append(int(k * divisor))
                 else:
-                    labels = train_labels[i][j]
+                    labels = self.train_labels[i][j]
                 # train model
                 model_path = "model_0.0001_5000_adam_drop/" + str(i) + "_" + str(j) + "/"
                 print("start train nn in stage: %d, %d" % (i, j))
@@ -63,31 +92,32 @@ class ZMIndex(SpatialIndex):
                                       self.keep_ratios[i])
                 tmp_index.train()
                 # get parameters in model (weight matrix and bias matrix)
-                index[i][j] = AbstractNN(tmp_index.get_weights(),
-                                         self.cores[i],
-                                         tmp_index.err,
-                                         tmp_index.threshold)
+                self.index[i][j] = AbstractNN(tmp_index.get_weights(),
+                                              self.cores[i],
+                                              tmp_index.err,
+                                              tmp_index.threshold)
                 del tmp_index
                 gc.collect()
-                if i < stage_length - 1:
+                if i < self.stage_length - 1:
                     # allocate data into training set for models in next stage
-                    pres = index[i][j].predict(train_inputs[i][j])
+                    pres = self.index[i][j].predict(self.train_inputs[i][j])
                     pres[pres > self.stages[i + 1] - 1] = self.stages[i + 1] - 1
                     for ind in range(len(pres)):
-                        train_inputs[i + 1][round(pres[ind])].append(train_inputs[i][j][ind])
-                        train_labels[i + 1][round(pres[ind])].append(train_labels[i][j][ind])
+                        self.train_inputs[i + 1][round(pres[ind])].append(self.train_inputs[i][j][ind])
+                        self.train_labels[i + 1][round(pres[ind])].append(self.train_labels[i][j][ind])
 
         # 如果叶节点NN的精度低于threshold，则使用Btree来代替
-        for i in range(self.stages[stage_length - 1]):
-            if index[stage_length - 1][i] is None:
+        for i in range(self.stages[self.stage_length - 1]):
+            if self.index[self.stage_length - 1][i] is None:
                 continue
-            mean_abs_err = index[stage_length - 1][i].err
-            if mean_abs_err > max(index[stage_length - 1][i].threshold):
+            mean_abs_err = self.index[self.stage_length - 1][i].err
+            if mean_abs_err > max(self.index[self.stage_length - 1][i].threshold):
                 # replace model with BTree if mean error > threshold
                 print("Using BTree in leaf model %d with err %f" % (i, mean_abs_err))
-                index[stage_length - 1][i] = BTree(2)
-                index[stage_length - 1][i].build(train_inputs[stage_length - 1][i], train_labels[stage_length - 1][i])
-        self.index = index
+                self.index[self.stage_length - 1][i] = BTree(2)
+                self.index[self.stage_length - 1][i].build(self.train_inputs[self.stage_length - 1][i],
+                                                           self.train_labels[self.stage_length - 1][i])
+
 
     def predict(self, points):
         stage_length = len(self.stages)
@@ -119,19 +149,21 @@ class ZMIndex(SpatialIndex):
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    path = '../../data/trip_data_2_100000_random_z.csv'
-    index = ZMIndex()
+    # load data
+    path = '../../data/trip_data_2_100000_random.csv'
     # read_data_and_search(path, index, None, None, 7, 8)
-    path, index, z_col, index_col = path, index, 7, 8
-    index_name = index.name
-    train_set_point = pd.read_csv(path, header=None, usecols=[z_col, index_col], names=["z", "index"])
+    z_col, index_col = 7, 8
+    train_set_xy = pd.read_csv(path, header=None, usecols=[2, 3], names=["x", "y"])
     test_ratio = 0.5  # 测试集占总数据集的比例
-    test_set_point = train_set_point.sample(n=int(len(train_set_point) * test_ratio), random_state=1)
-
+    test_set_point = train_set_xy.sample(n=int(len(train_set_xy) * test_ratio), random_state=1)
+    # create index
+    start_time = time.time()
+    index = ZMIndex()
+    index_name = index.name
     print("*************start %s************" % index_name)
     print("Start Build")
-    start_time = time.time()
     index.build(train_set_point)
+    load_index_from_json = False
     end_time = time.time()
     build_time = end_time - start_time
     print("Build %s time " % index_name, build_time)
