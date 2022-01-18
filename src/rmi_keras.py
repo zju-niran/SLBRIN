@@ -84,6 +84,7 @@ class TrainedNN:
         # 因为block_size=100，所以index最小间隔是0.01，0.005在四舍五入的时候是最小单位，可以避免train_y长度是0的情况
         self.threshold = max(0.005, threshold * (max(self.train_y) - min(self.train_y)))
         self.model = None
+        self.best_model = None
         self.err = 0
 
     # train model
@@ -105,11 +106,12 @@ class TrainedNN:
         # create or load model
         if os.path.exists(self.model_path):
             self.model = tf.keras.models.load_model(self.model_path)
-            # model.load_weights(self.model_path)
-            self.err = max(self.get_err())
+            self.best_model = self.model
             # do not train exists model when err is enough
-            if self.use_threshold and self.err <= self.threshold:
-                return
+            if self.use_threshold:
+                self.err = max(self.get_err())
+                if self.err <= self.threshold:
+                    return
         else:
             model_dir = os.path.dirname(self.model_path)
             if os.path.exists(model_dir) is False:
@@ -152,10 +154,10 @@ class TrainedNN:
                                      batch_size=self.batch_size,
                                      verbose=2,
                                      callbacks=callbacks_list)
-            loss_list = history.history.get("loss")
-            min_loss = min(loss_list)
+            self.best_model = tf.keras.models.load_model(self.model_path)
             self.err = max(self.get_err())
             print("Err %f, Threshold %f" % (self.err, self.threshold))
+            min_loss = min(history.history.get("loss"))
             if current_check_iter == 0:
                 last_min_err = min_loss
             # redo or stop train when loss stop decreasing
@@ -177,8 +179,8 @@ class TrainedNN:
 
     # get weight matrix
     def get_weights(self):
-        weights = self.model.get_weights()  # 最后一次fit的weights
-        # self.model.model.load_weights(self.model_path)  # loss最低的weights
+        # weights = self.model.get_weights()  # 最后一次fit的weights
+        weights = self.best_model.get_weights()  # loss最低的weights
         w_list = []
         for i in range(len(weights)):
             w_list.append(weights[i].tolist())
@@ -186,8 +188,8 @@ class TrainedNN:
 
     # get err = pre - train_y
     def get_err(self):
-        # 服务器使用cuda
-        pres = self.model.predict(self.train_x).flatten()
+        # pres = self.model.predict(self.train_x).flatten()  # 最后一次fit的model
+        pres = self.best_model.predict(self.train_x).flatten()  # loss最低的model
         errs = (pres - self.train_y).tolist()
         min_err, max_err = 0, 0
         for err in errs:
