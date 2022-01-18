@@ -119,6 +119,79 @@ class ZMIndex(SpatialIndex):
                 self.index[self.stage_length - 1][i].build(self.train_inputs[self.stage_length - 1][i],
                                                            self.train_labels[self.stage_length - 1][i])
 
+    def build_single_thread(self, curr_stage, current_stage_step, inputs, labels):
+        # train model
+        i = curr_stage
+        j = current_stage_step
+        model_path = "model_0.0001_5000_adam_drop/" + str(i) + "_" + str(j) + "_weights.best.hdf5"
+        tmp_index = TrainedNN(model_path, inputs, labels,
+                              self.thresholds[i],
+                              self.use_thresholds[i],
+                              self.cores[i],
+                              self.train_steps[i],
+                              self.batch_sizes[i],
+                              self.learning_rates[i],
+                              self.keep_ratios[i])
+        tmp_index.train()
+        # get parameters in model (weight matrix and bias matrix)
+        self.index[i][j] = AbstractNN(tmp_index.get_weights(),
+                                      self.cores[i],
+                                      tmp_index.err,
+                                      tmp_index.threshold)
+        del tmp_index
+        gc.collect()
+
+    def build_multi_thread(self, data: pd.DataFrame, thread_pool_size=3):
+        """
+        build index by multi threads
+        1. init train z->index data from x/y data
+        2. create rmi for train z->index data
+        """
+        # 1. init train z->index data from x/y data
+        self.init_train_data(data)
+        # 2. create rmi for train z->index data
+        # 构建stage_nums结构的树状NNs
+        for i in range(0, self.stage_length - 1):
+            for j in range(0, self.stages[i]):
+                if len(self.train_labels[i][j]) == 0:
+                    continue
+                inputs = self.train_inputs[i][j]
+                labels = []
+                # 非叶子结点决定下一层要用的NN是哪个
+                # first stage, calculate how many models in next stage
+                divisor = self.stages[i + 1] * 1.0 / (self.train_data_length / self.block_size)
+                for k in self.train_labels[i][j]:
+                    labels.append(int(k * divisor))
+                # train model
+                self.build_single_thread(i, j, inputs, labels)
+                # allocate data into training set for models in next stage
+                pres = self.index[i][j].predict(self.train_inputs[i][j])
+                pres[pres > self.stages[i + 1] - 1] = self.stages[i + 1] - 1
+                for ind in range(len(pres)):
+                    self.train_inputs[i + 1][round(pres[ind])].append(self.train_inputs[i][j][ind])
+                    self.train_labels[i + 1][round(pres[ind])].append(self.train_labels[i][j][ind])
+        # 叶子节点使用线程池训练
+        pool = multiprocessing.Pool(processes=thread_pool_size)
+        i = self.stage_length - 1
+        task_size = self.stages[i]
+        for j in range(task_size):
+            inputs = self.train_inputs[i][j]
+            labels = self.train_labels[i][j]
+            pool.apply_async(self.build_single_thread,
+                             (i, j, inputs, labels))
+        pool.close()
+        pool.join()
+        # 如果叶节点NN的精度低于threshold，则使用Btree来代替
+        for i in range(self.stages[self.stage_length - 1]):
+            if self.index[self.stage_length - 1][i] is None:
+                continue
+            mean_abs_err = self.index[self.stage_length - 1][i].err
+            if mean_abs_err > max(self.index[self.stage_length - 1][i].threshold):
+                # replace model with BTree if mean error > threshold
+                print("Using BTree in leaf model %d with err %f" % (i, mean_abs_err))
+                self.index[self.stage_length - 1][i] = BTree(2)
+                self.index[self.stage_length - 1][i].build(self.train_inputs[self.stage_length - 1][i],
+                                                           self.train_labels[self.stage_length - 1][i])
     def save(self):
         """
         save zm index into json file
@@ -179,11 +252,11 @@ if __name__ == '__main__':
     index_name = index.name
     print("*************start %s************" % index_name)
     print("Start Build")
-    index.build(train_set_point)
     load_index_from_json = False
     if load_index_from_json:
         index.load()
     else:
+        index.build_multi_thread(train_set_xy)
         index.save()
     end_time = time.time()
     build_time = end_time - start_time

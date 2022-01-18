@@ -1,9 +1,14 @@
 # Main file for NN model
+import logging
 import os.path
 from functools import wraps
 
 import numpy as np
 import tensorflow as tf
+
+LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
+logging.basicConfig(filename='my.log', level=logging.INFO, format=LOG_FORMAT, datefmt=DATE_FORMAT)
 
 
 # using cache
@@ -92,6 +97,9 @@ class TrainedNN:
         # GPU配置
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+        # 不输出报错：This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the
+        # following CPU instructions in performance-critical operations:  AVX AVX2
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
         # os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
         gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
         for gpu in gpus:
@@ -111,6 +119,10 @@ class TrainedNN:
             if self.use_threshold:
                 self.err = max(self.get_err())
                 if self.err <= self.threshold:
+                    print("Do not train when model exists and prefect: Model %s, Err %f, Threshold %f" % (
+                        self.model_path, self.err, self.threshold))
+                    logging.info("Do not train when model exists and prefect: Model %s, Err %f, Threshold %f" % (
+                        self.model_path, self.err, self.threshold))
                     return
         else:
             model_dir = os.path.dirname(self.model_path)
@@ -138,7 +150,7 @@ class TrainedNN:
         # checkpoint
         checkpoint = tf.keras.callbacks.ModelCheckpoint(self.model_path,
                                                         monitor='loss',
-                                                        verbose=2,
+                                                        verbose=0,
                                                         save_best_only=True,
                                                         mode='min',
                                                         save_freq='epoch')
@@ -152,11 +164,10 @@ class TrainedNN:
                                      epochs=check_step + current_check_iter * check_step,
                                      initial_epoch=current_check_iter * check_step,
                                      batch_size=self.batch_size,
-                                     verbose=2,
+                                     verbose=0,
                                      callbacks=callbacks_list)
             self.best_model = tf.keras.models.load_model(self.model_path)
             self.err = max(self.get_err())
-            print("Err %f, Threshold %f" % (self.err, self.threshold))
             min_loss = min(history.history.get("loss"))
             if current_check_iter == 0:
                 last_min_err = min_loss
@@ -165,16 +176,26 @@ class TrainedNN:
                 # retrain when loss stop decreasing and err exceed the threshold
                 if self.err > self.threshold:
                     os.remove(self.model_path)
+                    print("Retrain when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
+                        self.model_path, self.err, self.threshold))
+                    logging.info("Retrain when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
+                        self.model_path, self.err, self.threshold))
                     self.train()
                     break
                 # stop train early when loss stop decreasing and err is enough
                 else:
+                    print("Stop train when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
+                        self.model_path, self.err, self.threshold))
                     return
             # continue train when loss decrease
             else:
                 last_min_err = min_loss
                 # use threshold to stop train early
                 if self.use_threshold and self.err <= self.threshold:
+                    print("Stop train when err enough: Model %s, Err %f, Threshold %f" % (
+                        self.model_path, self.err, self.threshold))
+                    logging.info("Stop train when err enough: Model %s, Err %f, Threshold %f" % (
+                        self.model_path, self.err, self.threshold))
                     return
 
     # get weight matrix
