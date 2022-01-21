@@ -138,10 +138,8 @@ class ZMIndex(SpatialIndex):
                               self.keep_ratios[i])
         tmp_index.train()
         # get parameters in model (weight matrix and bias matrix)
-        self.index[i][j] = AbstractNN(tmp_index.get_weights(),
-                                      self.cores[i],
-                                      tmp_index.err,
-                                      tmp_index.threshold)
+        abstract_index = AbstractNN(tmp_index.get_weights(),
+                                    self.cores[i])
         del tmp_index
         gc.collect()
         if tmp_dict is not None:

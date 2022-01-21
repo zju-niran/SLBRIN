@@ -30,11 +30,9 @@ def memoize(func):
 
 # extract matrix for predicting position
 class AbstractNN:
-    def __init__(self, weights, core_nums, err, threshold):
+    def __init__(self, weights, core_nums):
         self.weights = weights
         self.core_nums = core_nums
-        self.err = err
-        self.threshold = threshold
 
     # @memoize TODO: 要加缓存的话， 缓存的key不能是list，之前是float
     def predict(self, input_keys):
@@ -67,7 +65,7 @@ class AbstractNN:
 
     @staticmethod
     def init_by_dict(d: dict):
-        return AbstractNN(d['weights'], d['core_nums'], d['err'], d['threshold'])
+        return AbstractNN(d['weights'], d['core_nums'])
 
 
 # Neural Network Model
