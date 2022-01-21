@@ -38,7 +38,6 @@ class ZMIndex(SpatialIndex):
         self.normalization_values = [0, 0]  # 查询时用来归一化z
         self.errs = [0, 0]  # 查询时的左右误差边界
 
-
     def init_train_data(self, data: pd.DataFrame):
         """
         init train data from x/y data
@@ -111,18 +110,6 @@ class ZMIndex(SpatialIndex):
                         self.train_inputs[i + 1][round(pres[ind])].append(self.train_inputs[i][j][ind])
                         self.train_labels[i + 1][round(pres[ind])].append(self.train_labels[i][j][ind])
 
-        # 如果叶节点NN的精度低于threshold，则使用Btree来代替
-        for i in range(self.stages[self.stage_length - 1]):
-            if self.index[self.stage_length - 1][i] is None:
-                continue
-            mean_abs_err = self.index[self.stage_length - 1][i].err
-            if mean_abs_err > max(self.index[self.stage_length - 1][i].threshold):
-                # replace model with BTree if mean error > threshold
-                print("Using BTree in leaf model %d with err %f" % (i, mean_abs_err))
-                self.index[self.stage_length - 1][i] = BTree(2)
-                self.index[self.stage_length - 1][i].build(self.train_inputs[self.stage_length - 1][i],
-                                                           self.train_labels[self.stage_length - 1][i])
-
     def build_single_thread(self, curr_stage, current_stage_step, inputs, labels, tmp_dict=None):
         # train model
         i = curr_stage
@@ -189,17 +176,6 @@ class ZMIndex(SpatialIndex):
             pool.apply_async(self.build_single_thread, (i, j, inputs, labels, mp_dict))
         pool.close()
         pool.join()
-        # 如果叶节点NN的精度低于threshold，则使用Btree来代替
-        for i in range(self.stages[self.stage_length - 1]):
-            if self.index[self.stage_length - 1][i] is None:
-                continue
-            mean_abs_err = self.index[self.stage_length - 1][i].err
-            if mean_abs_err > max(self.index[self.stage_length - 1][i].threshold):
-                # replace model with BTree if mean error > threshold
-                print("Using BTree in leaf model %d with err %f" % (i, mean_abs_err))
-                self.index[self.stage_length - 1][i] = BTree(2)
-                self.index[self.stage_length - 1][i].build(self.train_inputs[self.stage_length - 1][i],
-                                                           self.train_labels[self.stage_length - 1][i])
         for (key, value) in mp_dict.items():
             self.index[i][key] = value
 
