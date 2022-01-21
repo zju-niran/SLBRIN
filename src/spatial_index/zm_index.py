@@ -18,6 +18,7 @@ from src.rmi_keras import TrainedNN, AbstractNN
 class ZMIndex(SpatialIndex):
     def __init__(self):
         super(ZMIndex, self).__init__("ZM Index")
+        # nn args
         self.block_size = 100
         self.use_thresholds = [True, True]
         self.thresholds = [0.4, 0.5]
@@ -28,12 +29,15 @@ class ZMIndex(SpatialIndex):
         self.batch_sizes = [5000, 500]
         self.learning_rates = [0.0001, 0.0001]
         self.keep_ratios = [0.9, 0.9]
-        self.index = [[None for i in range(self.stages[i])] for i in range(self.stage_length)]
-        self.model_file = "model/zm_index.json"
-        self.train_data_length = 0
-        self.normalization_values = [0, 0]
         self.train_inputs = [[[] for i in range(self.stages[i])] for i in range(self.stage_length)]
         self.train_labels = [[[] for i in range(self.stages[i])] for i in range(self.stage_length)]
+        self.train_data_length = 0
+
+        # zm index args
+        self.index = [[None for i in range(self.stages[i])] for i in range(self.stage_length)]
+        self.normalization_values = [0, 0]  # 查询时用来归一化z
+        self.errs = [0, 0]  # 查询时的左右误差边界
+
 
     def init_train_data(self, data: pd.DataFrame):
         """
@@ -150,6 +154,8 @@ class ZMIndex(SpatialIndex):
         build index by multi threads
         1. init train z->index data from x/y data
         2. create rmi for train z->index data
+        3. compute err border by train_y - rmi.predict(train_x)
+        4. clear train data and label to save memory
         """
         # 1. init train z->index data from x/y data
         self.init_train_data(data)
@@ -196,9 +202,31 @@ class ZMIndex(SpatialIndex):
                 self.index[self.stage_length - 1][i] = BTree(2)
                 self.index[self.stage_length - 1][i].build(self.train_inputs[self.stage_length - 1][i],
                                                            self.train_labels[self.stage_length - 1][i])
-    def save(self):
         for (key, value) in mp_dict.items():
             self.index[i][key] = value
+
+        # 3. compute err border by train_y - rmi.predict(train_x)
+        self.get_err()
+
+        # 4. clear train data and label to save memory
+        self.train_inputs = None
+        self.train_labels = None
+
+    def predict(self, key):
+        """
+        predict index from key
+        1. predict the index by rmi and return pre
+        :param key: float
+        :return: the index predicted by rmi
+        """
+        leaf_model = 0
+        for i in range(0, self.stage_length - 1):
+            leaf_model = round(self.index[i][leaf_model].predict(key)[0])
+            if leaf_model > self.stages[i + 1] - 1:
+                leaf_model = self.stages[i + 1] - 1
+        pre = self.index[i][leaf_model].predict(key)[0]
+        return pre
+
         """
         save zm index into json file
         :return: None
@@ -214,17 +242,64 @@ class ZMIndex(SpatialIndex):
         with open(self.model_file, "r") as f:
             self.index = json.load(f, object_hook=AbstractNN.init_by_dict)
 
+    def get_err(self):
+        """
+        get rmi err = rmi.predict(train_x) - train_y
+        :return:
+        """
+        min_err, max_err = 0, 0
+        for i in range(self.train_data_length):
+            if i == 7949:
+                print(i)
+            pre = self.predict(self.train_inputs[0][0][i])
+            err = pre - self.train_labels[0][0][i]
+            if err < 0:
+                if err < min_err:
+                    min_err = err
+            else:
+                if err > max_err:
+                    max_err = err
+        self.errs = [abs(min_err), max_err]
 
-    def predict(self, points):
-        stage_length = len(self.stages)
-        leaf_model = 0
-        for i in range(0, stage_length - 1):
-            leaf_model = self.index[i][leaf_model].predict(points.z)
-        pre = self.index[i][leaf_model].predict(points.z)
-        err = self.index[i][leaf_model].mean_err
-        scope = list(range((pre - err) * self.block_size, (pre + err) * self.block_size))
-        value = self.binary_search(scope, points.index * self.block_size)
+    def point_query(self, data: pd.DataFrame):
+        """
+        query index by x/y point
+        1. compute z from x/y of points
+        2. normalize z by z.min and z.max
+        3. predict by z and create index scope [pre - min_err, pre + max_err]
+        4. binary search in scope
+        :param data: pd.DataFrame, [x, y]
+        :return: pd.DataFrame, [pre, min_err, max_err]
+        """
+        z_order = ZOrder()
+        z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y), 1)
+        # z归一化
+        z_values_normalization = (z_values - self.normalization_values[0]) / (
+                self.normalization_values[1] - self.normalization_values[0])
+
+        pres = z_values_normalization.apply(self.predict)
+        scope = data.iloc[(pres - self.errs[0]) * self.block_size:(pres + self.errs[1]) * self.block_size]
+        value = self.binary_search(scope, data.index * self.block_size)
         return value
+
+    # def range_query(self, data: pd.DataFrame):
+    #     """
+    #     query index by x1/y1/x2/y2 range
+    #     1. compute z1, z2 from x1/y1/x2/y2 of data
+    #     2. normalize z1 and z2 by z.min and z.max
+    #     3. point query from z1 and z2 to index_z1 and index_z2
+    #     4. filter all the point of scope[index_z1, index_z2] by range(x1/y1/x2/y2).contain(point)
+    #     :param data: pd.DataFrame, [x1, y1, x2, y2]
+    #     :return: pd.DataFrame, [pre, min_err, max_err]
+    #     """
+    #     z_order = ZOrder()
+    #     z_value = z_order.point_to_z(df[lng_col][i], df[lat_col][i])
+    #     # z归一化
+    #     min_z_value = min(z_values)
+    #     max_z_value = max(z_values)
+    #     for i in range(df.count()[0]):
+    #         z_value_normalization = (z_values[i] - min_z_value) / (max_z_value - min_z_value)
+    #         z_values_normalization.append(z_value_normalization)
 
     def binary_search(self, nums, x):
         """
@@ -251,7 +326,7 @@ if __name__ == '__main__':
     z_col, index_col = 7, 8
     train_set_xy = pd.read_csv(path, header=None, usecols=[2, 3], names=["x", "y"])
     test_ratio = 0.5  # 测试集占总数据集的比例
-    test_set_point = train_set_xy.sample(n=int(len(train_set_xy) * test_ratio), random_state=1)
+    test_set_xy = train_set_xy.sample(n=int(len(train_set_xy) * test_ratio), random_state=1)
     # create index
     start_time = time.time()
     index = ZMIndex()
@@ -270,11 +345,10 @@ if __name__ == '__main__':
     err = 0
     print("Calculate error")
     start_time = time.time()
-    for ind in range(len(test_set_point)):
-        err += index.predict(test_set_point[ind])
+    err = index.point_query(test_set_xy)
     end_time = time.time()
-    search_time = (end_time - start_time) / len(test_set_point)
+    search_time = (end_time - start_time) / len(test_set_xy)
     print("Search time ", search_time)
-    mean_error = err * 1.0 / len(test_set_point)
+    mean_error = err * 1.0 / len(test_set_xy)
     print("mean error = ", mean_error)
     print("*************end %s************" % index_name)
