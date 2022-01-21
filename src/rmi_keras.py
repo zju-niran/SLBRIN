@@ -172,7 +172,7 @@ class TrainedNN:
             # redo or stop train when loss stop decreasing
             if current_check_iter > 0 and min_loss >= last_min_err:
                 # retrain when loss stop decreasing and err exceed the threshold
-                if self.err > self.threshold:
+                if self.use_threshold and self.err > self.threshold:
                     os.remove(self.model_path)
                     print("Retrain when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
                         self.model_path, self.err, self.threshold))

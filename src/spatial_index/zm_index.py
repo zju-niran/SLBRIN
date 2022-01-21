@@ -20,8 +20,8 @@ class ZMIndex(SpatialIndex):
         super(ZMIndex, self).__init__("ZM Index")
         # nn args
         self.block_size = 100
-        self.use_thresholds = [True, True]
-        self.thresholds = [0.4, 0.5]
+        self.use_thresholds = [True, True]  # 是否使用thresholds来提前结束训练
+        self.thresholds = [0.4, 0.8]  # thresholds是误差/model的数据范围的百分比
         self.stages = [1, 100]
         self.stage_length = len(self.stages)
         self.cores = [[1, 8, 8, 8, 1], [1, 8, 8, 8, 1]]
