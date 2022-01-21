@@ -3,6 +3,7 @@ import logging
 import os.path
 from functools import wraps
 
+import h5py
 import numpy as np
 import tensorflow as tf
 
@@ -108,9 +109,8 @@ class TrainedNN:
             #     gpu,
             #     [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=2048)]
             # )
-
         # create or load model
-        if os.path.exists(self.model_path):
+        if h5py.is_hdf5(self.model_path) is True:  # valid the model file exists and is in hdf5 format
             self.model = tf.keras.models.load_model(self.model_path)
             self.best_model = self.model
             # do not train exists model when err is enough
@@ -126,6 +126,9 @@ class TrainedNN:
             model_dir = os.path.dirname(self.model_path)
             if os.path.exists(model_dir) is False:
                 os.makedirs(model_dir)
+            # delete model when model file is not in hdf5 format but exists, maybe destroyed by interrupt
+            if os.path.exists(self.model_path):
+                os.remove(self.model_path)
             model = tf.keras.Sequential()
             for i in range(len(self.core_nums) - 2):
                 model.add(tf.keras.layers.Dense(units=self.core_nums[i + 1],

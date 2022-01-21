@@ -11,7 +11,6 @@ import pandas as pd
 sys.path.append('D:/Code/Paper/st-learned-index')
 from src.spatial_index.common_utils import ZOrder
 from src.spatial_index.spatial_index import SpatialIndex
-from src.b_tree import BTree
 from src.rmi_keras import TrainedNN, AbstractNN
 
 
@@ -173,6 +172,8 @@ class ZMIndex(SpatialIndex):
         for j in range(task_size):
             inputs = self.train_inputs[i][j]
             labels = self.train_labels[i][j]
+            if len(labels) == 0:
+                continue
             pool.apply_async(self.build_single_thread, (i, j, inputs, labels, mp_dict))
         pool.close()
         pool.join()
