@@ -225,20 +225,27 @@ class ZMIndex(SpatialIndex):
         pre = self.index[i][leaf_model].predict(key)[0]
         return pre
 
+    def save(self, model_path):
         """
         save zm index into json file
+        :param model_path: model save path
         :return: None
         """
-        with open(self.model_file, "w") as f:
+        with open(model_path, "w") as f:
             json.dump(self.index, f, default=lambda o: o.__dict__, ensure_ascii=False)
 
-    def load(self):
+    def load(self, model_path):
         """
         load zm index from json file
+        :param model_path: model save path
         :return: None
         """
-        with open(self.model_file, "r") as f:
-            self.index = json.load(f, object_hook=AbstractNN.init_by_dict)
+        with open(model_path, "r") as f:
+            index_list = json.load(f, object_hook=ZMIndex.init_by_dict)
+            for i in range(len(index_list)):
+                for j in range(len(index_list[i])):
+                    if index_list[i][j] is not None:
+                        index_list[i][j] = AbstractNN.init_by_dict(index_list[i][j])
 
     def get_err(self):
         """
@@ -329,14 +336,15 @@ if __name__ == '__main__':
     start_time = time.time()
     index = ZMIndex()
     index_name = index.name
+    model_path = "model/zm_index_2022-01-21-16-15-04.json"
     print("*************start %s************" % index_name)
     print("Start Build")
     load_index_from_json = False
     if load_index_from_json:
-        index.load()
+        index.load(model_path)
     else:
         index.build_multi_thread(train_set_xy)
-        index.save()
+        index.save(model_path)
     end_time = time.time()
     build_time = end_time - start_time
     print("Build %s time " % index_name, build_time)
