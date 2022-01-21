@@ -119,7 +119,7 @@ class ZMIndex(SpatialIndex):
                 self.index[self.stage_length - 1][i].build(self.train_inputs[self.stage_length - 1][i],
                                                            self.train_labels[self.stage_length - 1][i])
 
-    def build_single_thread(self, curr_stage, current_stage_step, inputs, labels):
+    def build_single_thread(self, curr_stage, current_stage_step, inputs, labels, tmp_dict=None):
         # train model
         i = curr_stage
         j = current_stage_step
@@ -140,6 +140,10 @@ class ZMIndex(SpatialIndex):
                                       tmp_index.threshold)
         del tmp_index
         gc.collect()
+        if tmp_dict is not None:
+            tmp_dict[j] = abstract_index
+        else:
+            self.index[i][j] = abstract_index
 
     def build_multi_thread(self, data: pd.DataFrame, thread_pool_size=3):
         """
@@ -172,13 +176,13 @@ class ZMIndex(SpatialIndex):
                     self.train_labels[i + 1][round(pres[ind])].append(self.train_labels[i][j][ind])
         # 叶子节点使用线程池训练
         pool = multiprocessing.Pool(processes=thread_pool_size)
+        mp_dict = multiprocessing.Manager().dict()  # 使用共享dict暂存index[i]的所有model
         i = self.stage_length - 1
         task_size = self.stages[i]
         for j in range(task_size):
             inputs = self.train_inputs[i][j]
             labels = self.train_labels[i][j]
-            pool.apply_async(self.build_single_thread,
-                             (i, j, inputs, labels))
+            pool.apply_async(self.build_single_thread, (i, j, inputs, labels, mp_dict))
         pool.close()
         pool.join()
         # 如果叶节点NN的精度低于threshold，则使用Btree来代替
@@ -193,6 +197,8 @@ class ZMIndex(SpatialIndex):
                 self.index[self.stage_length - 1][i].build(self.train_inputs[self.stage_length - 1][i],
                                                            self.train_labels[self.stage_length - 1][i])
     def save(self):
+        for (key, value) in mp_dict.items():
+            self.index[i][key] = value
         """
         save zm index into json file
         :return: None
