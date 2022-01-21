@@ -110,7 +110,7 @@ class TrainedNN:
             #     [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=2048)]
             # )
         # create or load model
-        if h5py.is_hdf5(self.model_path) is True:  # valid the model file exists and is in hdf5 format
+        if self.is_model_file_valid():  # valid the model file exists and is in hdf5 format
             self.model = tf.keras.models.load_model(self.model_path)
             self.best_model = self.model
             # do not train exists model when err is enough
@@ -198,6 +198,15 @@ class TrainedNN:
                     logging.info("Stop train when err enough: Model %s, Err %f, Threshold %f" % (
                         self.model_path, self.err, self.threshold))
                     return
+
+    def is_model_file_valid(self):
+        try:
+            model = tf.keras.models.load_model(self.model_path)
+            return True
+        except Exception:
+            # {ValueError}No model config found in the file
+            # {OSError}SavedModel file does not exist
+            return False
 
     # get weight matrix
     def get_weights(self):
