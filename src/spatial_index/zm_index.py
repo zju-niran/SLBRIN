@@ -15,7 +15,8 @@ from src.rmi_keras import TrainedNN, AbstractNN
 
 
 class ZMIndex(SpatialIndex):
-    def __init__(self):
+    def __init__(self, model_path=None, train_data_length=None, rmi=None, errs=None, index_list=None,
+                 z_values_normalization_min_max=None):
         super(ZMIndex, self).__init__("ZM Index")
         # nn args
         self.block_size = 100
@@ -30,12 +31,14 @@ class ZMIndex(SpatialIndex):
         self.keep_ratios = [0.9, 0.9]
         self.train_inputs = [[[] for i in range(self.stages[i])] for i in range(self.stage_length)]
         self.train_labels = [[[] for i in range(self.stages[i])] for i in range(self.stage_length)]
-        self.train_data_length = 0
 
-        # zm index args
-        self.index = [[None for i in range(self.stages[i])] for i in range(self.stage_length)]
-        self.normalization_values = [0, 0]  # 查询时用来归一化z
-        self.errs = [0, 0]  # 查询时的左右误差边界
+        # zm index args, support predict and query
+        self.model_path = model_path
+        self.train_data_length = train_data_length
+        self.rmi = [[None for i in range(self.stages[i])] for i in range(self.stage_length)] if rmi is None else rmi
+        self.errs = errs  # 查询时的左右误差边界
+        self.index_list = index_list  # 索引列
+        self.z_values_normalization_min_max = z_values_normalization_min_max  # 查询时用来归一化z
 
     def init_train_data(self, data: pd.DataFrame):
         """
@@ -51,7 +54,7 @@ class ZMIndex(SpatialIndex):
         z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y), 1)
         z_values_min = z_values.min()
         z_values_max = z_values.max()
-        self.normalization_values = [z_values_min, z_values_max]
+        self.z_values_normalization_min_max = [z_values_min, z_values_max]
         # z归一化
         z_values_normalization = (z_values - z_values_min) / (z_values_max - z_values_min)
         self.train_data_length = z_values_normalization.size
@@ -83,7 +86,7 @@ class ZMIndex(SpatialIndex):
                 else:
                     labels = self.train_labels[i][j]
                 # train model
-                model_path = "model_0.0001_5000_adam_drop/" + str(i) + "_" + str(j) + "_weights.best.hdf5"
+                model_path = self.model_path + "models/" + str(i) + "_" + str(j) + "_weights.best.hdf5"
                 print("start train nn in stage: %d, %d" % (i, j))
                 tmp_index = TrainedNN(model_path, inputs, labels,
                                       self.thresholds[i],
@@ -95,15 +98,15 @@ class ZMIndex(SpatialIndex):
                                       self.keep_ratios[i])
                 tmp_index.train()
                 # get parameters in model (weight matrix and bias matrix)
-                self.index[i][j] = AbstractNN(tmp_index.get_weights(),
-                                              self.cores[i],
-                                              tmp_index.err,
-                                              tmp_index.threshold)
+                self.rmi[i][j] = AbstractNN(tmp_index.get_weights(),
+                                            self.cores[i],
+                                            tmp_index.err,
+                                            tmp_index.threshold)
                 del tmp_index
                 gc.collect()
                 if i < self.stage_length - 1:
                     # allocate data into training set for models in next stage
-                    pres = self.index[i][j].predict(self.train_inputs[i][j])
+                    pres = self.rmi[i][j].predict(self.train_inputs[i][j])
                     pres[pres > self.stages[i + 1] - 1] = self.stages[i + 1] - 1
                     for ind in range(len(pres)):
                         self.train_inputs[i + 1][round(pres[ind])].append(self.train_inputs[i][j][ind])
@@ -113,7 +116,7 @@ class ZMIndex(SpatialIndex):
         # train model
         i = curr_stage
         j = current_stage_step
-        model_path = "model_0.0001_5000_adam_drop/" + str(i) + "_" + str(j) + "_weights.best.hdf5"
+        model_path = self.model_path + "models/" + str(i) + "_" + str(j) + "_weights.best.hdf5"
         tmp_index = TrainedNN(model_path, inputs, labels,
                               self.thresholds[i],
                               self.use_thresholds[i],
@@ -131,7 +134,7 @@ class ZMIndex(SpatialIndex):
         if tmp_dict is not None:
             tmp_dict[j] = abstract_index
         else:
-            self.index[i][j] = abstract_index
+            self.rmi[i][j] = abstract_index
 
     def build_multi_thread(self, data: pd.DataFrame, thread_pool_size=3):
         """
@@ -159,7 +162,7 @@ class ZMIndex(SpatialIndex):
                 # train model
                 self.build_single_thread(i, j, inputs, labels)
                 # allocate data into training set for models in next stage
-                pres = self.index[i][j].predict(self.train_inputs[i][j])
+                pres = self.rmi[i][j].predict(self.train_inputs[i][j])
                 pres[pres > self.stages[i + 1] - 1] = self.stages[i + 1] - 1
                 for ind in range(len(pres)):
                     self.train_inputs[i + 1][round(pres[ind])].append(self.train_inputs[i][j][ind])
@@ -178,70 +181,85 @@ class ZMIndex(SpatialIndex):
         pool.close()
         pool.join()
         for (key, value) in mp_dict.items():
-            self.index[i][key] = value
+            self.rmi[i][key] = value
 
         # 3. compute err border by train_y - rmi.predict(train_x)
-        self.get_err()
+        self.errs = self.get_err()
 
         # 4. clear train data and label to save memory
+        self.index_list = pd.DataFrame({'key': self.train_inputs[0][0], "key_index": self.train_labels[0][0]})
         self.train_inputs = None
         self.train_labels = None
 
     def predict(self, key):
         """
         predict index from key
-        1. predict the index by rmi and return pre
+        1. predict the leaf_model by rmi
+        2. predict the index by leaf_model
         :param key: float
         :return: the index predicted by rmi
         """
+        # 1. predict the leaf_model by rmi
         leaf_model = 0
         for i in range(0, self.stage_length - 1):
-            leaf_model = round(self.index[i][leaf_model].predict(key)[0])
+            leaf_model = round(self.rmi[i][leaf_model].predict(key)[0])
             if leaf_model > self.stages[i + 1] - 1:
                 leaf_model = self.stages[i + 1] - 1
-        pre = self.index[i][leaf_model].predict(key)[0]
+        # 2. predict the index by leaf_model
+        pre = self.rmi[self.stage_length - 1][leaf_model].predict(key)[0]
         return pre
 
-    def save(self, model_path):
+    def save(self):
         """
         save zm index into json file
-        :param model_path: model save path
         :return: None
         """
-        with open(model_path, "w") as f:
-            json.dump(self.index, f, default=lambda o: o.__dict__, ensure_ascii=False)
+        if os.path.exists(self.model_path) is False:
+            os.makedirs(self.model_path)
+        self.index_list.to_csv(self.model_path + 'index_list.csv', sep=',', header=True, index=False)
+        with open(self.model_path + 'zm_index.json', "w") as f:
+            json.dump(self, f, cls=MyEncoder, ensure_ascii=False)
 
-    def load(self, model_path):
+    def load(self):
         """
         load zm index from json file
-        :param model_path: model save path
         :return: None
         """
-        with open(model_path, "r") as f:
-            index_list = json.load(f, object_hook=ZMIndex.init_by_dict)
-            for i in range(len(index_list)):
-                for j in range(len(index_list[i])):
-                    if index_list[i][j] is not None:
-                        index_list[i][j] = AbstractNN.init_by_dict(index_list[i][j])
+        with open(self.model_path + 'zm_index.json', "r") as f:
+            zm_index = json.load(f, cls=MyDecoder)
+            self.train_data_length = zm_index.train_data_length
+            self.rmi = zm_index.rmi
+            self.errs = zm_index.errs
+            self.z_values_normalization_min_max = zm_index.z_values_normalization_min_max
+            self.index_list = pd.read_csv(self.model_path + 'index_list.csv',
+                                          float_precision='round_trip')  # round_trip保留小数位数
+            del zm_index
+
+    @staticmethod
+    def init_by_dict(d: dict):
+        return ZMIndex(None,
+                       d['train_data_length'],
+                       d['rmi'],
+                       d['errs'],
+                       d['index_list'],
+                       d['z_values_normalization_min_max'])
 
     def get_err(self):
         """
         get rmi err = rmi.predict(train_x) - train_y
-        :return:
+        :return: [min_err, max_err]
         """
         min_err, max_err = 0, 0
         for i in range(self.train_data_length):
-            if i == 7949:
-                print(i)
             pre = self.predict(self.train_inputs[0][0][i])
-            err = pre - self.train_labels[0][0][i]
+            err = self.train_labels[0][0][i] - pre
             if err < 0:
                 if err < min_err:
                     min_err = err
             else:
                 if err > max_err:
                     max_err = err
-        self.errs = [abs(min_err), max_err]
+        return [abs(min_err), max_err]
 
     def point_query(self, data: pd.DataFrame):
         """
@@ -283,21 +301,50 @@ class ZMIndex(SpatialIndex):
     #         z_value_normalization = (z_values[i] - min_z_value) / (max_z_value - min_z_value)
     #         z_values_normalization.append(z_value_normalization)
 
-    def binary_search(self, nums, x):
+    def binary_search(self, nums, x, left, right):
         """
-        nums: Sorted array from smallest to largest
-        x: Target number
+        binary search x in nums[left, right]
+        :param nums: pd.DataFrame, [key, key_index], index table
+        :param x: key
+        :param left:
+        :param right:
+        :return: key index
         """
-        left, right = 0, len(nums) - 1
         while left <= right:
             mid = (left + right) // 2
-            if nums[mid] == x:
-                return mid
-            if nums[mid] < x:
+            if nums.iloc[mid].key == x:
+                return nums.iloc[mid].key_index
+            if nums.iloc[mid].key < x:
                 left = mid + 1
             else:
                 right = mid - 1
         return None
+
+
+class MyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, pd.DataFrame):
+            return None
+        elif isinstance(obj, np.int64):
+            return int(obj)
+        elif isinstance(obj, ZMIndex):
+            return obj.__dict__
+        elif isinstance(obj, AbstractNN):
+            return obj.__dict__
+        else:
+            return super(MyEncoder, self).default(obj)
+
+
+class MyDecoder(json.JSONDecoder):
+    def __init__(self):
+        json.JSONDecoder.__init__(self, object_hook=self.dict_to_object)
+
+    def dict_to_object(self, d):
+        if len(d.keys()) == 2 and d.__contains__("weights") and d.__contains__("core_nums"):
+            t = AbstractNN.init_by_dict(d)
+        else:
+            t = ZMIndex.init_by_dict(d)
+        return t
 
 
 if __name__ == '__main__':
@@ -310,28 +357,26 @@ if __name__ == '__main__':
     test_ratio = 0.5  # 测试集占总数据集的比例
     test_set_xy = train_set_xy.sample(n=int(len(train_set_xy) * test_ratio), random_state=1)
     # create index
-    start_time = time.time()
-    index = ZMIndex()
+    model_path = "model/zm_index_2022-01-25/"
+    index = ZMIndex(model_path=model_path)
     index_name = index.name
-    model_path = "model/zm_index_2022-01-21-16-15-04.json"
-    print("*************start %s************" % index_name)
-    print("Start Build")
     load_index_from_json = False
     if load_index_from_json:
-        index.load(model_path)
+        index.load()
     else:
-        index.build_multi_thread(train_set_xy)
-        index.save(model_path)
-    end_time = time.time()
-    build_time = end_time - start_time
-    print("Build %s time " % index_name, build_time)
+        print("*************start %s************" % index_name)
+        print("Start Build")
+        start_time = time.time()
+        index.build_multi_thread(train_set_xy, thread_pool_size=4)
+        end_time = time.time()
+        build_time = end_time - start_time
+        print("Build %s time " % index_name, build_time)
+        index.save()
     err = 0
-    print("Calculate error")
     start_time = time.time()
-    err = index.point_query(test_set_xy)
+    result = index.point_query(test_set_xy)
     end_time = time.time()
     search_time = (end_time - start_time) / len(test_set_xy)
     print("Search time ", search_time)
-    mean_error = err * 1.0 / len(test_set_xy)
-    print("mean error = ", mean_error)
+    print("Not found nums ", result.isna().sum())
     print("*************end %s************" % index_name)
