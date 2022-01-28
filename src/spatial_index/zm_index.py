@@ -272,15 +272,31 @@ class ZMIndex(SpatialIndex):
         :return: pd.DataFrame, [pre, min_err, max_err]
         """
         z_order = ZOrder()
-        z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y), 1)
-        # z归一化
-        z_values_normalization = (z_values - self.normalization_values[0]) / (
-                self.normalization_values[1] - self.normalization_values[0])
-
-        pres = z_values_normalization.apply(self.predict)
-        scope = data.iloc[(pres - self.errs[0]) * self.block_size:(pres + self.errs[1]) * self.block_size]
-        value = self.binary_search(scope, data.index * self.block_size)
-        return value
+        # 写法1：list
+        results = []
+        for index, point in data.iterrows():
+            z_value = z_order.point_to_z(point.x, point.y)
+            # z归一化
+            z = (z_value - self.z_values_normalization_min_max[0]) / (
+                    self.z_values_normalization_min_max[1] - self.z_values_normalization_min_max[0])
+            pre = self.predict(z)
+            left_bound = max((pre - self.errs[0]) * self.block_size, 0)
+            right_bound = min((pre + self.errs[1]) * self.block_size, self.train_data_length)
+            result = self.binary_search(self.index_list, z, int(round(left_bound)), int(round(right_bound)))
+            results.append(result)
+        return pd.Series(results)
+        # 写法2：pd.DataFrame
+        # z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y), 1)
+        # # z归一化
+        # data["z"] = (z_values - self.z_values_normalization_min_max[0]) / (
+        #         self.z_values_normalization_min_max[1] - self.z_values_normalization_min_max[0])
+        # data["pres"] = data.z.apply(self.predict)
+        # data["left_bound"] = data.pres.apply(lambda pre: max((pre - self.errs[0]) * self.block_size, 0))
+        # data["right_bound"] = data.pres.apply(
+        #     lambda pre: min((pre + self.errs[1]) * self.block_size, self.train_data_length))
+        # results = data.apply(
+        #     lambda t: self.binary_search(self.index_list, t.z, int(round(t.left_bound)), int(round(t.right_bound))), 1)
+        # return results
 
     # def range_query(self, data: pd.DataFrame):
     #     """
