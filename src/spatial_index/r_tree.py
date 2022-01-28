@@ -1,9 +1,11 @@
 import os
+import time
 
+import pandas as pd
 from rtree import index
 
-from src.spatial_index.common_utils import read_data_and_search
 from src.index import Index
+from src.spatial_index.common_utils import Point
 
 
 class RTree(Index):
@@ -19,29 +21,54 @@ class RTree(Index):
         search_result = self.index.intersection((point.lng, point.lat))
         return list(search_result)
 
-    def predict(self, point):
-        """
-        预测point并且计算误差
-        1. 如果预测的list包含正确的index，则误差为0
-        2. 如果预测的list不包含正确的index，则误差为所有预测位置到index的距离和
-        :param point: 预测点
-        :return: 误差
-        """
-        pre_list = self.search(point)
-        err = 0
-        for pre in pre_list:
-            if pre == point.index:
-                return 0
-            else:
-                err += abs(pre - point.index)
-        return err
-
     def delete(self, point):
         self.index.delete(point.index, (point.lng, point.lat))
+
+    def build(self, data: pd.DataFrame):
+        for index, point in data.iterrows():
+            self.insert(Point(point.x, point.y, index=index))
+
+    def point_query(self, data: pd.DataFrame):
+        """
+        query index by x/y point
+        1. search by x/y
+        2. for duplicate point: only return the first one
+        :param data: pd.DataFrame, [x, y]
+        :return: pd.DataFrame, [pre]
+        """
+        results = data.apply(lambda t: self.search(Point(t.x, t.y))[0], 1)
+        return results
 
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    path = '../../data/test_x_y_index.csv'
+    # load data
+    path = '../../data/trip_data_2_100000_random.csv'
+    # read_data_and_search(path, index, None, None, 7, 8)
+    z_col, index_col = 7, 8
+    train_set_xy = pd.read_csv(path, header=None, usecols=[2, 3], names=["x", "y"])
+    test_ratio = 0.5  # 测试集占总数据集的比例
+    test_set_xy = train_set_xy.sample(n=int(len(train_set_xy) * test_ratio), random_state=1)
+    # create index
+    model_path = "model/zm_index_2022-01-25/"
     index = RTree()
-    read_data_and_search(path, index, 1, 2, None, 0)
+    index_name = index.name
+    load_index_from_json = False
+    if load_index_from_json:
+        index.load()  # TODO: create load
+    else:
+        print("*************start %s************" % index_name)
+        print("Start Build")
+        start_time = time.time()
+        index.build(train_set_xy)
+        end_time = time.time()
+        build_time = end_time - start_time
+        print("Build %s time " % index_name, build_time)
+        # index.save()  # TODO: create save
+    start_time = time.time()
+    result = index.point_query(test_set_xy)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(test_set_xy)
+    print("Search time ", search_time)
+    print("Not found nums ", result.isna().sum())
+    print("*************end %s************" % index_name)
