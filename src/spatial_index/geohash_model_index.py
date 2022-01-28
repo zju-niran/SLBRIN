@@ -46,7 +46,7 @@ class GeoHashModelIndex(SpatialIndex):
         :return: None
         """
         z_order = ZOrder()
-        z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y), 1)
+        z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y, self.region), 1)
         z_values_min = z_values.min()
         z_values_max = z_values.max()
         self.normalization_values = [z_values_min, z_values_max]
@@ -244,7 +244,7 @@ class GeoHashModelIndex(SpatialIndex):
         :return: pd.dataframe, [pre, min_err, max_err]
         """
         z_order = ZOrder()
-        z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y), 1)
+        z_values = points.apply(lambda t: z_order.point_to_z(t.x, t.y, self.region), 1)
         # z归一化
         z_values_normalization = (z_values - self.normalization_values[0]) / (
                     self.normalization_values[1] - self.normalization_values[0])

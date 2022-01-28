@@ -9,19 +9,20 @@ import numpy as np
 import pandas as pd
 
 sys.path.append('D:/Code/Paper/st-learned-index')
-from src.spatial_index.common_utils import ZOrder
+from src.spatial_index.common_utils import ZOrder, Region
 from src.spatial_index.spatial_index import SpatialIndex
 from src.rmi_keras import TrainedNN, AbstractNN
 
 
 class ZMIndex(SpatialIndex):
-    def __init__(self, model_path=None, train_data_length=None, rmi=None, errs=None, index_list=None,
+    def __init__(self, region=Region(-90, 90, -180, 180), model_path=None, train_data_length=None, rmi=None, errs=None,
+                 index_list=None,
                  z_values_normalization_min_max=None):
         super(ZMIndex, self).__init__("ZM Index")
         # nn args
         self.block_size = 100
         self.use_thresholds = [True, True]  # 是否使用thresholds来提前结束训练
-        self.thresholds = [0.4, 0.8]  # thresholds是误差/model的数据范围的百分比
+        self.thresholds = [0.1, 0.5]  # thresholds是误差/model的数据范围的百分比 TODO重新训练nn
         self.stages = [1, 100]
         self.stage_length = len(self.stages)
         self.cores = [[1, 8, 8, 8, 1], [1, 8, 8, 8, 1]]
@@ -33,6 +34,7 @@ class ZMIndex(SpatialIndex):
         self.train_labels = [[[] for i in range(self.stages[i])] for i in range(self.stage_length)]
 
         # zm index args, support predict and query
+        self.region = region
         self.model_path = model_path
         self.train_data_length = train_data_length
         self.rmi = [[None for i in range(self.stages[i])] for i in range(self.stage_length)] if rmi is None else rmi
@@ -51,7 +53,7 @@ class ZMIndex(SpatialIndex):
         :return: None
         """
         z_order = ZOrder()
-        z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y), 1)
+        z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y, self.region), 1)
         z_values_min = z_values.min()
         z_values_max = z_values.max()
         self.z_values_normalization_min_max = [z_values_min, z_values_max]
@@ -237,12 +239,12 @@ class ZMIndex(SpatialIndex):
 
     @staticmethod
     def init_by_dict(d: dict):
-        return ZMIndex(None,
-                       d['train_data_length'],
-                       d['rmi'],
-                       d['errs'],
-                       d['index_list'],
-                       d['z_values_normalization_min_max'])
+        return ZMIndex(region=d['region'],
+                       train_data_length=d['train_data_length'],
+                       rmi=d['rmi'],
+                       errs=d['errs'],
+                       index_list=d['index_list'],
+                       z_values_normalization_min_max=d['z_values_normalization_min_max'])
 
     def get_err(self):
         """
@@ -269,13 +271,13 @@ class ZMIndex(SpatialIndex):
         3. predict by z and create index scope [pre - min_err, pre + max_err]
         4. binary search in scope
         :param data: pd.DataFrame, [x, y]
-        :return: pd.DataFrame, [pre, min_err, max_err]
+        :return: pd.DataFrame, [pre]
         """
         z_order = ZOrder()
         # 写法1：list
         results = []
         for index, point in data.iterrows():
-            z_value = z_order.point_to_z(point.x, point.y)
+            z_value = z_order.point_to_z(point.x, point.y, self.region)
             # z归一化
             z = (z_value - self.z_values_normalization_min_max[0]) / (
                     self.z_values_normalization_min_max[1] - self.z_values_normalization_min_max[0])
@@ -286,7 +288,7 @@ class ZMIndex(SpatialIndex):
             results.append(result)
         return pd.Series(results)
         # 写法2：pd.DataFrame
-        # z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y), 1)
+        # z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y, self.region), 1)
         # # z归一化
         # data["z"] = (z_values - self.z_values_normalization_min_max[0]) / (
         #         self.z_values_normalization_min_max[1] - self.z_values_normalization_min_max[0])
@@ -374,7 +376,7 @@ if __name__ == '__main__':
     test_set_xy = train_set_xy.sample(n=int(len(train_set_xy) * test_ratio), random_state=1)
     # create index
     model_path = "model/zm_index_2022-01-25/"
-    index = ZMIndex(model_path=model_path)
+    index = ZMIndex(region=Region(40, 42, -75, -73), model_path=model_path)
     index_name = index.name
     load_index_from_json = False
     if load_index_from_json:
@@ -388,7 +390,6 @@ if __name__ == '__main__':
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)
         index.save()
-    err = 0
     start_time = time.time()
     result = index.point_query(test_set_xy)
     end_time = time.time()

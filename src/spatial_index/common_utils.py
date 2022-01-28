@@ -35,9 +35,6 @@ class Point:
         else:
             return False
 
-    def compute_z(self):
-        self.z = ZOrder().point_to_z(self.lng, self.lat)
-
 
 class Region:
     def __init__(self, bottom, up, left, right):
@@ -54,20 +51,21 @@ class ZOrder:
     def __init__(self):
         self.morton = morton.Morton(dimensions=2, bits=21)
 
-    def point_to_z(self, lng, lat):
+    def point_to_z(self, lng, lat, region):
         """
         计算point的z order
-        1. degree的point坐标映射到整数，以便计算z order
-        zoom的大小取决于point的精度，当前数据的范围是Range(40, 42, -75, -73)，经纬度有6位小数
+        1. degree根据region缩放，然后根据zoom缩放到整数
+        zoom的大小取决于point的精度，经纬度有6位小数
         则zoom差不多是7位
         2. 使用morton-py.pack(int, int): int计算z order
         :param lng:
         :param lat:
+        :param region:
         :return:
         """
         zoom = 1000000
-        lng_zoom = int((lng - -75.0) * zoom)
-        lat_zoom = int((lat - 40.0) * zoom)
+        lng_zoom = int((lng - region.left) * zoom)
+        lat_zoom = int((lat - region.bottom) * zoom)
         return self.morton.pack(lng_zoom, lat_zoom)
 
 
@@ -206,7 +204,7 @@ def create_data(path):
             writer.writerow([index, lng, lat])
 
 
-def create_data_z(input_path, output_path, lng_col, lat_col):
+def create_data_z(input_path, output_path, lng_col, lat_col, region):
     """
     compute and add z order into file
     1. compute z order by lng and lat
@@ -215,6 +213,7 @@ def create_data_z(input_path, output_path, lng_col, lat_col):
     :param output_path:
     :param lng_col:
     :param lat_col:
+    :param region:
     :return:
     """
     df = pd.read_csv(input_path, header=None)
@@ -222,7 +221,7 @@ def create_data_z(input_path, output_path, lng_col, lat_col):
     z_values = []
     z_values_normalization = []
     for i in range(df.count()[0]):
-        z_value = z_order.point_to_z(df[lng_col][i], df[lat_col][i])
+        z_value = z_order.point_to_z(df[lng_col][i], df[lat_col][i], region)
         z_values.append(z_value)
     # z归一化
     min_z_value = min(z_values)
