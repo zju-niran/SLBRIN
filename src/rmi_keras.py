@@ -1,9 +1,9 @@
 # Main file for NN model
 import logging
 import os.path
+import random
 from functools import wraps
 
-import h5py
 import numpy as np
 import tensorflow as tf
 
@@ -82,7 +82,7 @@ class TrainedNN:
         self.keep_ratio = keep_ratio
         self.train_x = train_x
         self.train_y = train_y
-        self.model_path = model_path
+        self.model_path = self.get_best_model_file(model_path)
         self.use_threshold = use_threshold
         # 根据label范围和误差百分比计算误差范围
         # 因为block_size=100，所以index最小间隔是0.01，0.005在四舍五入的时候是最小单位，可以避免train_y长度是0的情况
@@ -157,9 +157,9 @@ class TrainedNN:
                                                         save_freq='epoch')
         callbacks_list = [checkpoint]
         # fit and save model
-        check_step = 100
+        check_step = 500
         check_iter = int(self.train_step_nums / check_step)
-        last_min_err = 0
+        last_min_loss = 0
         for current_check_iter in range(check_iter):
             history = self.model.fit(self.train_x, self.train_y,
                                      epochs=check_step + current_check_iter * check_step,
@@ -170,33 +170,40 @@ class TrainedNN:
             self.best_model = tf.keras.models.load_model(self.model_path)
             self.err = max(self.get_err())
             min_loss = min(history.history.get("loss"))
+
             if current_check_iter == 0:
-                last_min_err = min_loss
+                last_min_loss = min_loss
             # redo or stop train when loss stop decreasing
-            if current_check_iter > 0 and min_loss >= last_min_err:
+            if current_check_iter > 0 and min_loss >= last_min_loss:
                 # retrain when loss stop decreasing and err exceed the threshold
                 if self.use_threshold and self.err > self.threshold:
-                    os.remove(self.model_path)
+                    # os.remove(self.model_path)
                     print("Retrain when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
                         self.model_path, self.err, self.threshold))
                     logging.info("Retrain when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
                         self.model_path, self.err, self.threshold))
+                    self.rename_model_file_by_err(self.model_path, self.err)
+                    self.model_path = self.init_model_name_by_random(self.model_path)
                     self.train()
                     break
                 # stop train early when loss stop decreasing and err is enough
                 else:
                     print("Stop train when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
                         self.model_path, self.err, self.threshold))
+                    logging.info("Stop train when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
+                        self.model_path, self.err, self.threshold))
+                    self.rename_model_file_by_err(self.model_path, self.err)
                     return
             # continue train when loss decrease
             else:
-                last_min_err = min_loss
+                last_min_loss = min_loss
                 # use threshold to stop train early
                 if self.use_threshold and self.err <= self.threshold:
                     print("Stop train when err enough: Model %s, Err %f, Threshold %f" % (
                         self.model_path, self.err, self.threshold))
                     logging.info("Stop train when err enough: Model %s, Err %f, Threshold %f" % (
                         self.model_path, self.err, self.threshold))
+                    self.rename_model_file_by_err(self.model_path, self.err)
                     return
 
     def is_model_file_valid(self):
@@ -231,3 +238,61 @@ class TrainedNN:
                 if err > max_err:
                     max_err = err
         return [abs(min_err), max_err]
+
+    @staticmethod
+    def get_best_model_file(model_path):
+        """
+        find the min err model path
+        :return: perfect model path
+        """
+        file_path, file_name = os.path.split(model_path)
+        tmp_split = file_name.split('.')
+        model_index = tmp_split[0]
+        suffix = tmp_split[-1]
+        min_err = 'best'
+        files = os.listdir(file_path)
+        for file in files:
+            tmp_split = file.split('.')
+            tmp_model_index = tmp_split[0]
+            tmp_err = '.'.join(tmp_split[1:-1])
+            try:
+                tmp_err = float(tmp_err)
+            except:
+                continue
+            if tmp_model_index == model_index:
+                if min_err == 'best' or min_err > tmp_err:
+                    min_err = tmp_err
+        best_file_name = '.'.join([model_index, str(min_err), suffix])
+        return os.path.join(file_path, best_file_name)
+
+    @staticmethod
+    def rename_model_file_by_err(model_path, err):
+        """
+        rename model file by err
+        :param model_path: old path
+        :param err: float
+        :return: None
+        """
+        file_path, file_name = os.path.split(model_path)
+        tmp_split = file_name.split('.')
+        model_index = tmp_split[0]
+        suffix = tmp_split[-1]
+        new_file_name = '.'.join([model_index, str(err), suffix])
+        try:
+            os.rename(model_path, os.path.join(file_path, new_file_name))
+        except FileExistsError:  # 相同误差的model不再重复保存
+            os.remove(model_path)
+
+    @staticmethod
+    def init_model_name_by_random(model_path):
+        """
+        init model name by random float num
+        :param model_path: old path
+        :return: new path
+        """
+        file_path, file_name = os.path.split(model_path)
+        tmp_split = file_name.split('.')
+        model_index = tmp_split[0]
+        suffix = tmp_split[-1]
+        new_file_name = '.'.join([model_index, str(random.random()), suffix])
+        return os.path.join(file_path, new_file_name)
