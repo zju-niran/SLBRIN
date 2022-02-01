@@ -254,13 +254,13 @@ class TrainedNN:
         for file in files:
             tmp_split = file.split('.')
             tmp_model_index = tmp_split[0]
-            tmp_err = '.'.join(tmp_split[1:-1])
-            try:
-                tmp_err = float(tmp_err)
-            except:
-                continue
             if tmp_model_index == model_index:
-                if min_err == 'best' or min_err > tmp_err:
+                tmp_err = '.'.join(tmp_split[1:-1])
+                try:
+                    tmp_err = float(tmp_err)
+                except:
+                    continue
+                if (min_err == 'best' or min_err > tmp_err) and tmp_err > 0:
                     min_err = tmp_err
         best_file_name = '.'.join([model_index, str(min_err), suffix])
         return os.path.join(file_path, best_file_name)
@@ -294,5 +294,5 @@ class TrainedNN:
         tmp_split = file_name.split('.')
         model_index = tmp_split[0]
         suffix = tmp_split[-1]
-        new_file_name = '.'.join([model_index, str(random.random()), suffix])
+        new_file_name = '.'.join([model_index, str(random.random() * -1), suffix])
         return os.path.join(file_path, new_file_name)
