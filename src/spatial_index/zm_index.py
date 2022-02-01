@@ -345,6 +345,8 @@ class MyEncoder(json.JSONEncoder):
             return None
         elif isinstance(obj, np.int64):
             return int(obj)
+        elif isinstance(obj, Region):
+            return obj.__dict__
         elif isinstance(obj, ZMIndex):
             return obj.__dict__
         elif isinstance(obj, AbstractNN):
@@ -360,6 +362,9 @@ class MyDecoder(json.JSONDecoder):
     def dict_to_object(self, d):
         if len(d.keys()) == 2 and d.__contains__("weights") and d.__contains__("core_nums"):
             t = AbstractNN.init_by_dict(d)
+        elif len(d.keys()) == 4 and d.__contains__("bottom") and d.__contains__("up") \
+                and d.__contains__("left") and d.__contains__("right"):
+            t = Region.init_by_dict(d)
         else:
             t = ZMIndex.init_by_dict(d)
         return t

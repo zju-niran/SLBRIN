@@ -46,6 +46,13 @@ class Region:
     def contain(self, point):
         return self.up >= point.lat >= self.bottom and self.right >= point.lng >= self.left
 
+    @staticmethod
+    def init_by_dict(d: dict):
+        return Region(bottom=d['bottom'],
+                      up=d['up'],
+                      left=d['left'],
+                      right=d['right'])
+
 
 class ZOrder:
     def __init__(self):
