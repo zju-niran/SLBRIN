@@ -160,56 +160,28 @@ class TrainedNN:
                                                         save_best_only=True,
                                                         mode='min',
                                                         save_freq='epoch')
-        callbacks_list = [checkpoint]
+        early_stopping = tf.keras.callbacks.EarlyStopping(monitor='score',
+                                                          patience=500,
+                                                          mode='min',
+                                                          verbose=2)
+        callbacks_list = [checkpoint, early_stopping]
         # fit and save model
-        check_step = 500
-        check_iter = int(self.train_step_nums / check_step)
-        last_min_loss = 0
-        for current_check_iter in range(check_iter):
-            history = self.model.fit(self.train_x, self.train_y,
-                                     epochs=check_step + current_check_iter * check_step,
-                                     initial_epoch=current_check_iter * check_step,
-                                     batch_size=self.batch_size,
-                                     verbose=0,
-                                     callbacks=callbacks_list)
-            self.best_model = tf.keras.models.load_model(self.model_path)
-            self.err = max(self.get_err())
-            min_loss = min(history.history.get("loss"))
-
-            if current_check_iter == 0:
-                last_min_loss = min_loss
-            # redo or stop train when loss stop decreasing
-            if current_check_iter > 0 and min_loss >= last_min_loss:
-                # retrain when loss stop decreasing and err exceed the threshold
-                if self.use_threshold and self.err > self.threshold:
-                    # os.remove(self.model_path)
-                    print("Retrain when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
-                        self.model_path, self.err, self.threshold))
-                    logging.info("Retrain when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
-                        self.model_path, self.err, self.threshold))
-                    self.rename_model_file_by_err(self.model_path, self.err)
-                    self.model_path = self.init_model_name_by_random(self.model_path)
-                    self.train()
-                    break
-                # stop train early when loss stop decreasing and err is enough
-                else:
-                    print("Stop train when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
-                        self.model_path, self.err, self.threshold))
-                    logging.info("Stop train when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
-                        self.model_path, self.err, self.threshold))
-                    self.rename_model_file_by_err(self.model_path, self.err)
-                    return
-            # continue train when loss decrease
-            else:
-                last_min_loss = min_loss
-                # use threshold to stop train early
-                if self.use_threshold and self.err <= self.threshold:
-                    print("Stop train when err enough: Model %s, Err %f, Threshold %f" % (
-                        self.model_path, self.err, self.threshold))
-                    logging.info("Stop train when err enough: Model %s, Err %f, Threshold %f" % (
-                        self.model_path, self.err, self.threshold))
-                    self.rename_model_file_by_err(self.model_path, self.err)
-                    return
+        history = self.model.fit(self.train_x, self.train_y,
+                                 epochs=self.train_step_nums,
+                                 initial_epoch=0,
+                                 batch_size=self.batch_size,
+                                 verbose=0,
+                                 callbacks=callbacks_list)
+        self.best_model = tf.keras.models.load_model(self.model_path, custom_objects={'score': self.score})
+        self.err = max(self.get_err())
+        if self.use_threshold and self.err > self.threshold:  # TODO: scores和err不一致
+            print("Retrain when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
+                self.model_path, self.err, self.threshold))
+            logging.info("Retrain when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
+                self.model_path, self.err, self.threshold))
+            self.rename_model_file_by_err(self.model_path, self.err)
+            self.model_path = self.init_model_name_by_random(self.model_path)
+            self.train()
 
     def is_model_file_valid(self):
         try:
