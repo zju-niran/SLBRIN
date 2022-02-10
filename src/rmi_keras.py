@@ -91,6 +91,10 @@ class TrainedNN:
         self.best_model = None
         self.err = 0
 
+    @staticmethod
+    def score(y_true, y_pred):
+        return tf.keras.backend.max(tf.keras.backend.abs(y_true - y_pred))
+
     # train model
     def train(self):
         # GPU配置
@@ -111,7 +115,7 @@ class TrainedNN:
             # )
         # create or load model
         if self.is_model_file_valid():  # valid the model file exists and is in hdf5 format
-            self.model = tf.keras.models.load_model(self.model_path)
+            self.model = tf.keras.models.load_model(self.model_path, custom_objects={'score': self.score})
             self.best_model = self.model
             # do not train exists model when err is enough
             if self.use_threshold:
@@ -145,12 +149,13 @@ class TrainedNN:
             # compile model
             optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate,
                                                  clipvalue=1.0)  # clipvalue使用梯度裁剪避免梯度爆炸
-            model.compile(optimizer=optimizer, loss='mse', metrics=["accuracy"])
+
+            model.compile(optimizer=optimizer, loss='mse', metrics=[self.score])
             self.model = model
         # self.model.summary()
         # checkpoint
         checkpoint = tf.keras.callbacks.ModelCheckpoint(self.model_path,
-                                                        monitor='loss',
+                                                        monitor='score',
                                                         verbose=0,
                                                         save_best_only=True,
                                                         mode='min',
@@ -208,7 +213,7 @@ class TrainedNN:
 
     def is_model_file_valid(self):
         try:
-            model = tf.keras.models.load_model(self.model_path)
+            model = tf.keras.models.load_model(self.model_path, custom_objects={'score': self.score})
             return True
         except Exception:
             # {ValueError}No model config found in the file
