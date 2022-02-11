@@ -47,11 +47,8 @@ class GeoHashModelIndex(SpatialIndex):
         """
         z_order = ZOrder()
         z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y, self.region), 1)
-        z_values_min = z_values.min()
-        z_values_max = z_values.max()
-        self.normalization_values = [z_values_min, z_values_max]
         # z归一化
-        z_values_normalization = (z_values - z_values_min) / (z_values_max - z_values_min)
+        z_values_normalization = z_values / z_order.max_z
         self.train_data_length = z_values_normalization.size
         self.train_inputs[0][0] = z_values_normalization.sort_values(ascending=True).tolist()
         self.train_labels[0][0] = pd.Series(np.arange(0, self.train_data_length) / self.block_size).tolist()

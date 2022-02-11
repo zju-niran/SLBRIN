@@ -56,23 +56,23 @@ class Region:
 
 class ZOrder:
     def __init__(self):
-        self.morton = morton.Morton(dimensions=2, bits=21)
+        self.bits = 21
+        self.morton = morton.Morton(dimensions=2, bits=self.bits)
+        self.max_z = (1 << self.bits * 2) - 1
 
     def point_to_z(self, lng, lat, region):
         """
         计算point的z order
-        1. degree根据region缩放，然后根据zoom缩放到整数
-        zoom的大小取决于point的精度，经纬度有6位小数
-        则zoom差不多是7位
-        2. 使用morton-py.pack(int, int): int计算z order
+        1. 经纬度都先根据region归一化到0-1，然后缩放到0-2^self.bits
+        2. 使用morton-py.pack(int, int): int计算z order，顺序是左下、右下、左上、右上
         :param lng:
         :param lat:
         :param region:
         :return:
         """
-        zoom = 1000000
-        lng_zoom = int((lng - region.left) * zoom)
-        lat_zoom = int((lat - region.bottom) * zoom)
+        max_num = 1 << self.bits
+        lng_zoom = int((lng - region.left) * max_num / (region.right - region.left))
+        lat_zoom = int((lat - region.bottom) * max_num / (region.up - region.bottom))
         return self.morton.pack(lng_zoom, lat_zoom)
 
 

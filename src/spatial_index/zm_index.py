@@ -16,8 +16,7 @@ from src.rmi_keras import TrainedNN, AbstractNN
 
 class ZMIndex(SpatialIndex):
     def __init__(self, region=Region(-90, 90, -180, 180), model_path=None, train_data_length=None, rmi=None, errs=None,
-                 index_list=None,
-                 z_values_normalization_min_max=None):
+                 index_list=None):
         super(ZMIndex, self).__init__("ZM Index")
         # nn args
         self.block_size = 100
@@ -40,7 +39,6 @@ class ZMIndex(SpatialIndex):
         self.rmi = [[None for i in range(self.stages[i])] for i in range(self.stage_length)] if rmi is None else rmi
         self.errs = errs  # 查询时的左右误差边界
         self.index_list = index_list  # 索引列
-        self.z_values_normalization_min_max = z_values_normalization_min_max  # 查询时用来归一化z
 
     def init_train_data(self, data: pd.DataFrame):
         """
@@ -54,11 +52,8 @@ class ZMIndex(SpatialIndex):
         """
         z_order = ZOrder()
         z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y, self.region), 1)
-        z_values_min = z_values.min()
-        z_values_max = z_values.max()
-        self.z_values_normalization_min_max = [z_values_min, z_values_max]
         # z归一化
-        z_values_normalization = (z_values - z_values_min) / (z_values_max - z_values_min)
+        z_values_normalization = z_values / z_order.max_z
         self.train_data_length = z_values_normalization.size
         self.train_inputs[0][0] = z_values_normalization.sort_values(ascending=True).tolist()
         self.train_labels[0][0] = pd.Series(np.arange(0, self.train_data_length) / self.block_size).tolist()
@@ -232,7 +227,6 @@ class ZMIndex(SpatialIndex):
             self.train_data_length = zm_index.train_data_length
             self.rmi = zm_index.rmi
             self.errs = zm_index.errs
-            self.z_values_normalization_min_max = zm_index.z_values_normalization_min_max
             self.index_list = pd.read_csv(self.model_path + 'index_list.csv',
                                           float_precision='round_trip')  # round_trip保留小数位数
             del zm_index
@@ -243,8 +237,7 @@ class ZMIndex(SpatialIndex):
                        train_data_length=d['train_data_length'],
                        rmi=d['rmi'],
                        errs=d['errs'],
-                       index_list=d['index_list'],
-                       z_values_normalization_min_max=d['z_values_normalization_min_max'])
+                       index_list=d['index_list'])
 
     def get_err(self):
         """
@@ -279,8 +272,7 @@ class ZMIndex(SpatialIndex):
         for index, point in data.iterrows():
             z_value = z_order.point_to_z(point.x, point.y, self.region)
             # z归一化
-            z = (z_value - self.z_values_normalization_min_max[0]) / (
-                    self.z_values_normalization_min_max[1] - self.z_values_normalization_min_max[0])
+            z = z_value / z_order.max_z
             pre = self.predict(z)
             left_bound = max((pre - self.errs[0]) * self.block_size, 0)
             right_bound = min((pre + self.errs[1]) * self.block_size, self.train_data_length)
