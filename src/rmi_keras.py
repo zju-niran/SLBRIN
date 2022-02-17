@@ -85,9 +85,7 @@ class TrainedNN:
         self.clean_not_best_model_file(model_path)
         self.model_path = self.get_best_model_file(model_path)
         self.use_threshold = use_threshold
-        # 根据label范围和误差百分比计算误差范围
-        # 因为block_size=100，所以index最小间隔是0.01，0.005在四舍五入的时候是最小单位，可以避免train_y长度是0的情况
-        self.threshold = max(0.005, threshold * (max(self.train_y) - min(self.train_y)))
+        self.threshold = threshold
         self.model = None
         self.best_model = None
         self.err = 0
@@ -175,14 +173,25 @@ class TrainedNN:
                                  callbacks=callbacks_list)
         self.best_model = tf.keras.models.load_model(self.model_path, custom_objects={'score': self.score})
         self.err = max(self.get_err())
-        if self.use_threshold and self.err > self.threshold:  # TODO: scores和err不一致
-            print("Retrain when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
+        self.rename_model_file_by_err(self.model_path, self.err)
+        if self.use_threshold:
+            if self.err > self.threshold:  # TODO: scores和err不一致
+                self.model_path = self.init_model_name_by_random(self.model_path)
+                print("Retrain when score not perfect: Model %s, Err %f, Threshold %f" % (
+                    self.model_path, self.err, self.threshold))
+                logging.info("Retrain when score not perfect: Model %s, Err %f, Threshold %f" % (
+                    self.model_path, self.err, self.threshold))
+                self.train()
+            else:
+                print("Model perfect: Model %s, Err %f, Threshold %f" % (
+                    self.model_path, self.err, self.threshold))
+                logging.info("Model perfect: Model %s, Err %f, Threshold %f" % (
+                    self.model_path, self.err, self.threshold))
+        else:
+            print("Stop train when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
                 self.model_path, self.err, self.threshold))
-            logging.info("Retrain when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
+            logging.info("Stop train when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
                 self.model_path, self.err, self.threshold))
-            self.rename_model_file_by_err(self.model_path, self.err)
-            self.model_path = self.init_model_name_by_random(self.model_path)
-            self.train()
 
     def is_model_file_valid(self):
         try:
