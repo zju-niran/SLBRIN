@@ -26,7 +26,7 @@ class QuadTreeNode:
         self.RB = None
         self.LU = None
         self.RU = None
-        self.items = []  # ElePoitems[MAX_ELE_NUM]
+        self.items = []
 
 
 class QuadTree(Index):

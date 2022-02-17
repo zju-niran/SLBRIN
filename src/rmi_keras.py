@@ -87,7 +87,6 @@ class TrainedNN:
         self.use_threshold = use_threshold
         self.threshold = threshold
         self.model = None
-        self.best_model = None
         self.err = 0
 
     @staticmethod
@@ -115,7 +114,6 @@ class TrainedNN:
         # create or load model
         if self.is_model_file_valid():  # valid the model file exists and is in hdf5 format
             self.model = tf.keras.models.load_model(self.model_path, custom_objects={'score': self.score})
-            self.best_model = self.model
             # do not train exists model when err is enough
             if self.use_threshold:
                 self.err = max(self.get_err())
@@ -171,7 +169,7 @@ class TrainedNN:
                                  batch_size=self.batch_size,
                                  verbose=0,
                                  callbacks=callbacks_list)
-        self.best_model = tf.keras.models.load_model(self.model_path, custom_objects={'score': self.score})
+        self.model = tf.keras.models.load_model(self.model_path, custom_objects={'score': self.score})
         self.err = max(self.get_err())
         self.rename_model_file_by_err(self.model_path, self.err)
         if self.use_threshold:
@@ -204,8 +202,7 @@ class TrainedNN:
 
     # get weight matrix
     def get_weights(self):
-        # weights = self.model.get_weights()  # 最后一次fit的weights
-        weights = self.best_model.get_weights()  # loss最低的weights
+        weights = self.model.get_weights()
         w_list = []
         for i in range(len(weights)):
             w_list.append(weights[i].tolist())
@@ -213,8 +210,7 @@ class TrainedNN:
 
     # get err = pre - train_y
     def get_err(self):
-        # pres = self.model.predict(self.train_x).flatten()  # 最后一次fit的model
-        pres = self.best_model.predict(self.train_x).flatten()  # loss最低的model
+        pres = self.model.predict(self.train_x).flatten()
         errs = (pres - self.train_y).tolist()
         min_err, max_err = 0, 0
         for err in errs:

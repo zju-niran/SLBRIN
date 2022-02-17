@@ -21,7 +21,7 @@ class ZMIndex(SpatialIndex):
         # nn args
         self.block_size = 100
         self.use_thresholds = [True, True]  # 是否使用thresholds来提前结束训练
-        self.thresholds = [30, 5]
+        self.thresholds = [30, 20]
         self.stages = [1, 100]
         self.stage_length = len(self.stages)
         self.cores = [[1, 8, 8, 8, 1], [1, 8, 8, 8, 1]]
@@ -369,10 +369,8 @@ if __name__ == '__main__':
     # read_data_and_search(path, index, None, None, 7, 8)
     z_col, index_col = 7, 8
     train_set_xy = pd.read_csv(path, header=None, usecols=[2, 3], names=["x", "y"])
-    test_ratio = 0.5  # 测试集占总数据集的比例
-    test_set_xy = train_set_xy.sample(n=int(len(train_set_xy) * test_ratio), random_state=1)
     # create index
-    model_path = "model/zm_index_2022-01-25/"
+    model_path = "model/zm_index_2022-02-04/"
     index = ZMIndex(region=Region(40, 42, -75, -73), model_path=model_path)
     index_name = index.name
     load_index_from_json = False
@@ -388,9 +386,9 @@ if __name__ == '__main__':
         print("Build %s time " % index_name, build_time)
         index.save()
     start_time = time.time()
-    result = index.point_query(test_set_xy)
+    result = index.point_query(train_set_xy)
     end_time = time.time()
-    search_time = (end_time - start_time) / len(test_set_xy)
+    search_time = (end_time - start_time) / len(train_set_xy)
     print("Search time ", search_time)
     print("Not found nums ", result.isna().sum())
     print("*************end %s************" % index_name)
