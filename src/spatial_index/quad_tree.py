@@ -7,7 +7,7 @@ from memory_profiler import profile
 
 sys.path.append('D:/Code/Paper/st-learned-index')
 from src.index import Index
-from src.spatial_index.common_utils import Region, Point, Geohash
+from src.spatial_index.common_utils import Region, Point
 
 MAX_ELE_NUM = 100
 
@@ -22,10 +22,10 @@ class QuadTreeNode:
         self.depth = depth
         self.is_leaf = is_leaf
         self.region = region
-        self.LU = None
         self.LB = None
-        self.RU = None
         self.RB = None
+        self.LU = None
+        self.RU = None
         self.items = []  # ElePoitems[MAX_ELE_NUM]
 
 
@@ -66,16 +66,16 @@ class QuadTree(Index):
 
         y_center = (node.region.up + node.region.bottom) / 2
         x_center = (node.region.left + node.region.right) / 2
-        if point.lat > y_center:
-            if point.lng > x_center:
-                self.insert(point, node.RU)
-            else:
-                self.insert(point, node.LU)
-        else:
-            if point.lng > x_center:
-                self.insert(point, node.RB)
-            else:
+        if point.lat < y_center:
+            if point.lng < x_center:
                 self.insert(point, node.LB)
+            else:
+                self.insert(point, node.RB)
+        else:
+            if point.lng < x_center:
+                self.insert(point, node.LU)
+            else:
+                self.insert(point, node.RU)
 
     def split_node(self, node):
         """
@@ -87,10 +87,10 @@ class QuadTree(Index):
         x_center = (node.region.left + node.region.right) / 2
 
         node.is_leaf = 0
-        node.RU = self.create_child_node(node, y_center, node.region.up, x_center, node.region.right)
-        node.LU = self.create_child_node(node, y_center, node.region.up, node.region.left, x_center)
-        node.RB = self.create_child_node(node, node.region.bottom, y_center, x_center, node.region.right)
         node.LB = self.create_child_node(node, node.region.bottom, y_center, node.region.left, x_center)
+        node.RB = self.create_child_node(node, node.region.bottom, y_center, x_center, node.region.right)
+        node.LU = self.create_child_node(node, y_center, node.region.up, node.region.left, x_center)
+        node.RU = self.create_child_node(node, y_center, node.region.up, x_center, node.region.right)
 
         for item in node.items:
             self.insert(item, node)
@@ -145,11 +145,11 @@ class QuadTree(Index):
         2. 释放子象限的内存
         """
         node.is_leaf = 1
-        node.items = node.RU.items + node.LU.items + node.RB.items + node.LB.items
-        node.RU = None
-        node.LU = None
-        node.RB = None
+        node.items = node.LB.items + node.RB.items + node.LU.items + node.RU.items
         node.LB = None
+        node.RB = None
+        node.LU = None
+        node.RU = None
 
     def search(self, point, node=None):
         if node is None:
@@ -165,16 +165,16 @@ class QuadTree(Index):
 
         y_center = (node.region.up + node.region.bottom) / 2
         x_center = (node.region.left + node.region.right) / 2
-        if point.lat > y_center:
-            if point.lng > x_center:
-                return self.search(point, node.RU)
-            else:
-                return self.search(point, node.LU)
-        else:
-            if point.lng > x_center:
-                return self.search(point, node.RB)
-            else:
+        if point.lat < y_center:
+            if point.lng < x_center:
                 return self.search(point, node.LB)
+            else:
+                return self.search(point, node.RB)
+        else:
+            if point.lng < x_center:
+                return self.search(point, node.LU)
+            else:
+                return self.search(point, node.RU)
 
     def geohash(self, node=None, parent_geohash=None):
         """
@@ -199,8 +199,8 @@ class QuadTree(Index):
             return
         else:
             self.geohash(node.LB, parent_geohash + "00")
-            self.geohash(node.LU, parent_geohash + "01")
-            self.geohash(node.RB, parent_geohash + "10")
+            self.geohash(node.RB, parent_geohash + "01")
+            self.geohash(node.LU, parent_geohash + "10")
             self.geohash(node.RU, parent_geohash + "11")
 
     def build(self, data: pd.DataFrame, z=False):
@@ -219,7 +219,6 @@ class QuadTree(Index):
         :param data: pd.DataFrame, [x, y]
         :return: pd.DataFrame, [pre]
         """
-
         results = data.apply(lambda t: self.search(Point(t.x, t.y))[0], 1)
         return results
 
