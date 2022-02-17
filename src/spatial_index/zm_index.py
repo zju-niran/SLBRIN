@@ -21,7 +21,7 @@ class ZMIndex(SpatialIndex):
         # nn args
         self.block_size = 100
         self.use_thresholds = [True, True]  # 是否使用thresholds来提前结束训练
-        self.thresholds = [0.1, 0.5]  # thresholds是误差/model的数据范围的百分比 TODO重新训练nn
+        self.thresholds = [30, 5]
         self.stages = [1, 100]
         self.stage_length = len(self.stages)
         self.cores = [[1, 8, 8, 8, 1], [1, 8, 8, 8, 1]]

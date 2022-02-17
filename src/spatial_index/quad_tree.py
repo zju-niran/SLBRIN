@@ -31,13 +31,13 @@ class QuadTree(Index):
     def __init__(self, region=Region(-90, 90, -180, 180), max_num=MAX_ELE_NUM):
         """
         初始化非满四叉树，超过阈值就分裂
+        :param region: 四叉树整体的bbox
         :param max_num: 节点内的点数据数量预置
         """
         super(QuadTree, self).__init__("QuadTree")
         self.max_num = max_num
         self.root_node = QuadTreeNode(region=region)
-        self.leaf_list = []
-        self.node_geohash = None
+        self.geohash_items_map = {}
 
     def insert(self, point, node=None):
         """
@@ -187,8 +187,13 @@ class QuadTree(Index):
             parent_geohash = ""
         # 节点内部查找：遍历
         if node.is_leaf == 1:
-            self.leaf_list.append(parent_geohash)
-            node.geohash = parent_geohash
+            if len(node.items) > 0:
+                sorted_items = sorted(node.items, key=lambda point: point.z)
+                self.geohash_items_map[parent_geohash] = {
+                    "z_border": [sorted_items[0].z, sorted_items[-1].z],
+                    "xy_border": node.region,
+                    "items": node.items
+                }
             return
         else:
             self.geohash(node.LB, parent_geohash + "00")
@@ -196,9 +201,13 @@ class QuadTree(Index):
             self.geohash(node.RB, parent_geohash + "10")
             self.geohash(node.RU, parent_geohash + "11")
 
-    def build(self, data: pd.DataFrame):
-        for index, point in data.iterrows():
-            self.insert(Point(point.x, point.y, index=index))
+    def build(self, data: pd.DataFrame, z=False):
+        if z is False:
+            for index, point in data.iterrows():
+                self.insert(Point(point.x, point.y, index=index))
+        else:
+            for index, point in data.iterrows():
+                self.insert(Point(point.x, point.y, point.z, point.z_index))
 
     def point_query(self, data: pd.DataFrame):
         """

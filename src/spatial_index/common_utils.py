@@ -279,6 +279,15 @@ def read_data_and_search(path, index, lng_col, lat_col, z_col, index_col):
     print("*************end %s************" % index_name)
 
 
+def is_sorted_list(lst):
+    """
+    判断list是否有序
+    :param lst: list
+    :return:
+    """
+    return sorted(lst) == lst or sorted(lst, reverse=True) == lst
+
+
 if __name__ == '__main__':
     geohash = Geohash()
     print(geohash.encode(-5.6, 42.6, precision=25))
