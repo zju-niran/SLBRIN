@@ -1,7 +1,11 @@
 import csv
 import random
 import time
+from collections import deque
+from itertools import chain
 from math import log10
+from reprlib import repr
+from sys import getsizeof, stderr
 
 import morton
 import numpy
@@ -277,6 +281,56 @@ def read_data_and_search(path, index, lng_col, lat_col, z_col, index_col):
     mean_error = err * 1.0 / len(test_set_point)
     print("mean error = ", mean_error)
     print("*************end %s************" % index_name)
+
+
+# python sys.getsizeof无法对自定义类统计内存，提出以下方法
+# 代码来自：https://code.activestate.com/recipes/577504
+# l342有漏洞：只统计class.__dict__包含的属性，rtree.__dict__不包含bounds等属性，导致内存统计偏小
+def total_size(o, handlers={}, verbose=False):
+    """ Returns the approximate memory footprint an object and all of its contents.
+
+    Automatically finds the contents of the following builtin containers and
+    their subclasses:  tuple, list, deque, dict, set and frozenset.
+    To search other containers, add handlers to iterate over their contents:
+
+        handlers = {SomeContainerClass: iter,
+                    OtherContainerClass: OtherContainerClass.get_elements}
+
+    """
+    dict_handler = lambda d: chain.from_iterable(d.items())
+    all_handlers = {tuple: iter,
+                    list: iter,
+                    deque: iter,
+                    dict: dict_handler,
+                    set: iter,
+                    frozenset: iter,
+                    }
+    all_handlers.update(handlers)  # user handlers take precedence
+    seen = set()  # track which object id's have already been seen
+    default_size = getsizeof(0)  # estimate sizeof object without __sizeof__
+
+    def sizeof(o):
+        if id(o) in seen:  # do not double count the same object
+            return 0
+        seen.add(id(o))
+        s = getsizeof(o, default_size)
+
+        if verbose:
+            print(s, type(o), repr(o), file=stderr)
+
+        for typ, handler in all_handlers.items():
+            if isinstance(o, typ):
+                s += sum(map(sizeof, handler(o)))
+                break
+        if not hasattr(o.__class__, '__slots__'):
+            if hasattr(o, '__dict__'):
+                # no __slots__ *usually* means a __dict__, but some special builtin classes (such as `type(None)`) have neither
+                s += sizeof(o.__dict__)
+        else:
+            s += sum(sizeof(getattr(o, x)) for x in o.__class__.__slots__ if hasattr(o, x))
+        return s
+
+    return sizeof(o)
 
 
 def is_sorted_list(lst):

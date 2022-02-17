@@ -1,9 +1,12 @@
 import os
+import sys
 import time
 
 import pandas as pd
+from memory_profiler import profile
 from rtree import index
 
+sys.path.append('D:/Code/Paper/st-learned-index')
 from src.index import Index
 from src.spatial_index.common_utils import Point
 
@@ -40,7 +43,8 @@ class RTree(Index):
         return results
 
 
-if __name__ == '__main__':
+@profile(precision=8)
+def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     # load data
     path = '../../data/trip_data_2_100000_random.csv'
@@ -72,3 +76,7 @@ if __name__ == '__main__':
     print("Search time ", search_time)
     print("Not found nums ", result.isna().sum())
     print("*************end %s************" % index_name)
+
+
+if __name__ == '__main__':
+    main()
