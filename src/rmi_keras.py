@@ -82,6 +82,7 @@ class TrainedNN:
         self.keep_ratio = keep_ratio
         self.train_x = train_x
         self.train_y = train_y
+        self.clean_not_best_model_file(model_path)
         self.model_path = self.get_best_model_file(model_path)
         self.use_threshold = use_threshold
         # 根据label范围和误差百分比计算误差范围
@@ -227,6 +228,8 @@ class TrainedNN:
         model_index = tmp_split[0]
         suffix = tmp_split[-1]
         min_err = 'best'
+        if os.path.exists(file_path) is False:
+            return model_path
         files = os.listdir(file_path)
         for file in files:
             tmp_split = file.split('.')
@@ -273,3 +276,34 @@ class TrainedNN:
         suffix = tmp_split[-1]
         new_file_name = '.'.join([model_index, str(random.random() * -1), suffix])
         return os.path.join(file_path, new_file_name)
+
+    @staticmethod
+    def clean_not_best_model_file(model_path):
+        """
+        delete all the model file besides the best one
+        :return: None
+        """
+        file_path, file_name = os.path.split(model_path)
+        tmp_split = file_name.split('.')
+        model_index = tmp_split[0]
+        suffix = tmp_split[-1]
+        min_err = 'best'
+        if os.path.exists(file_path) is False:
+            return
+        files = os.listdir(file_path)
+        for file in files:
+            tmp_split = file.split('.')
+            tmp_model_index = tmp_split[0]
+            if tmp_model_index == model_index:
+                tmp_err = '.'.join(tmp_split[1:-1])
+                try:
+                    tmp_err = float(tmp_err)
+                except:
+                    continue
+                if (min_err == 'best' or min_err > tmp_err) and tmp_err > 0:
+                    last_min_file_name = '.'.join([model_index, str(min_err), suffix])
+                    if os.path.exists(os.path.join(file_path, last_min_file_name)):
+                        os.remove(os.path.join(file_path, last_min_file_name))
+                    min_err = tmp_err
+                else:
+                    os.remove(os.path.join(file_path, file))
