@@ -347,6 +347,40 @@ def is_sorted_list(lst):
     return sorted(lst) == lst or sorted(lst, reverse=True) == lst
 
 
+def nparray_normalize(na):
+    """
+    对np.array进行最大最小值归一化
+    :param na: np.array
+    :return: 归一化的np.array和最大最小值
+    """
+    min_v = na.min(axis=0)
+    max_v = na.max(axis=0)
+    if max_v == min_v:
+        return na, None, None
+    else:
+        return (na - min_v) / (max_v - min_v), min_v, max_v
+
+
+def nparray_normalize_minmax(na, min_v, max_v):
+    """
+    对np.array进行指定最大最小值归一化
+    :param na: np.array
+    :return: 归一化的np.array
+    """
+    if max_v == min_v:
+        return na, None, None
+    else:
+        return (na - min_v) / (max_v - min_v)
+
+
+def nparray_normalize_reverse(na, min_v, max_v):
+    return na * (max_v - min_v) + min_v
+
+
+def nparray_diff_normalize_reverse(na_diff, min_v, max_v):
+    return na_diff * (max_v - min_v)
+
+
 if __name__ == '__main__':
     geohash = Geohash()
     print(geohash.encode(-5.6, 42.6, precision=25))

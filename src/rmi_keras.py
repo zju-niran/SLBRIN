@@ -7,6 +7,9 @@ from functools import wraps
 import numpy as np
 import tensorflow as tf
 
+from src.spatial_index.common_utils import nparray_normalize, nparray_diff_normalize_reverse, nparray_normalize_reverse, \
+    nparray_normalize_minmax
+
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
 logging.basicConfig(filename='my.log', level=logging.INFO, format=LOG_FORMAT, datefmt=DATE_FORMAT)
@@ -31,12 +34,17 @@ def memoize(func):
 
 # extract matrix for predicting position
 class AbstractNN:
-    def __init__(self, weights, core_nums):
+    def __init__(self, weights, core_nums, input_min, input_max, output_min, output_max):
         self.weights = weights
         self.core_nums = core_nums
+        self.input_min = input_min
+        self.input_max = input_max
+        self.output_min = output_min
+        self.output_max = output_max
 
     # @memoize TODO: 要加缓存的话， 缓存的key不能是list，之前是float
     def predict(self, input_keys):
+        input_keys = nparray_normalize_minmax(input_keys, self.input_min, self.input_max)
         tmp_res = np.mat(input_keys).T
         for i in range(len(self.core_nums) - 2):
             # w * x + b
@@ -62,7 +70,9 @@ class AbstractNN:
         # 最后一层单独用relu
         tmp_res = tmp_res * np.mat(self.weights[(i + 1) * 2]) + np.mat(self.weights[(i + 1) * 2 + 1])
         tmp_res[tmp_res < 0] = 0
-        return np.asarray(tmp_res).flatten()
+        return nparray_normalize_reverse(np.asarray(tmp_res).flatten(),
+                                         self.output_min,
+                                         self.output_max)
 
     @staticmethod
     def init_by_dict(d: dict):
@@ -80,18 +90,14 @@ class TrainedNN:
         self.batch_size = batch_size
         self.learning_rate = learning_rate
         self.keep_ratio = keep_ratio
-        self.train_x = train_x
-        self.train_y = train_y
+        self.train_x, self.train_x_min, self.train_x_max = nparray_normalize(np.asarray(train_x))
+        self.train_y, self.train_y_min, self.train_y_max = nparray_normalize(np.asarray(train_y))
         self.clean_not_best_model_file(model_path)
         self.model_path = self.get_best_model_file(model_path)
         self.use_threshold = use_threshold
         self.threshold = threshold
         self.model = None
         self.err = 0
-
-    @staticmethod
-    def score(y_true, y_pred):
-        return tf.keras.backend.max(tf.keras.backend.abs(y_true - y_pred))
 
     # train model
     def train(self):
@@ -116,7 +122,7 @@ class TrainedNN:
             self.model = tf.keras.models.load_model(self.model_path, custom_objects={'score': self.score})
             # do not train exists model when err is enough
             if self.use_threshold:
-                self.err = max(self.get_err())
+                self.err = self.get_err()
                 if self.err <= self.threshold:
                     print("Do not train when model exists and prefect: Model %s, Err %f, Threshold %f" % (
                         self.model_path, self.err, self.threshold))
@@ -152,12 +158,12 @@ class TrainedNN:
         # self.model.summary()
         # checkpoint
         checkpoint = tf.keras.callbacks.ModelCheckpoint(self.model_path,
-                                                        monitor='score',
-                                                        verbose=0,
+                                                        monitor='loss',
+                                                        verbose=2,
                                                         save_best_only=True,
                                                         mode='min',
                                                         save_freq='epoch')
-        early_stopping = tf.keras.callbacks.EarlyStopping(monitor='score',
+        early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss',
                                                           patience=500,
                                                           mode='min',
                                                           verbose=2)
@@ -167,10 +173,10 @@ class TrainedNN:
                                  epochs=self.train_step_nums,
                                  initial_epoch=0,
                                  batch_size=self.batch_size,
-                                 verbose=0,
+                                 verbose=2,
                                  callbacks=callbacks_list)
         self.model = tf.keras.models.load_model(self.model_path, custom_objects={'score': self.score})
-        self.err = max(self.get_err())
+        self.err = self.get_err()
         self.rename_model_file_by_err(self.model_path, self.err)
         if self.use_threshold:
             if self.err > self.threshold:  # TODO: scores和err不一致
@@ -208,19 +214,19 @@ class TrainedNN:
             w_list.append(weights[i].tolist())
         return w_list
 
+    def score(self, y_true, y_pred):
+        diff = nparray_diff_normalize_reverse(y_true - y_pred, self.train_y_min, self.train_y_max)
+        max_diff = tf.keras.backend.max(diff)
+        min_diff = tf.keras.backend.min(diff)
+        return max_diff - min_diff
+
     # get err = pre - train_y
     def get_err(self):
         pres = self.model.predict(self.train_x).flatten()
-        errs = (pres - self.train_y).tolist()
-        min_err, max_err = 0, 0
-        for err in errs:
-            if err < 0:
-                if err < min_err:
-                    min_err = err
-            else:
-                if err > max_err:
-                    max_err = err
-        return [abs(min_err), max_err]
+        errs = nparray_diff_normalize_reverse(pres - self.train_y,
+                                              self.train_y_min,
+                                              self.train_y_max)
+        return errs.max() - errs.min()
 
     @staticmethod
     def get_best_model_file(model_path):
