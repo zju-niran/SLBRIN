@@ -117,6 +117,7 @@ class ZMIndex(SpatialIndex):
                         self.train_inputs[i + 1][ind] = self.train_inputs[i][j][np.round(pres) == ind]
                         self.train_labels[i + 1][ind] = self.train_labels[i][j][np.round(pres) == ind]
         # 叶子节点使用线程池训练
+        multiprocessing.set_start_method('spawn')  # 解决CUDA_ERROR_NOT_INITIALIZED报错
         pool = multiprocessing.Pool(processes=thread_pool_size)
         mp_dict = multiprocessing.Manager().dict()  # 使用共享dict暂存index[i]的所有model
         i = self.stage_length - 1

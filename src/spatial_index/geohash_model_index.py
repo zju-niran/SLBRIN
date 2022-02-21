@@ -74,6 +74,7 @@ class GeoHashModelIndex(SpatialIndex):
         quadtree.geohash()
         split_data = quadtree.geohash_items_map
         # 2. in every part data, create zm-model
+        multiprocessing.set_start_method('spawn')  # 解决CUDA_ERROR_NOT_INITIALIZED报错
         pool = multiprocessing.Pool(processes=5)
         mp_dict = multiprocessing.Manager().dict()  # 使用共享dict暂存index[i]的所有model
         for geohash_key in split_data:
