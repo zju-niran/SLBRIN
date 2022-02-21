@@ -78,8 +78,8 @@ class GeoHashModelIndex(SpatialIndex):
         mp_dict = multiprocessing.Manager().dict()  # 使用共享dict暂存index[i]的所有model
         for geohash_key in split_data:
             points = split_data[geohash_key]["items"]
-            inputs = [item.z for item in points]
-            labels = [item.index for item in points]
+            inputs = np.array([item.z for item in points])
+            labels = np.array([item.index for item in points])
             if len(labels) == 0:
                 continue
             pool.apply_async(self.build_single_thread, (1, geohash_key, inputs, labels, mp_dict))

@@ -29,8 +29,8 @@ class ZMIndex(SpatialIndex):
         self.batch_sizes = [5000, 500]
         self.learning_rates = [0.0001, 0.0001]
         self.keep_ratios = [0.9, 0.9]
-        self.train_inputs = [[[] for i in range(self.stages[i])] for i in range(self.stage_length)]
-        self.train_labels = [[[] for i in range(self.stages[i])] for i in range(self.stage_length)]
+        self.train_inputs = [[None for i in range(self.stages[i])] for i in range(self.stage_length)]
+        self.train_labels = [[None for i in range(self.stages[i])] for i in range(self.stage_length)]
 
         # zm index args, support predict and query
         self.region = region
@@ -55,59 +55,8 @@ class ZMIndex(SpatialIndex):
         # z归一化
         z_values_normalization = z_values / z_order.max_z
         self.train_data_length = z_values_normalization.size
-        self.train_inputs[0][0] = z_values_normalization.sort_values(ascending=True).tolist()
-        self.train_labels[0][0] = pd.Series(np.arange(0, self.train_data_length) / self.block_size).tolist()
-
-    def build(self, data: pd.DataFrame):
-        """
-        build index
-        1. init train z->index data from x/y data
-        2. create rmi for train z->index data
-        """
-        # 1. init train z->index data from x/y data
-        self.init_train_data(data)
-        # 2. create rmi for train z->index data
-        # 构建stage_nums结构的树状NNs
-        for i in range(0, self.stage_length):
-            for j in range(0, self.stages[i]):
-                if len(self.train_labels[i][j]) == 0:
-                    continue
-                inputs = self.train_inputs[i][j]
-                labels = []
-                # 非叶子结点决定下一层要用的NN是哪个
-                if i < self.stage_length - 1:
-                    # first stage, calculate how many models in next stage
-                    divisor = self.stages[i + 1] * 1.0 / (self.train_data_length / self.block_size)
-                    for k in self.train_labels[i][j]:
-                        labels.append(int(k * divisor))
-                else:
-                    labels = self.train_labels[i][j]
-                # train model
-                model_path = self.model_path + "models/" + str(i) + "_" + str(j) + "_weights.best.hdf5"
-                print("start train nn in stage: %d, %d" % (i, j))
-                tmp_index = TrainedNN(model_path, inputs, labels,
-                                      self.thresholds[i],
-                                      self.use_thresholds[i],
-                                      self.cores[i],
-                                      self.train_steps[i],
-                                      self.batch_sizes[i],
-                                      self.learning_rates[i],
-                                      self.keep_ratios[i])
-                tmp_index.train()
-                # get parameters in model (weight matrix and bias matrix)
-                self.rmi[i][j] = AbstractNN(tmp_index.get_weights(),
-                                            self.cores[i],
-                                            tmp_index.err,
-                                            tmp_index.threshold)
-                del tmp_index
-                gc.collect()
-                if i < self.stage_length - 1:
-                    # allocate data into training set for models in next stage
-                    pres = self.rmi[i][j].predict(self.train_inputs[i][j])
-                    pres[pres > self.stages[i + 1] - 1] = self.stages[i + 1] - 1
-                    for ind in range(len(pres)):
-                        self.train_inputs[i + 1][round(pres[ind])].append(self.train_inputs[i][j][ind])
-                        self.train_labels[i + 1][round(pres[ind])].append(self.train_labels[i][j][ind])
+        self.train_inputs[0][0] = z_values_normalization.sort_values(ascending=True).values
+        self.train_labels[0][0] = pd.Series(np.arange(0, self.train_data_length) / self.block_size).values
 
     def build_single_thread(self, curr_stage, current_stage_step, inputs, labels, tmp_dict=None):
         # train model
@@ -151,23 +100,22 @@ class ZMIndex(SpatialIndex):
         # 构建stage_nums结构的树状NNs
         for i in range(0, self.stage_length - 1):
             for j in range(0, self.stages[i]):
-                if len(self.train_labels[i][j]) == 0:
+                if self.train_labels[i][j] is None:
                     continue
-                inputs = self.train_inputs[i][j]
-                labels = []
-                # 非叶子结点决定下一层要用的NN是哪个
-                # first stage, calculate how many models in next stage
-                divisor = self.stages[i + 1] * 1.0 / (self.train_data_length / self.block_size)
-                for k in self.train_labels[i][j]:
-                    labels.append(int(k * divisor))
-                # train model
-                self.build_single_thread(i, j, inputs, labels)
-                # allocate data into training set for models in next stage
-                pres = self.rmi[i][j].predict(self.train_inputs[i][j])
-                pres[pres > self.stages[i + 1] - 1] = self.stages[i + 1] - 1
-                for ind in range(len(pres)):
-                    self.train_inputs[i + 1][round(pres[ind])].append(self.train_inputs[i][j][ind])
-                    self.train_labels[i + 1][round(pres[ind])].append(self.train_labels[i][j][ind])
+                else:
+                    inputs = self.train_inputs[i][j]
+                    labels = []
+                    # 非叶子结点决定下一层要用的NN是哪个
+                    # first stage, calculate how many models in next stage
+                    divisor = self.stages[i + 1] * 1.0 / (self.train_data_length / self.block_size)
+                    labels = (self.train_labels[i][j] * divisor).astype(int)
+                    # train model
+                    self.build_single_thread(i, j, inputs, labels)
+                    # allocate data into training set for models in next stage
+                    pres = self.rmi[i][j].predict(self.train_inputs[i][j])
+                    for ind in range(self.stages[i + 1]):
+                        self.train_inputs[i + 1][ind] = self.train_inputs[i][j][np.round(pres) == ind]
+                        self.train_labels[i + 1][ind] = self.train_labels[i][j][np.round(pres) == ind]
         # 叶子节点使用线程池训练
         pool = multiprocessing.Pool(processes=thread_pool_size)
         mp_dict = multiprocessing.Manager().dict()  # 使用共享dict暂存index[i]的所有model
@@ -176,7 +124,7 @@ class ZMIndex(SpatialIndex):
         for j in range(task_size):
             inputs = self.train_inputs[i][j]
             labels = self.train_labels[i][j]
-            if len(labels) == 0:
+            if labels is None or len(labels) == 0:
                 continue
             pool.apply_async(self.build_single_thread, (i, j, inputs, labels, mp_dict))
         pool.close()
