@@ -33,13 +33,15 @@ def memoize(func):
 
 # extract matrix for predicting position
 class AbstractNN:
-    def __init__(self, weights, core_nums, input_min, input_max, output_min, output_max):
+    def __init__(self, weights, core_nums, input_min, input_max, output_min, output_max, min_err, max_err):
         self.weights = weights
         self.core_nums = core_nums
         self.input_min = input_min
         self.input_max = input_max
         self.output_min = output_min
         self.output_max = output_max
+        self.min_err = min_err
+        self.max_err = max_err
 
     # @memoize TODO: 要加缓存的话， 缓存的key不能是list，之前是float
     # TODO: 和model.predict有小偏差，怀疑是exp的e和elu的e不一致
@@ -77,7 +79,8 @@ class AbstractNN:
     def init_by_dict(d: dict):
         return AbstractNN(d['weights'], d['core_nums'],
                           d['input_min'], d['input_max'],
-                          d['output_min'], d['output_max'])
+                          d['output_min'], d['output_max'],
+                          d['min_err'], d['max_err'], )
 
 
 # Neural Network Model
@@ -98,7 +101,7 @@ class TrainedNN:
         self.use_threshold = use_threshold
         self.threshold = threshold
         self.model = None
-        self.err = 0
+        self.min_err, self.max_err = 0, 0
 
     # train model
     def train(self):
@@ -123,13 +126,14 @@ class TrainedNN:
             self.model = tf.keras.models.load_model(self.model_path, custom_objects={'score': self.score})
             # do not train exists model when err is enough
             if self.use_threshold:
-                self.err = self.get_err()
-                if self.err <= self.threshold:
+                self.min_err, self.max_err = self.get_err()
+                err_length = self.max_err - self.min_err
+                if err_length <= self.threshold:
                     print("Do not train when model exists and prefect: Model %s, Err %f, Threshold %f" % (
-                        self.model_path, self.err, self.threshold))
+                        self.model_path, err_length, self.threshold))
                     logging.info("Do not train when model exists and prefect: Model %s, Err %f, Threshold %f" % (
-                        self.model_path, self.err, self.threshold))
-                    self.rename_model_file_by_err(self.model_path, self.err)
+                        self.model_path, err_length, self.threshold))
+                    self.rename_model_file_by_err(self.model_path, err_length)
                     return
         else:
             model_dir = os.path.dirname(self.model_path)
@@ -178,26 +182,27 @@ class TrainedNN:
                                  verbose=0,
                                  callbacks=callbacks_list)
         self.model = tf.keras.models.load_model(self.model_path, custom_objects={'score': self.score})
-        self.err = self.get_err()
-        self.rename_model_file_by_err(self.model_path, self.err)
+        self.min_err, self.max_err = self.get_err()
+        err_length = self.max_err - self.min_err
+        self.rename_model_file_by_err(self.model_path, err_length)
         if self.use_threshold:
-            if self.err > self.threshold:  # TODO: scores和err不一致
+            if err_length > self.threshold:  # TODO: scores和err不一致
                 self.model_path = self.init_model_name_by_random(self.model_path)
                 print("Retrain when score not perfect: Model %s, Err %f, Threshold %f" % (
-                    self.model_path, self.err, self.threshold))
+                    self.model_path, err_length, self.threshold))
                 logging.info("Retrain when score not perfect: Model %s, Err %f, Threshold %f" % (
-                    self.model_path, self.err, self.threshold))
+                    self.model_path, err_length, self.threshold))
                 self.train()
             else:
                 print("Model perfect: Model %s, Err %f, Threshold %f" % (
-                    self.model_path, self.err, self.threshold))
+                    self.model_path, err_length, self.threshold))
                 logging.info("Model perfect: Model %s, Err %f, Threshold %f" % (
-                    self.model_path, self.err, self.threshold))
+                    self.model_path, err_length, self.threshold))
         else:
             print("Stop train when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
-                self.model_path, self.err, self.threshold))
             logging.info("Stop train when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
-                self.model_path, self.err, self.threshold))
+                self.model_path, err_length, self.threshold))
+                self.model_path, err_length, self.threshold))
 
     def is_model_file_valid(self):
         try:
@@ -225,7 +230,7 @@ class TrainedNN:
         pres[pres < self.train_y_min] = self.train_y_min
         pres[pres > self.train_y_max] = self.train_y_max
         errs = pres - self.train_y
-        return errs.max() - errs.min()
+        return errs.min(), errs.max()
 
     @staticmethod
     def get_best_model_file(model_path):
@@ -250,7 +255,7 @@ class TrainedNN:
                     tmp_err = float(tmp_err)
                 except:
                     continue
-                if (min_err == 'best' or min_err > tmp_err) and tmp_err > 0:
+                if (min_err == 'best' or min_err > tmp_err) and tmp_err >= 0:
                     min_err = tmp_err
         best_file_name = '.'.join([model_index, str(min_err), suffix])
         return os.path.join(file_path, best_file_name)
@@ -310,7 +315,7 @@ class TrainedNN:
                     tmp_err = float(tmp_err)
                 except:
                     continue
-                if (min_err == 'best' or min_err > tmp_err) and tmp_err > 0:
+                if (min_err == 'best' or min_err > tmp_err) and tmp_err >= 0:
                     last_min_file_name = '.'.join([model_index, str(min_err), suffix])
                     if os.path.exists(os.path.join(file_path, last_min_file_name)):
                         os.remove(os.path.join(file_path, last_min_file_name))

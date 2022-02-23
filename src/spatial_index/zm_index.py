@@ -78,7 +78,9 @@ class ZMIndex(SpatialIndex):
                                     tmp_index.train_x_min,
                                     tmp_index.train_x_max,
                                     tmp_index.train_y_min,
-                                    tmp_index.train_y_max)
+                                    tmp_index.train_y_max,
+                                    tmp_index.min_err,
+                                    tmp_index.max_err)
         del tmp_index
         gc.collect()
         if tmp_dict is not None:
@@ -91,8 +93,7 @@ class ZMIndex(SpatialIndex):
         build index by multi threads
         1. init train z->index data from x/y data
         2. create rmi for train z->index data
-        3. compute err border by train_y - rmi.predict(train_x)
-        4. clear train data and label to save memory
+        3. clear train data and label to save memory
         """
         # 1. init train z->index data from x/y data
         self.init_train_data(data)
@@ -133,10 +134,7 @@ class ZMIndex(SpatialIndex):
         for (key, value) in mp_dict.items():
             self.rmi[i][key] = value
 
-        # 3. compute err border by train_y - rmi.predict(train_x)
-        self.errs = self.get_err()
-
-        # 4. clear train data and label to save memory
+        # 3. clear train data and label to save memory
         self.index_list = pd.DataFrame({'key': self.train_inputs[0][0], "key_index": self.train_labels[0][0]})
         self.train_inputs = None
         self.train_labels = None
@@ -147,17 +145,18 @@ class ZMIndex(SpatialIndex):
         1. predict the leaf_model by rmi
         2. predict the index by leaf_model
         :param key: float
-        :return: the index predicted by rmi
+        :return: the index predicted by rmi, min_err and max_err of leaf_model
         """
         # 1. predict the leaf_model by rmi
-        leaf_model = 0
+        leaf_model_index = 0
         for i in range(0, self.stage_length - 1):
-            leaf_model = round(self.rmi[i][leaf_model].predict(key)[0])
-            if leaf_model > self.stages[i + 1] - 1:
-                leaf_model = self.stages[i + 1] - 1
+            leaf_model_index = round(self.rmi[i][leaf_model_index].predict(key)[0])
+            if leaf_model_index > self.stages[i + 1] - 1:
+                leaf_model_index = self.stages[i + 1] - 1
         # 2. predict the index by leaf_model
-        pre = self.rmi[self.stage_length - 1][leaf_model].predict(key)[0]
-        return pre
+        leaf_model = self.rmi[self.stage_length - 1][leaf_model_index]
+        pre = leaf_model.predict(key)[0]
+        return pre, leaf_model.min_err, leaf_model.max_err
 
     def save(self):
         """
@@ -179,7 +178,6 @@ class ZMIndex(SpatialIndex):
             zm_index = json.load(f, cls=MyDecoder)
             self.train_data_length = zm_index.train_data_length
             self.rmi = zm_index.rmi
-            self.errs = zm_index.errs
             self.index_list = pd.read_csv(self.model_path + 'index_list.csv',
                                           float_precision='round_trip')  # round_trip保留小数位数
             del zm_index
@@ -189,25 +187,7 @@ class ZMIndex(SpatialIndex):
         return ZMIndex(region=d['region'],
                        train_data_length=d['train_data_length'],
                        rmi=d['rmi'],
-                       errs=d['errs'],
                        index_list=d['index_list'])
-
-    def get_err(self):
-        """
-        get rmi err = rmi.predict(train_x) - train_y
-        :return: [min_err, max_err]
-        """
-        min_err, max_err = 0, 0
-        for i in range(self.train_data_length):
-            pre = self.predict(self.train_inputs[0][0][i])
-            err = self.train_labels[0][0][i] - pre
-            if err < 0:
-                if err < min_err:
-                    min_err = err
-            else:
-                if err > max_err:
-                    max_err = err
-        return [abs(min_err), max_err]
 
     def point_query(self, data: pd.DataFrame):
         """
@@ -226,9 +206,11 @@ class ZMIndex(SpatialIndex):
             z_value = z_order.point_to_z(point.x, point.y, self.region)
             # z归一化
             z = z_value / z_order.max_z
-            pre = self.predict(z)
-            left_bound = max((pre - self.errs[0]) * self.block_size, 0)
-            right_bound = min((pre + self.errs[1]) * self.block_size, self.train_data_length)
+            # 3. predict by z and create index scope [pre - min_err, pre + max_err]
+            pre, min_err, max_err = self.predict(z)
+            left_bound = max((pre - max_err) * self.block_size, 0)
+            right_bound = min((pre - min_err) * self.block_size, self.train_data_length - 1)
+            # 4. binary search in scope
             result = self.binary_search(self.index_list, z, int(round(left_bound)), int(round(right_bound)))
             results.append(result)
         return pd.Series(results)
@@ -305,7 +287,10 @@ class MyDecoder(json.JSONDecoder):
         json.JSONDecoder.__init__(self, object_hook=self.dict_to_object)
 
     def dict_to_object(self, d):
-        if len(d.keys()) == 2 and d.__contains__("weights") and d.__contains__("core_nums"):
+        t = None
+        if len(d.keys()) == 8 and d.__contains__("weights") and d.__contains__("core_nums") \
+                and d.__contains__("input_min") and d.__contains__("input_max") and d.__contains__("output_min") \
+                and d.__contains__("output_max") and d.__contains__("min_err") and d.__contains__("max_err"):
             t = AbstractNN.init_by_dict(d)
         elif len(d.keys()) == 4 and d.__contains__("bottom") and d.__contains__("up") \
                 and d.__contains__("left") and d.__contains__("right"):
