@@ -33,7 +33,7 @@ class GeoHashModelIndex(SpatialIndex):
 
         # geohash model index args, support predict and query
         self.region = region
-        self.max_num = max_num  # 单个geohash内的数据量
+        self.max_num = max_num
         self.model_path = model_path
         self.train_data_length = train_data_length
         self.brin = brin
@@ -56,7 +56,7 @@ class GeoHashModelIndex(SpatialIndex):
         data["z"] = z_values / z_order.max_z
         data.sort_values(by=["z"], ascending=True, inplace=True)
         data.reset_index(drop=True, inplace=True)
-        self.train_data_length = data.size
+        self.train_data_length = len(data)
         data["z_index"] = pd.Series(np.arange(0, self.train_data_length) / self.block_size)
         self.index_list = pd.DataFrame({'key': data.z,
                                         "key_index": data.z_index})

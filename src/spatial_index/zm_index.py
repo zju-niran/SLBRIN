@@ -15,7 +15,7 @@ from src.rmi_keras import TrainedNN, AbstractNN
 
 
 class ZMIndex(SpatialIndex):
-    def __init__(self, region=Region(-90, 90, -180, 180), model_path=None, train_data_length=None, rmi=None, errs=None,
+    def __init__(self, region=Region(-90, 90, -180, 180), model_path=None, train_data_length=None, rmi=None,
                  index_list=None):
         super(ZMIndex, self).__init__("ZM Index")
         # nn args
@@ -37,7 +37,6 @@ class ZMIndex(SpatialIndex):
         self.model_path = model_path
         self.train_data_length = train_data_length
         self.rmi = [[None for i in range(self.stages[i])] for i in range(self.stage_length)] if rmi is None else rmi
-        self.errs = errs  # 查询时的左右误差边界
         self.index_list = index_list  # 索引列
 
     def init_train_data(self, data: pd.DataFrame):
@@ -54,7 +53,7 @@ class ZMIndex(SpatialIndex):
         z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y, self.region), 1)
         # z归一化
         z_values_normalization = z_values / z_order.max_z
-        self.train_data_length = z_values_normalization.size
+        self.train_data_length = len(z_values_normalization)
         self.train_inputs[0][0] = z_values_normalization.sort_values(ascending=True).values
         self.train_labels[0][0] = pd.Series(np.arange(0, self.train_data_length) / self.block_size).values
 
@@ -203,8 +202,9 @@ class ZMIndex(SpatialIndex):
         # 写法1：list
         results = []
         for index, point in data.iterrows():
+            # 1. compute z from x/y of points
             z_value = z_order.point_to_z(point.x, point.y, self.region)
-            # z归一化
+            # 2. normalize z by z.min and z.max
             z = z_value / z_order.max_z
             # 3. predict by z and create index scope [pre - min_err, pre + max_err]
             pre, min_err, max_err = self.predict(z)
