@@ -1,4 +1,5 @@
 import gc
+import json
 import multiprocessing
 import os
 import sys
@@ -7,6 +8,7 @@ import time
 import numpy as np
 import pandas as pd
 
+from src.brin import BRIN, RegularPage, RevMapPage, MetaPage
 from src.spatial_index.quad_tree import QuadTree
 
 sys.path.append('D:/Code/Paper/st-learned-index')
@@ -17,7 +19,7 @@ from src.rmi_keras import TrainedNN, AbstractNN
 
 class GeoHashModelIndex(SpatialIndex):
     def __init__(self, region=Region(-90, 90, -180, 180), max_num=10000, model_path=None, train_data_length=None,
-                 rmi=None, errs=None, index_list=None):
+                 brin=None, gm_dict=None, index_list=None):
         super(GeoHashModelIndex, self).__init__("GeoHash Model Index")
         # nn args
         self.block_size = 100
@@ -34,8 +36,8 @@ class GeoHashModelIndex(SpatialIndex):
         self.max_num = max_num  # 单个geohash内的数据量
         self.model_path = model_path
         self.train_data_length = train_data_length
-        self.rmi = None
-        self.errs = errs  # 查询时的左右误差边界
+        self.brin = brin
+        self.gm_dict = gm_dict if gm_dict is not None else {}
         self.index_list = index_list  # 索引列
 
     def init_train_data(self, data: pd.DataFrame):
@@ -64,18 +66,23 @@ class GeoHashModelIndex(SpatialIndex):
         build index
         1. init train z->index data from x/y data
         2. split data by quad tree: geohash->data_list
-        3. create zm-model(stage=1) for every leaf node
+        3. create brin index
+        4. create zm-model(stage=1) for every leaf node
+        5. clear train data and label to save memory
         """
         # 1. init train z->index data from x/y data
         self.init_train_data(data)
         # 2. split data by quad tree
-        quadtree = QuadTree(region=self.region, max_num=self.max_num)
-        quadtree.build(data, z=True)
-        quadtree.geohash()
-        split_data = quadtree.geohash_items_map
-        # 2. in every part data, create zm-model
+        quad_tree = QuadTree(region=self.region, max_num=self.max_num)
+        quad_tree.build(data, z=True)
+        quad_tree.geohash()
+        split_data = quad_tree.geohash_items_map
+        # 3. create brin index
+        self.brin = BRIN(version=0, pages_per_range=None, revmap_page_maxitems=500, regular_page_maxitems=500)
+        self.brin.build_by_quad_tree(quad_tree)
+        # 4. in every part data, create zm-model
         multiprocessing.set_start_method('spawn')  # 解决CUDA_ERROR_NOT_INITIALIZED报错
-        pool = multiprocessing.Pool(processes=5)
+        pool = multiprocessing.Pool(processes=4)
         mp_dict = multiprocessing.Manager().dict()  # 使用共享dict暂存index[i]的所有model
         for geohash_key in split_data:
             points = split_data[geohash_key]["items"]
@@ -87,15 +94,8 @@ class GeoHashModelIndex(SpatialIndex):
         pool.close()
         pool.join()
         for (key, value) in mp_dict.items():
-            self.rmi[0][key] = value
-
-        # 3. compute err border by train_y - rmi.predict(train_x)
-        self.errs = self.get_err()
-
-        # 4. clear train data and label to save memory
-        self.index_list = pd.DataFrame({'key': self.train_inputs[0][0], "key_index": self.train_labels[0][0]})
-        self.train_inputs = None
-        self.train_labels = None
+            self.gm_dict[key] = value
+        # 5. clear train data and label to save memory
 
     def build_single_thread(self, curr_stage, current_stage_step, inputs, labels, tmp_dict=None):
         # train model
@@ -113,63 +113,164 @@ class GeoHashModelIndex(SpatialIndex):
         tmp_index.train()
         # get parameters in model (weight matrix and bias matrix)
         abstract_index = AbstractNN(tmp_index.get_weights(),
-                                    self.cores[i])
+                                    self.core,
+                                    tmp_index.train_x_min,
+                                    tmp_index.train_x_max,
+                                    tmp_index.train_y_min,
+                                    tmp_index.train_y_max,
+                                    tmp_index.min_err,
+                                    tmp_index.max_err)
         del tmp_index
         gc.collect()
-        if tmp_dict is not None:
-            tmp_dict[j] = abstract_index
-        else:
-            self.rmi[i][j] = abstract_index
+        tmp_dict[j] = abstract_index
 
-    def predict(self, data: pd.DataFrame):
+    def save(self):
         """
-        predict index from z data
-        1. predict by z and return [pre, min_err, max_err]
-        :param data: pd.dataframe, [x, y]
-        :return: pd.dataframe, [pre, min_err, max_err]
+        save gm index into json file
+        :return: None
         """
-        leaf_model = 0
-        for i in range(0, self.stage_length - 1):
-            leaf_model = self.index[i][leaf_model].predict(data.z)
-        pre = self.index[i][leaf_model].predict(data.z)
-        [min_err, max_err] = self.index[i][leaf_model].mean_err
-        return [pre, min_err, max_err]
+        if os.path.exists(self.model_path) is False:
+            os.makedirs(self.model_path)
+        self.index_list.to_csv(self.model_path + 'index_list.csv', sep=',', header=True, index=False)
+        with open(self.model_path + 'gm_index.json', "w") as f:
+            json.dump(self, f, cls=MyEncoder, ensure_ascii=False)
 
-    def point_query(self, points: pd.DataFrame):
+    def load(self):
+        """
+        load gm index from json file
+        :return: None
+        """
+        with open(self.model_path + 'gm_index.json', "r") as f:
+            gm_index = json.load(f, cls=MyDecoder)
+            self.train_data_length = gm_index.train_data_length
+            self.brin = gm_index.brin
+            self.gm_dict = gm_index.gm_dict
+            self.index_list = pd.read_csv(self.model_path + 'index_list.csv',
+                                          float_precision='round_trip')  # round_trip保留小数位数
+            del gm_index
+
+    @staticmethod
+    def init_by_dict(d: dict):
+        return GeoHashModelIndex(region=d['region'],
+                                 max_num=d['max_num'],
+                                 train_data_length=d['train_data_length'],
+                                 brin=d['brin'],
+                                 gm_dict=d['gm_dict'],
+                                 index_list=d['index_list'])
+
+    def point_query(self, data: pd.DataFrame):
         """
         query index by x/y point
         1. compute z from x/y of points
         2. normalize z by z.min and z.max
-        3. predict by z and create index scope [pre - min_err, pre + max_err]
-        4. binary search in scope
-        :param data: pd.dataframe, [x, y]
-        :return: pd.dataframe, [pre, min_err, max_err]
+        3. predict the leaf model by brin
+        4. predict by leaf model and create index scope [pre - min_err, pre + max_err]
+        5. binary search in scope
+        :param data: pd.DataFrame, [x, y]
+        :return: pd.DataFrame, [pre]
         """
         z_order = ZOrder()
-        z_values = points.apply(lambda t: z_order.point_to_z(t.x, t.y, self.region), 1)
-        # z归一化
-        z_values_normalization = z_values / z_order.max_z
-        data = pd.DataFrame({'z': z_values_normalization})
-        [pre, min_err, max_err] = self.predict(data.z)
-        scope = points.iloc[(pre - err[0]) * self.block_size:(pre + err[1]) * self.block_size]
-        value = self.binary_search(scope, points.index * self.block_size)
-        return value
+        results = []
+        # 1. compute z from x/y of points
+        # 2. normalize z by z.min and z.max
+        z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y, self.region) / z_order.max_z, 1)
+        # 3. predicted the leaf model by brin
+        leaf_model_indexes = self.brin.point_query(z_values)
+        for i in range(len(z_values)):
+            z = z_values[i]
+            leaf_model_index = leaf_model_indexes[i]
+            leaf_model = self.gm_dict[leaf_model_index]
+            # 4. predict by z and create index scope [pre - min_err, pre + max_err]
+            pre, min_err, max_err = leaf_model.predict(z)[0], leaf_model.min_err, leaf_model.max_err
+            left_bound = max((pre - max_err) * self.block_size, 0)
+            right_bound = min((pre - min_err) * self.block_size, self.train_data_length - 1)
+            # 4. binary search in scope
+            result = self.binary_search(self.index_list, z, int(round(left_bound)), int(round(right_bound)))
+            results.append(result)
+        return pd.Series(results)
 
-    def binary_search(self, nums, x):
+    # TODO: 无法处理有重复的数组
+    def binary_search(self, nums, x, left, right):
         """
-        nums: Sorted array from smallest to largest
-        x: Target number
+        binary search x in nums[left, right]
+        :param nums: pd.DataFrame, [key, key_index], index table
+        :param x: key
+        :param left:
+        :param right:
+        :return: key index
         """
-        left, right = 0, len(nums) - 1
         while left <= right:
             mid = (left + right) // 2
-            if nums[mid] == x:
-                return mid
-            if nums[mid] < x:
+            if mid == 100051:
+                print(mid)
+            if nums.iloc[mid].key == x:
+                return nums.iloc[mid].key_index
+            if nums.iloc[mid].key < x:
                 left = mid + 1
             else:
                 right = mid - 1
         return None
+
+
+class MyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, pd.DataFrame):
+            return None
+        elif isinstance(obj, np.int64):
+            return int(obj)
+        elif isinstance(obj, np.int32):
+            return int(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, Region):
+            return obj.__dict__
+        elif isinstance(obj, GeoHashModelIndex):
+            return obj.__dict__
+        elif isinstance(obj, AbstractNN):
+            return obj.__dict__
+        elif isinstance(obj, BRIN):
+            return obj.__dict__
+        elif isinstance(obj, MetaPage):
+            return obj.__dict__
+        elif isinstance(obj, RevMapPage):
+            return obj.__dict__
+        elif isinstance(obj, RegularPage):
+            return obj.__dict__
+        else:
+            return super(MyEncoder, self).default(obj)
+
+
+class MyDecoder(json.JSONDecoder):
+    def __init__(self):
+        json.JSONDecoder.__init__(self, object_hook=self.dict_to_object)
+
+    def dict_to_object(self, d):
+        if len(d.keys()) == 8 and d.__contains__("weights") and d.__contains__("core_nums") \
+                and d.__contains__("input_min") and d.__contains__("input_max") and d.__contains__("output_min") \
+                and d.__contains__("output_max") and d.__contains__("min_err") and d.__contains__("max_err"):
+            t = AbstractNN.init_by_dict(d)
+        elif len(d.keys()) == 4 and d.__contains__("bottom") and d.__contains__("up") \
+                and d.__contains__("left") and d.__contains__("right"):
+            t = Region.init_by_dict(d)
+        elif d.__contains__("name") and d["name"] == "GeoHash Model Index":
+            t = GeoHashModelIndex.init_by_dict(d)
+        elif len(d.keys()) == 3 and d.__contains__("version") \
+                and d.__contains__("pages_per_range") and d.__contains__("last_revmap_page"):
+            t = MetaPage.init_by_dict(d)
+        elif len(d.keys()) == 2 and d.__contains__("id") and d.__contains__("pages"):
+            t = RevMapPage.init_by_dict(d)
+        elif len(d.keys()) == 8 and d.__contains__("id") and d.__contains__("itemoffsets") and d.__contains__(
+                "blknums") and d.__contains__("attnums") and d.__contains__("allnulls") and d.__contains__(
+            "hasnulls") and d.__contains__("placeholders") and d.__contains__("values"):
+            t = RegularPage.init_by_dict(d)
+        elif len(d.keys()) == 7 and d.__contains__("version") and d.__contains__("pages_per_range") \
+                and d.__contains__("revmap_page_maxitems") and d.__contains__(
+            "regular_page_maxitems") and d.__contains__("meta_page") and d.__contains__(
+            "revmap_pages") and d.__contains__("regular_pages"):
+            t = BRIN.init_by_dict(d)
+        else:
+            t = d
+        return t
 
 
 if __name__ == '__main__':
