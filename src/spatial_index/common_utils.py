@@ -367,18 +367,10 @@ def nparray_normalize_minmax(na, min_v, max_v):
     :param na: np.array
     :return: 归一化的np.array
     """
-    if max_v == min_v:
-        return na, None, None
+    if min_v is None or max_v is None or max_v == min_v:
+        return na
     else:
         return (na - min_v) / (max_v - min_v)
-
-
-def nparray_normalize_reverse(na, min_v, max_v):
-    return na * (max_v - min_v) + min_v
-
-
-def nparray_diff_normalize_reverse(na_diff, min_v, max_v):
-    return na_diff * (max_v - min_v)
 
 
 if __name__ == '__main__':
