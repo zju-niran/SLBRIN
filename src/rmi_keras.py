@@ -159,7 +159,7 @@ class TrainedNN:
             optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate,
                                                  clipvalue=1.0)  # clipvalue使用梯度裁剪避免梯度爆炸
 
-            model.compile(optimizer=optimizer, loss='mse', metrics=[self.score])
+            model.compile(optimizer=optimizer, loss=self.score)
             self.model = model
         # self.model.summary()
         # checkpoint
@@ -199,9 +199,9 @@ class TrainedNN:
                 logging.info("Model perfect: Model %s, Err %f, Threshold %f" % (
                     self.model_path, err_length, self.threshold))
         else:
-            print("Stop train when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
-            logging.info("Stop train when loss stop decreasing: Model %s, Err %f, Threshold %f" % (
+            print("Stop train when score stop decreasing: Model %s, Err %f, Threshold %f" % (
                 self.model_path, err_length, self.threshold))
+            logging.info("Stop train when score stop decreasing: Model %s, Err %f, Threshold %f" % (
                 self.model_path, err_length, self.threshold))
 
     def is_model_file_valid(self):
@@ -218,11 +218,10 @@ class TrainedNN:
         return self.model.get_weights()
 
     def score(self, y_true, y_pred):
-        y_pred_clip = tf.keras.backend.clip(y_pred, self.train_y_min, self.train_y_max)
-        diff = y_true - y_pred_clip
-        max_diff = tf.keras.backend.max(diff)
-        min_diff = tf.keras.backend.min(diff)
-        return max_diff - min_diff
+        diff = y_true - y_pred
+        range_loss = tf.keras.backend.max(diff) - tf.keras.backend.min(diff)
+        mse_loss = tf.keras.backend.mean(tf.keras.backend.square(diff), axis=-1)
+        return 1 * range_loss + mse_loss
 
     # get err = pre - train_y
     def get_err(self):
