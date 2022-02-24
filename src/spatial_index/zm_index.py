@@ -134,7 +134,8 @@ class ZMIndex(SpatialIndex):
             self.rmi[i][key] = value
 
         # 3. clear train data and label to save memory
-        self.index_list = pd.DataFrame({'key': self.train_inputs[0][0], "key_index": self.train_labels[0][0]})
+        self.index_list = pd.DataFrame({'key': self.train_inputs[0][0],
+                                        "key_index": self.train_labels[0][0]})
         self.train_inputs = None
         self.train_labels = None
 

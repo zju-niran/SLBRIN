@@ -227,7 +227,6 @@ class TrainedNN:
             # {OSError}SavedModel file does not exist
             return False
 
-    # get weight matrix
     def get_weights(self):
         return self.model.get_weights()
 
@@ -237,7 +236,6 @@ class TrainedNN:
         mse_loss = tf.keras.backend.mean(tf.keras.backend.square(diff), axis=-1)
         return 1 * range_loss + mse_loss
 
-    # get err = pre - train_y
     def get_err(self):
         pres = self.model.predict(self.train_x).flatten()
         pres[pres < self.train_y_min] = self.train_y_min

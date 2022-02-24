@@ -201,8 +201,6 @@ class GeoHashModelIndex(SpatialIndex):
         """
         while left <= right:
             mid = (left + right) // 2
-            if mid == 100051:
-                print(mid)
             if nums.iloc[mid].key == x:
                 return nums.iloc[mid].key_index
             if nums.iloc[mid].key < x:
