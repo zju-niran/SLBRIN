@@ -111,6 +111,7 @@ class GeoHashModelIndex(SpatialIndex):
                               self.learning_rate,
                               self.keep_ratio)
         tmp_index.train()
+        tmp_index.plot()
         # get parameters in model (weight matrix and bias matrix)
         abstract_index = AbstractNN(tmp_index.get_weights(),
                                     self.core,

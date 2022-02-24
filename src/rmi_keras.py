@@ -6,6 +6,7 @@ from functools import wraps
 
 import numpy as np
 import tensorflow as tf
+from matplotlib import pyplot as plt
 
 from src.spatial_index.common_utils import nparray_normalize, nparray_normalize_minmax
 
@@ -242,6 +243,18 @@ class TrainedNN:
         pres[pres > self.train_y_max] = self.train_y_max
         errs = pres - self.train_y
         return errs.min(), errs.max()
+    def plot(self):
+        pres = self.model.predict(self.train_x).flatten()
+        plt.plot(self.train_x, self.train_y, 'y--', label="true")
+        plt.plot(self.train_x, pres, 'm--', label="predict")
+        png_path = self.model_path.replace("hdf5", "png")
+        png_path = png_path.replace("models", "models_png")
+        file_path, file_name = os.path.split(png_path)
+        if os.path.exists(file_path) is False:
+            os.makedirs(file_path)
+        plt.legend()
+        plt.savefig(png_path)
+        plt.close()
 
     @staticmethod
     def get_best_model_file(model_path):

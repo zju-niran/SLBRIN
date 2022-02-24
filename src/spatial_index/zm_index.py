@@ -71,6 +71,7 @@ class ZMIndex(SpatialIndex):
                               self.learning_rates[i],
                               self.keep_ratios[i])
         tmp_index.train()
+        tmp_index.plot()
         # get parameters in model (weight matrix and bias matrix)
         abstract_index = AbstractNN(tmp_index.get_weights(),
                                     self.cores[i],
