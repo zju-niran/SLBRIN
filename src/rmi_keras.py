@@ -139,7 +139,7 @@ class TrainedNN:
                         self.model_path, err_length, self.threshold))
                     logging.info("Do not train when model exists and prefect: Model %s, Err %f, Threshold %f" % (
                         self.model_path, err_length, self.threshold))
-                    self.rename_model_file_by_err(self.model_path, err_length)
+                    self.model_path = self.rename_model_file_by_err(self.model_path, err_length)
                     return
         else:
             # delete model when model file is not in hdf5 format but exists, maybe destroyed by interrupt
@@ -187,7 +187,7 @@ class TrainedNN:
         self.model = tf.keras.models.load_model(self.model_path, custom_objects={'score': self.score})
         self.min_err, self.max_err = self.get_err()
         err_length = self.max_err - self.min_err
-        self.rename_model_file_by_err(self.model_path, err_length)
+        self.model_path = self.rename_model_file_by_err(self.model_path, err_length)
         if self.use_threshold:
             if err_length > self.threshold:
                 if self.retrain_times < self.retrain_time_limit:
@@ -279,7 +279,7 @@ class TrainedNN:
         rename model file by err
         :param model_path: old path
         :param err: float
-        :return: None
+        :return: new path
         """
         file_path, file_name = os.path.split(model_path)
         tmp_split = file_name.split('.')
@@ -287,7 +287,9 @@ class TrainedNN:
         suffix = tmp_split[-1]
         new_file_name = '.'.join([model_index, str(err), suffix])
         try:
-            os.rename(model_path, os.path.join(file_path, new_file_name))
+            new_model_path = os.path.join(file_path, new_file_name)
+            os.rename(model_path, new_model_path)
+            return new_model_path
         except FileExistsError:  # 相同误差的model不再重复保存
             os.remove(model_path)
 
