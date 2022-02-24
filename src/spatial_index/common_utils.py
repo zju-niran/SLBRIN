@@ -373,6 +373,11 @@ def nparray_normalize_minmax(na, min_v, max_v):
         return (na - min_v) / (max_v - min_v)
 
 
+def nparray_normalize_reverse(na, min_v, max_v):
+    return na * (max_v - min_v) + min_v
+
+def nparray_diff_normalize_reverse(na_diff, min_v, max_v):
+    return na_diff * (max_v - min_v)
 if __name__ == '__main__':
     geohash = Geohash()
     print(geohash.encode(-5.6, 42.6, precision=25))

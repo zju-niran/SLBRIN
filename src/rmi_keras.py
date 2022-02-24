@@ -8,8 +8,7 @@ import numpy as np
 import tensorflow as tf
 from matplotlib import pyplot as plt
 
-from src.spatial_index.common_utils import nparray_normalize, nparray_normalize_minmax
-
+from src.spatial_index.common_utils import nparray_normalize, nparray_normalize_minmax, nparray_diff_normalize_reverse
 
 
 # using cache
@@ -93,8 +92,8 @@ class TrainedNN:
         self.learning_rate = learning_rate
         self.keep_ratio = keep_ratio
         self.train_x, self.train_x_min, self.train_x_max = nparray_normalize(train_x)
-        self.train_y, self.train_y_min, self.train_y_max = train_y, train_y.min(), train_y.max()
         self.clean_not_best_model_file(model_path)
+        self.train_y, self.train_y_min, self.train_y_max = nparray_normalize(train_y)
         self.model_path = self.get_best_model_file(model_path)
         self.use_threshold = use_threshold
         self.threshold = threshold
@@ -239,10 +238,12 @@ class TrainedNN:
 
     def get_err(self):
         pres = self.model.predict(self.train_x).flatten()
-        pres[pres < self.train_y_min] = self.train_y_min
-        pres[pres > self.train_y_max] = self.train_y_max
+        pres[pres < 0] = 0
+        pres[pres > 1] = 1
         errs = pres - self.train_y
-        return errs.min(), errs.max()
+        errs_normalize_reverse = nparray_diff_normalize_reverse(errs, self.train_y_min, self.train_y_max)
+        return errs_normalize_reverse.min(), errs_normalize_reverse.max()
+
     def plot(self):
         pres = self.model.predict(self.train_x).flatten()
         plt.plot(self.train_x, self.train_y, 'y--', label="true")
