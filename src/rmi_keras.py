@@ -9,9 +9,6 @@ import tensorflow as tf
 
 from src.spatial_index.common_utils import nparray_normalize, nparray_normalize_minmax
 
-LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
-DATE_FORMAT = "%m/%d/%Y %H:%M:%S %p"
-logging.basicConfig(filename='my.log', level=logging.INFO, format=LOG_FORMAT, datefmt=DATE_FORMAT)
 
 
 # using cache
@@ -105,6 +102,13 @@ class TrainedNN:
 
     # train model
     def train(self):
+        model_dir = os.path.join(os.path.dirname(self.model_path))
+        if os.path.exists(model_dir) is False:
+            os.makedirs(model_dir)
+        logging.basicConfig(filename=os.path.join(model_dir, "log.file"),
+                            level=logging.INFO,
+                            format="%(asctime)s - %(levelname)s - %(message)s",
+                            datefmt="%m/%d/%Y %H:%M:%S %p")
         # GPU配置
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -136,9 +140,6 @@ class TrainedNN:
                     self.rename_model_file_by_err(self.model_path, err_length)
                     return
         else:
-            model_dir = os.path.dirname(self.model_path)
-            if os.path.exists(model_dir) is False:
-                os.makedirs(model_dir)
             # delete model when model file is not in hdf5 format but exists, maybe destroyed by interrupt
             if os.path.exists(self.model_path):
                 os.remove(self.model_path)
