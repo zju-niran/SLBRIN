@@ -236,10 +236,11 @@ class TrainedNN:
         return self.model.get_weights()
 
     def score(self, y_true, y_pred):
+        # 这里的y应该是局部的，因此scores和err算出来不一致
         diff = y_true - y_pred
         range_loss = tf.keras.backend.max(diff) - tf.keras.backend.min(diff)
         mse_loss = tf.keras.backend.mean(tf.keras.backend.square(diff), axis=-1)
-        return 1 * range_loss + mse_loss
+        return 2 * range_loss + mse_loss
 
     def get_err(self):
         pres = self.model.predict(self.train_x).flatten()
@@ -309,6 +310,7 @@ class TrainedNN:
             return new_model_path
         except FileExistsError:  # 相同误差的model不再重复保存
             os.remove(model_path)
+            return model_path
 
     @staticmethod
     def init_model_name_by_random(model_path):

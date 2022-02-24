@@ -248,6 +248,7 @@ class ZMIndex(SpatialIndex):
     #         z_value_normalization = (z_values[i] - min_z_value) / (max_z_value - min_z_value)
     #         z_values_normalization.append(z_value_normalization)
 
+    # TODO: 无法处理有重复的数组
     def binary_search(self, nums, x, left, right):
         """
         binary search x in nums[left, right]
@@ -314,7 +315,7 @@ if __name__ == '__main__':
     z_col, index_col = 7, 8
     train_set_xy = pd.read_csv(path, header=None, usecols=[2, 3], names=["x", "y"])
     # create index
-    model_path = "model/zm_index_2022-02-04/"
+    model_path = "model/zm_index_2022-02-24/"
     index = ZMIndex(region=Region(40, 42, -75, -73), model_path=model_path)
     index_name = index.name
     load_index_from_json = False
