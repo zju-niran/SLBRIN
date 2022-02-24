@@ -24,11 +24,11 @@ class GeoHashModelIndex(SpatialIndex):
         # nn args
         self.block_size = 100
         self.use_threshold = True
-        self.threshold = 5
-        self.core = [1, 8, 8, 8, 1]
-        self.train_step = 20000
-        self.batch_size = 500
-        self.learning_rate = 0.0001
+        self.threshold = 2
+        self.core = [1, 128, 1]
+        self.train_step = 400000
+        self.batch_size = 1000
+        self.learning_rate = 0.01
         self.keep_ratio = 0.9
 
         # geohash model index args, support predict and query
