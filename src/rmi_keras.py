@@ -99,6 +99,8 @@ class TrainedNN:
         self.threshold = threshold
         self.model = None
         self.min_err, self.max_err = 0, 0
+        self.retrain_times = 0
+        self.retrain_time_limit = 1
 
     # train model
     def train(self):
@@ -187,13 +189,24 @@ class TrainedNN:
         err_length = self.max_err - self.min_err
         self.rename_model_file_by_err(self.model_path, err_length)
         if self.use_threshold:
-            if err_length > self.threshold:  # TODO: scores和err不一致
-                self.model_path = self.init_model_name_by_random(self.model_path)
-                print("Retrain when score not perfect: Model %s, Err %f, Threshold %f" % (
-                    self.model_path, err_length, self.threshold))
-                logging.info("Retrain when score not perfect: Model %s, Err %f, Threshold %f" % (
-                    self.model_path, err_length, self.threshold))
-                self.train()
+            if err_length > self.threshold:
+                if self.retrain_times < self.retrain_time_limit:
+                    self.model_path = self.init_model_name_by_random(self.model_path)
+                    self.retrain_times += 1
+                    print("Retrain %d when score not perfect: Model %s, Err %f, Threshold %f" % (
+                        self.retrain_times, self.model_path, err_length, self.threshold))
+                    logging.info("Retrain %d when score not perfect: Model %s, Err %f, Threshold %f" % (
+                        self.retrain_times, self.model_path, err_length, self.threshold))
+                    self.train()
+                else:
+                    print("Retrain time limit: Model %s, Err %f, Threshold %f" % (
+                        self.model_path, err_length, self.threshold))
+                    logging.info("Retrain time limit: Model %s, Err %f, Threshold %f" % (
+                        self.model_path, err_length, self.threshold))
+                    self.model_path = self.get_best_model_file(self.model_path)
+                    self.model = tf.keras.models.load_model(self.model_path, custom_objects={'score': self.score})
+                    self.min_err, self.max_err = self.get_err()
+                    return
             else:
                 print("Model perfect: Model %s, Err %f, Threshold %f" % (
                     self.model_path, err_length, self.threshold))
