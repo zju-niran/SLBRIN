@@ -176,7 +176,13 @@ class TrainedNN:
                                                           patience=500,
                                                           mode='min',
                                                           verbose=0)
-        callbacks_list = [checkpoint, early_stopping]
+        reduce = tf.keras.callbacks.ReduceLROnPlateau(monitor='loss',
+                                                      factor=0.90,
+                                                      patience=400,
+                                                      verbose=0,
+                                                      mode='min',
+                                                      min_lr=0.0001)
+        callbacks_list = [checkpoint, reduce, early_stopping]
         # fit and save model
         history = self.model.fit(self.train_x, self.train_y,
                                  epochs=self.train_step_nums,
