@@ -7,7 +7,8 @@ import numpy as np
 import tensorflow as tf
 from matplotlib import pyplot as plt
 
-from src.spatial_index.common_utils import nparray_normalize, nparray_normalize_minmax, nparray_diff_normalize_reverse
+from src.spatial_index.common_utils import nparray_normalize, nparray_normalize_minmax, nparray_diff_normalize_reverse, \
+    nparray_normalize_reverse
 
 
 # using cache
@@ -67,9 +68,9 @@ class AbstractNN:
             #                         np.mat(self.weights[i * 6 + 3])[k, j]  # 计算bn
         # 最后一层单独用relu，值clip到最大最小值之间
         tmp_res = tmp_res * np.mat(self.weights[-2]) + np.mat(self.weights[-1])
-        tmp_res[tmp_res < self.output_min] = self.output_min
-        tmp_res[tmp_res > self.output_max] = self.output_max
-        return np.asarray(tmp_res).flatten()
+        tmp_res = np.asarray(tmp_res).flatten()
+        return nparray_normalize_reverse(tmp_res, self.output_min, self.output_max)
+
 
     @staticmethod
     def init_by_dict(d: dict):
@@ -244,10 +245,7 @@ class TrainedNN:
 
     def get_err(self):
         pres = self.model.predict(self.train_x).flatten()
-        pres[pres < 0] = 0
-        pres[pres > 1] = 1
-        errs = pres - self.train_y
-        errs_normalize_reverse = nparray_diff_normalize_reverse(errs, self.train_y_min, self.train_y_max)
+        errs_normalize_reverse = nparray_diff_normalize_reverse(pres, self.train_y, self.train_y_min, self.train_y_max)
         return errs_normalize_reverse.min(), errs_normalize_reverse.max()
 
     def plot(self):

@@ -9,6 +9,7 @@ from sys import getsizeof, stderr
 
 import morton
 import numpy
+import numpy as np
 import pandas as pd
 
 
@@ -374,10 +375,33 @@ def nparray_normalize_minmax(na, min_v, max_v):
 
 
 def nparray_normalize_reverse(na, min_v, max_v):
-    return na * (max_v - min_v) + min_v
+    f1 = np.frompyfunc(nparray_normalize_reverse_child, 3, 1)
+    return f1(na, min_v, max_v).astype('float')
 
-def nparray_diff_normalize_reverse(na_diff, min_v, max_v):
-    return na_diff * (max_v - min_v)
+
+def nparray_normalize_reverse_child(num, min_v, max_v):
+    if num < 0:
+        return 0
+    elif num > 1:
+        return 1
+    else:
+        return num * (max_v - min_v) + min_v
+
+
+def nparray_diff_normalize_reverse(na1, na2, min_v, max_v):
+    f1 = np.frompyfunc(nparray_diff_normalize_reverse_child, 4, 1)
+    return f1(na1, na2, min_v, max_v).astype('float')
+
+
+def nparray_diff_normalize_reverse_child(num1, num2, min_v, max_v):
+    if num1 < 0:
+        return 0
+    elif num1 > 1:
+        return 1
+    else:
+        return (num1 - num2) * (max_v - min_v)
+
+
 if __name__ == '__main__':
     geohash = Geohash()
     print(geohash.encode(-5.6, 42.6, precision=25))
