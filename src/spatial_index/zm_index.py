@@ -274,6 +274,10 @@ class MyEncoder(json.JSONEncoder):
             return None
         elif isinstance(obj, np.int64):
             return int(obj)
+        elif isinstance(obj, np.int32):
+            return int(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
         elif isinstance(obj, Region):
             return obj.__dict__
         elif isinstance(obj, ZMIndex):
@@ -297,7 +301,7 @@ class MyDecoder(json.JSONDecoder):
         elif len(d.keys()) == 4 and d.__contains__("bottom") and d.__contains__("up") \
                 and d.__contains__("left") and d.__contains__("right"):
             t = Region.init_by_dict(d)
-        else:
+        elif d.__contains__("name") and d["name"] == "ZM Index":
             t = ZMIndex.init_by_dict(d)
         return t
 

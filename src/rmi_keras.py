@@ -1,4 +1,3 @@
-# Main file for NN model
 import logging
 import os.path
 import random
