@@ -240,7 +240,7 @@ class TrainedNN:
         range_loss = tf.keras.backend.max(diff_clip) - tf.keras.backend.min(diff_clip)
         diff = y_true - y_pred
         mse_loss = tf.keras.backend.mean(tf.keras.backend.square(diff), axis=-1)
-        return 2 * range_loss + mse_loss
+        return 0.1 * range_loss + mse_loss
 
     def get_err(self):
         pres = self.model.predict(self.train_x).flatten()
