@@ -174,8 +174,8 @@ class TrainedNN:
                                                           mode='min',
                                                           verbose=0)
         reduce = tf.keras.callbacks.ReduceLROnPlateau(monitor='loss',
-                                                      factor=0.90,
-                                                      patience=400,
+                                                      factor=0.5,
+                                                      patience=450,
                                                       verbose=0,
                                                       mode='min',
                                                       min_lr=0.0001)
