@@ -157,8 +157,7 @@ class TrainedNN:
                 # model.add(tf.keras.layers.BatchNormalization())  #bn可以杜绝梯度消失，但是训练的慢，而且predict我没实现。。。
             model.add(tf.keras.layers.Dense(units=self.core_nums[-1],
                                             activation='relu'))  # 最后一层单独用relu把负数弄到0
-            optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate,
-                                                 clipvalue=1.0)  # clipvalue使用梯度裁剪避免梯度爆炸
+            optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
 
             model.compile(optimizer=optimizer, loss=self.score)
             self.model = model
