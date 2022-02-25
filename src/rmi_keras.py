@@ -246,6 +246,10 @@ class TrainedNN:
         errs_normalize_reverse = nparray_diff_normalize_reverse(pres, self.train_y, self.train_y_min, self.train_y_max)
         return errs_normalize_reverse.min(), errs_normalize_reverse.max()
 
+    def predict(self):
+        pres = self.model.predict(self.train_x).flatten()
+        return nparray_normalize_reverse(pres, self.train_y_min, self.train_y_max)
+
     def plot(self):
         pres = self.model.predict(self.train_x).flatten()
         plt.plot(self.train_x, self.train_y, 'y--', label="true")
