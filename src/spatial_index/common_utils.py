@@ -381,11 +381,10 @@ def nparray_normalize_reverse(na, min_v, max_v):
 
 def nparray_normalize_reverse_child(num, min_v, max_v):
     if num < 0:
-        return 0
+        num = 0
     elif num > 1:
-        return 1
-    else:
-        return num * (max_v - min_v) + min_v
+        num = 1
+    return num * (max_v - min_v) + min_v
 
 
 def nparray_diff_normalize_reverse(na1, na2, min_v, max_v):
@@ -395,11 +394,10 @@ def nparray_diff_normalize_reverse(na1, na2, min_v, max_v):
 
 def nparray_diff_normalize_reverse_child(num1, num2, min_v, max_v):
     if num1 < 0:
-        return 0
+        num1 = 0
     elif num1 > 1:
-        return 1
-    else:
-        return (num1 - num2) * (max_v - min_v)
+        num1 = 1
+    return (num1 - num2) * (max_v - min_v)
 
 
 if __name__ == '__main__':

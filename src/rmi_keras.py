@@ -236,8 +236,10 @@ class TrainedNN:
 
     def score(self, y_true, y_pred):
         # 这里的y应该是局部的，因此scores和err算出来不一致
+        y_pred_clip = tf.keras.backend.clip(y_pred, 0, 1)
+        diff_clip = y_true - y_pred_clip
+        range_loss = tf.keras.backend.max(diff_clip) - tf.keras.backend.min(diff_clip)
         diff = y_true - y_pred
-        range_loss = tf.keras.backend.max(diff) - tf.keras.backend.min(diff)
         mse_loss = tf.keras.backend.mean(tf.keras.backend.square(diff), axis=-1)
         return 2 * range_loss + mse_loss
 
