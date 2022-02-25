@@ -30,6 +30,7 @@ class GeoHashModelIndex(SpatialIndex):
         self.batch_size = 1000
         self.learning_rate = 0.01
         self.keep_ratio = 0.9
+        self.retrain_time_limit = 20
 
         # geohash model index args, support predict and query
         self.region = region
@@ -109,7 +110,8 @@ class GeoHashModelIndex(SpatialIndex):
                               self.train_step,
                               self.batch_size,
                               self.learning_rate,
-                              self.keep_ratio)
+                              self.keep_ratio,
+                              self.retrain_time_limit)
         tmp_index.train()
         tmp_index.plot()
         # get parameters in model (weight matrix and bias matrix)

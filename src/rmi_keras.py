@@ -71,7 +71,6 @@ class AbstractNN:
         tmp_res = np.asarray(tmp_res).flatten()
         return nparray_normalize_reverse(tmp_res, self.output_min, self.output_max)
 
-
     @staticmethod
     def init_by_dict(d: dict):
         return AbstractNN(d['weights'], d['core_nums'],
@@ -83,7 +82,7 @@ class AbstractNN:
 # Neural Network Model
 class TrainedNN:
     def __init__(self, model_path, train_x, train_y, threshold, use_threshold, cores, train_step_num, batch_size,
-                 learning_rate, keep_ratio):
+                 learning_rate, keep_ratio, retrain_time_limit):
         if cores is None:
             cores = []
         self.core_nums = cores
@@ -100,7 +99,7 @@ class TrainedNN:
         self.model = None
         self.min_err, self.max_err = 0, 0
         self.retrain_times = 0
-        self.retrain_time_limit = 1
+        self.retrain_time_limit = retrain_time_limit
 
     # train model
     def train(self):
@@ -158,7 +157,6 @@ class TrainedNN:
                 # model.add(tf.keras.layers.BatchNormalization())  #bn可以杜绝梯度消失，但是训练的慢，而且predict我没实现。。。
             model.add(tf.keras.layers.Dense(units=self.core_nums[-1],
                                             activation='relu'))  # 最后一层单独用relu把负数弄到0
-            # compile model
             optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate,
                                                  clipvalue=1.0)  # clipvalue使用梯度裁剪避免梯度爆炸
 
