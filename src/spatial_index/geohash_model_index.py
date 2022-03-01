@@ -31,6 +31,7 @@ class GeoHashModelIndex(SpatialIndex):
         self.learning_rate = 0.01
         self.keep_ratio = 0.9
         self.retrain_time_limit = 20
+        self.thread_pool_size = 3
 
         # geohash model index args, support predict and query
         self.region = region
@@ -83,7 +84,7 @@ class GeoHashModelIndex(SpatialIndex):
         self.brin.build_by_quad_tree(quad_tree)
         # 4. in every part data, create zm-model
         multiprocessing.set_start_method('spawn')  # 解决CUDA_ERROR_NOT_INITIALIZED报错
-        pool = multiprocessing.Pool(processes=4)
+        pool = multiprocessing.Pool(processes=self.thread_pool_size)
         mp_dict = multiprocessing.Manager().dict()  # 使用共享dict暂存index[i]的所有model
         for geohash_key in split_data:
             points = split_data[geohash_key]["items"]

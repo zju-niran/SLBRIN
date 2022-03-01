@@ -30,6 +30,7 @@ class ZMIndex(SpatialIndex):
         self.learning_rates = [0.01, 0.01]
         self.keep_ratios = [0.9, 0.9]
         self.retrain_time_limits = [40, 20]
+        self.thread_pool_size = 3
         self.train_inputs = [[None for i in range(self.stages[i])] for i in range(self.stage_length)]
         self.train_labels = [[None for i in range(self.stages[i])] for i in range(self.stage_length)]
 
@@ -90,7 +91,7 @@ class ZMIndex(SpatialIndex):
         else:
             self.rmi[i][j] = abstract_index
 
-    def build_multi_thread(self, data: pd.DataFrame, thread_pool_size=3):
+    def build(self, data: pd.DataFrame):
         """
         build index by multi threads
         1. init train z->index data from x/y data
@@ -121,7 +122,7 @@ class ZMIndex(SpatialIndex):
                         self.train_labels[i + 1][ind] = self.train_labels[i][j][np.round(pres) == ind]
         # 叶子节点使用线程池训练
         multiprocessing.set_start_method('spawn')  # 解决CUDA_ERROR_NOT_INITIALIZED报错
-        pool = multiprocessing.Pool(processes=thread_pool_size)
+        pool = multiprocessing.Pool(processes=self.thread_pool_size)
         mp_dict = multiprocessing.Manager().dict()  # 使用共享dict暂存index[i]的所有model
         i = self.stage_length - 1
         task_size = self.stages[i]
@@ -327,7 +328,7 @@ if __name__ == '__main__':
         print("*************start %s************" % index_name)
         print("Start Build")
         start_time = time.time()
-        index.build_multi_thread(train_set_xy, thread_pool_size=4)
+        index.build(train_set_xy)
         end_time = time.time()
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)
