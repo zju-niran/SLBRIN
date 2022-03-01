@@ -2,15 +2,11 @@ class SpatialIndex:
     def __init__(self, name):
         self.name = name
 
-    def build(self, points):
-        for point in points:
-            self.insert(point)
+    # def build(self):
+    #     return
 
     def insert(self, point):
         return
-
-    def predict(self, point):
-        return 0
 
     def search(self, point):
         return []
