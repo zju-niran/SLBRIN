@@ -26,8 +26,8 @@ class GeoHashModelIndex(SpatialIndex):
         self.use_threshold = True
         self.threshold = 2
         self.core = [1, 128, 1]
-        self.train_step = 400000
-        self.batch_size = 1000
+        self.train_step = 30000
+        self.batch_size = 1024
         self.learning_rate = 0.01
         self.keep_ratio = 0.9
         self.retrain_time_limit = 20
@@ -283,7 +283,7 @@ if __name__ == '__main__':
     z_col, index_col = 7, 8
     train_set_xy = pd.read_csv(path, header=None, usecols=[2, 3], names=["x", "y"])
     # create index
-    model_path = "model/gm_index_2022-02-17/"
+    model_path = "model/gm_index_2022-03-01/"
     index = GeoHashModelIndex(region=Region(40, 42, -75, -73), max_num=1000, model_path=model_path)
     index_name = index.name
     load_index_from_json = False

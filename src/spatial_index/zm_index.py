@@ -25,8 +25,8 @@ class ZMIndex(SpatialIndex):
         self.stages = [1, 100]
         self.stage_length = len(self.stages)
         self.cores = [[1, 128, 1], [1, 128, 1]]
-        self.train_steps = [400000, 200000]
-        self.batch_sizes = [5000, 1000]
+        self.train_steps = [40000, 20000]
+        self.batch_sizes = [1024, 1024]
         self.learning_rates = [0.01, 0.01]
         self.keep_ratios = [0.9, 0.9]
         self.retrain_time_limits = [40, 20]

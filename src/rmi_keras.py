@@ -40,34 +40,31 @@ class AbstractNN:
         self.min_err = min_err
         self.max_err = max_err
 
+    @staticmethod
+    def relu(x):
+        return np.maximum(0, x)
+
+    @staticmethod
+    def elu(x, alpha=1):
+        a = x[x > 0]
+        b = alpha * (np.exp(x[x < 0]) - 1)
+        result = np.concatenate((b, a), axis=0)
+        return result
+
+    @staticmethod
+    def sigmoid(x):
+        return 1 / (1 + np.exp(-x))
+
     # @memoize TODO: 要加缓存的话， 缓存的key不能是list，之前是float
     # TODO: 和model.predict有小偏差，怀疑是exp的e和elu的e不一致
     def predict(self, input_keys):
         input_keys = nparray_normalize_minmax(input_keys, self.input_min, self.input_max)
         tmp_res = np.mat(input_keys).T
-        for i in range(len(self.core_nums) - 2):
+        for i in range(len(self.core_nums) - 1):
             # w * x + b
-            tmp_res = tmp_res * np.mat(self.weights[i * 2]) + np.mat(self.weights[i * 2 + 1])
-            # relu
-            # tmp_res[tmp_res < 0] = 0
-            # elu： 大于0保持，小于0的话计算(exp(x)-1)*alpha，alpha默认=1.0
-            for k in range(tmp_res.shape[0]):
-                for j in range(tmp_res.shape[1]):
-                    if tmp_res[k, j] < 0:
-                        tmp_res[k, j] = np.exp(tmp_res[k, j]) - 1
-            # batch_normalization: 实现有点问题，bn层四个参数gamma/bita/mean/var
-            # https://zhuanlan.zhihu.com/p/100672008
-            # 前馈的时候计算y只需要gamma和bita，大致为先normal归一化，然后计算bn=gamma*y+beta
-            # TODO: gamma和beta都是shape(8, 1)，gamma*y的话，那y得是shape(1,)
-            # x_mean = tmp_res.mean(axis=0)
-            # x_var = tmp_res.var(axis=0)
-            # x_normalized = (tmp_res - x_mean) / np.sqrt(x_var + 0.001)  # 归一化
-            # for k in range(tmp_res.shape[0]):
-            #     for j in range(tmp_res.shape[1]):
-            #         tmp_res[k, j] = np.mat(self.weights[i * 6 + 2])[k, j] * x_normalized[k, j] + \
-            #                         np.mat(self.weights[i * 6 + 3])[k, j]  # 计算bn
-        # 最后一层单独用relu，值clip到最大最小值之间
-        tmp_res = tmp_res * np.mat(self.weights[-2]) + np.mat(self.weights[-1])
+            # sigmoid(x)
+            tmp_res = AbstractNN.sigmoid(tmp_res * np.mat(self.weights[i * 2]) + np.mat(self.weights[i * 2 + 1]))
+        # 值clip到最大最小值之间
         tmp_res = np.asarray(tmp_res).flatten()
         return nparray_normalize_reverse(tmp_res, self.output_min, self.output_max)
 
@@ -148,15 +145,13 @@ class TrainedNN:
             for i in range(len(self.core_nums) - 2):
                 model.add(tf.keras.layers.Dense(units=self.core_nums[i + 1],
                                                 input_dim=self.core_nums[i],
-                                                activation='elu',
-                                                kernel_initializer='he_normal',
-                                                bias_initializer='zeros'))  # 使用elu和he_normal的组合避免梯度消失
+                                                activation='sigmoid'))
                 # drop_rate = 1 - self.keep_ratio
                 # if drop_rate > 0:
                 #     model.add(tf.keras.layers.Dropout(rate=drop_rate))  # dropout防止过拟合
                 # model.add(tf.keras.layers.BatchNormalization())  #bn可以杜绝梯度消失，但是训练的慢，而且predict我没实现。。。
             model.add(tf.keras.layers.Dense(units=self.core_nums[-1],
-                                            activation='relu'))  # 最后一层单独用relu把负数弄到0
+                                            activation='sigmoid'))
             optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
 
             model.compile(optimizer=optimizer, loss=self.score)
