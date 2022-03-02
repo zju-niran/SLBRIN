@@ -137,4 +137,4 @@ store_performance
 data/test.graph
 data/*.csv
 **/model*
-*.v2
+**/*.v2

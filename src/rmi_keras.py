@@ -4,9 +4,12 @@ import random
 import shutil
 from functools import wraps
 
+import matplotlib
 import numpy as np
 import tensorflow as tf
-from matplotlib import pyplot as plt
+
+matplotlib.use('Agg')  # 解决_tkinter.TclError: couldn't connect to display "localhost:11.0"
+import matplotlib.pyplot as plt
 
 from src.spatial_index.common_utils import nparray_normalize, nparray_normalize_minmax, nparray_diff_normalize_reverse, \
     nparray_normalize_reverse
@@ -355,5 +358,3 @@ class TrainedNN:
                 if os.path.exists(os.path.join(self.model_loss_dir, last_min_loss_name)):
                     shutil.rmtree(os.path.join(self.model_loss_dir, last_min_loss_name))
                 min_err = tmp_min_err
-
-
