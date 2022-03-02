@@ -63,8 +63,9 @@ class ZMIndex(SpatialIndex):
         # train model
         i = curr_stage
         j = current_stage_step
-        model_path = self.model_path + "models/" + str(i) + "_" + str(j) + "_weights.best.hdf5"
-        tmp_index = TrainedNN(model_path, inputs, labels,
+        model_path = self.model_path
+        model_index = str(i) + "_" + str(j)
+        tmp_index = TrainedNN(model_path, model_index, inputs, labels,
                               self.thresholds[i],
                               self.use_thresholds[i],
                               self.cores[i],

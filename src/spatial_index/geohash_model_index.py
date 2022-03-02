@@ -25,12 +25,12 @@ class GeoHashModelIndex(SpatialIndex):
         self.use_threshold = True
         self.threshold = 2
         self.core = [1, 128, 1]
-        self.train_step = 30000
+        self.train_step = 3000
         self.batch_size = 1024
         self.learning_rate = 0.01
         self.keep_ratio = 0.9
         self.retrain_time_limit = 20
-        self.thread_pool_size = 3
+        self.thread_pool_size = 1
 
         # geohash model index args, support predict and query
         self.region = region
@@ -102,8 +102,9 @@ class GeoHashModelIndex(SpatialIndex):
         # train model
         i = curr_stage
         j = current_stage_step
-        model_path = self.model_path + "models/" + str(i) + "_" + str(j) + "_weights.best.hdf5"
-        tmp_index = TrainedNN(model_path, inputs, labels,
+        model_path = self.model_path
+        model_index = str(i) + "_" + str(j)
+        tmp_index = TrainedNN(model_path, model_index, inputs, labels,
                               self.threshold,
                               self.use_threshold,
                               self.core,
