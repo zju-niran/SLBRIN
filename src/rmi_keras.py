@@ -1,6 +1,7 @@
 import logging
 import os.path
 import random
+import shutil
 from functools import wraps
 
 import numpy as np
@@ -78,7 +79,8 @@ class AbstractNN:
 
 # Neural Network Model
 class TrainedNN:
-    def __init__(self, model_path, train_x, train_y, threshold, use_threshold, cores, train_step_num, batch_size,
+    def __init__(self, model_path, model_index, train_x, train_y, threshold, use_threshold, cores, train_step_num,
+                 batch_size,
                  learning_rate, keep_ratio, retrain_time_limit):
         if cores is None:
             cores = []
@@ -88,22 +90,33 @@ class TrainedNN:
         self.learning_rate = learning_rate
         self.keep_ratio = keep_ratio
         self.train_x, self.train_x_min, self.train_x_max = nparray_normalize(train_x)
-        self.clean_not_best_model_file(model_path)
         self.train_y, self.train_y_min, self.train_y_max = nparray_normalize(train_y)
-        self.model_path = self.get_best_model_file(model_path)
         self.use_threshold = use_threshold
         self.threshold = threshold
         self.model = None
         self.min_err, self.max_err = 0, 0
         self.retrain_times = 0
         self.retrain_time_limit = retrain_time_limit
+        self.model_path = model_path
+        self.model_index = model_index
+        self.model_hdf_dir = model_path + "hdf/"
+        self.model_png_dir = model_path + "png/"
+        self.model_loss_dir = model_path + "loss/"
+        if os.path.exists(self.model_hdf_dir) is False:
+            os.makedirs(self.model_hdf_dir)
+        if os.path.exists(self.model_png_dir) is False:
+            os.makedirs(self.model_png_dir)
+        if os.path.exists(self.model_loss_dir) is False:
+            os.makedirs(self.model_loss_dir)
+        self.model_hdf_file = os.path.join(self.model_hdf_dir, self.model_index + "_weights.best.hdf5")
+        self.model_png_file = os.path.join(self.model_png_dir, self.model_index + "_weights.best.png")
+        self.model_loss_file = os.path.join(self.model_loss_dir, self.model_index + "_weights.best.loss")
+        self.clean_not_best_model_file()
+        self.get_best_model_file()
 
     # train model
     def train(self):
-        model_dir = os.path.join(os.path.dirname(self.model_path))
-        if os.path.exists(model_dir) is False:
-            os.makedirs(model_dir)
-        logging.basicConfig(filename=os.path.join(model_dir, "log.file"),
+        logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
                             level=logging.INFO,
                             format="%(asctime)s - %(levelname)s - %(message)s",
                             datefmt="%m/%d/%Y %H:%M:%S %p")
@@ -124,23 +137,10 @@ class TrainedNN:
             #     [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=2048)]
             # )
         # create or load model
-        if self.is_model_file_valid():  # valid the model file exists and is in hdf5 format
-            self.model = tf.keras.models.load_model(self.model_path, custom_objects={'score': self.score})
-            # do not train exists model when err is enough
-            if self.use_threshold:
-                self.min_err, self.max_err = self.get_err()
-                err_length = self.max_err - self.min_err
-                if err_length <= self.threshold:
-                    print("Do not train when model exists and prefect: Model %s, Err %f, Threshold %f" % (
-                        self.model_path, err_length, self.threshold))
-                    logging.info("Do not train when model exists and prefect: Model %s, Err %f, Threshold %f" % (
-                        self.model_path, err_length, self.threshold))
-                    self.model_path = self.rename_model_file_by_err(self.model_path, err_length)
-                    return
-        else:
+        if self.is_model_file_valid() is False:  # valid the model file exists and is in hdf5 format
             # delete model when model file is not in hdf5 format but exists, maybe destroyed by interrupt
-            if os.path.exists(self.model_path):
-                os.remove(self.model_path)
+            if os.path.exists(self.model_hdf_file):
+                os.remove(self.model_hdf_file)
             model = tf.keras.Sequential()
             for i in range(len(self.core_nums) - 2):
                 model.add(tf.keras.layers.Dense(units=self.core_nums[i + 1],
@@ -156,69 +156,70 @@ class TrainedNN:
 
             model.compile(optimizer=optimizer, loss=self.score)
             self.model = model
-        # self.model.summary()
-        # checkpoint
-        checkpoint = tf.keras.callbacks.ModelCheckpoint(self.model_path,
-                                                        monitor='loss',
-                                                        verbose=0,
-                                                        save_best_only=True,
-                                                        mode='min',
-                                                        save_freq='epoch')
-        early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss',
-                                                          patience=500,
+            # self.model.summary()
+            checkpoint = tf.keras.callbacks.ModelCheckpoint(self.model_hdf_file,
+                                                            monitor='loss',
+                                                            verbose=0,
+                                                            save_best_only=True,
+                                                            mode='min',
+                                                            save_freq='epoch')
+            early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss',
+                                                              patience=500,
+                                                              mode='min',
+                                                              verbose=0)
+            reduce = tf.keras.callbacks.ReduceLROnPlateau(monitor='loss',
+                                                          factor=0.5,
+                                                          patience=450,
+                                                          verbose=0,
                                                           mode='min',
-                                                          verbose=0)
-        reduce = tf.keras.callbacks.ReduceLROnPlateau(monitor='loss',
-                                                      factor=0.5,
-                                                      patience=450,
-                                                      verbose=0,
-                                                      mode='min',
-                                                      min_lr=0.0001)
-        callbacks_list = [checkpoint, reduce, early_stopping]
-        # fit and save model
-        history = self.model.fit(self.train_x, self.train_y,
-                                 epochs=self.train_step_nums,
-                                 initial_epoch=0,
-                                 batch_size=self.batch_size,
-                                 verbose=0,
-                                 callbacks=callbacks_list)
-        self.model = tf.keras.models.load_model(self.model_path, custom_objects={'score': self.score})
+                                                          min_lr=0.0001)
+            tensorboard = tf.keras.callbacks.TensorBoard(log_dir=self.model_loss_file,
+                                                         histogram_freq=1)
+            callbacks_list = [checkpoint, reduce, early_stopping, tensorboard]
+            # fit and save model
+            history = self.model.fit(self.train_x, self.train_y,
+                                     epochs=self.train_step_nums,
+                                     initial_epoch=0,
+                                     batch_size=self.batch_size,
+                                     verbose=2,
+                                     callbacks=callbacks_list)
+        self.model = tf.keras.models.load_model(self.model_hdf_file, custom_objects={'score': self.score})
         self.min_err, self.max_err = self.get_err()
         err_length = self.max_err - self.min_err
-        self.model_path = self.rename_model_file_by_err(self.model_path, err_length)
+        self.rename_model_file_by_err(err_length)
         if self.use_threshold:
             if err_length > self.threshold:
                 if self.retrain_times < self.retrain_time_limit:
-                    self.model_path = self.init_model_name_by_random(self.model_path)
+                    self.init_model_name_by_random()
                     self.retrain_times += 1
                     print("Retrain %d when score not perfect: Model %s, Err %f, Threshold %f" % (
-                        self.retrain_times, self.model_path, err_length, self.threshold))
+                        self.retrain_times, self.model_hdf_file, err_length, self.threshold))
                     logging.info("Retrain %d when score not perfect: Model %s, Err %f, Threshold %f" % (
-                        self.retrain_times, self.model_path, err_length, self.threshold))
+                        self.retrain_times, self.model_hdf_file, err_length, self.threshold))
                     self.train()
                 else:
                     print("Retrain time limit: Model %s, Err %f, Threshold %f" % (
-                        self.model_path, err_length, self.threshold))
+                        self.model_hdf_file, err_length, self.threshold))
                     logging.info("Retrain time limit: Model %s, Err %f, Threshold %f" % (
-                        self.model_path, err_length, self.threshold))
-                    self.model_path = self.get_best_model_file(self.model_path)
-                    self.model = tf.keras.models.load_model(self.model_path, custom_objects={'score': self.score})
+                        self.model_hdf_file, err_length, self.threshold))
+                    self.get_best_model_file()
+                    self.model = tf.keras.models.load_model(self.model_hdf_file, custom_objects={'score': self.score})
                     self.min_err, self.max_err = self.get_err()
                     return
             else:
                 print("Model perfect: Model %s, Err %f, Threshold %f" % (
-                    self.model_path, err_length, self.threshold))
+                    self.model_hdf_file, err_length, self.threshold))
                 logging.info("Model perfect: Model %s, Err %f, Threshold %f" % (
-                    self.model_path, err_length, self.threshold))
+                    self.model_hdf_file, err_length, self.threshold))
         else:
-            print("Stop train when score stop decreasing: Model %s, Err %f, Threshold %f" % (
-                self.model_path, err_length, self.threshold))
-            logging.info("Stop train when score stop decreasing: Model %s, Err %f, Threshold %f" % (
-                self.model_path, err_length, self.threshold))
+            print("Stop train when train early stop or epoch finish: Model %s, Err %f, Threshold %f" % (
+                self.model_hdf_file, err_length, self.threshold))
+            logging.info("Stop train when train early stop or epoch finish: Model %s, Err %f, Threshold %f" % (
+                self.model_hdf_file, err_length, self.threshold))
 
     def is_model_file_valid(self):
         try:
-            model = tf.keras.models.load_model(self.model_path, custom_objects={'score': self.score})
+            model = tf.keras.models.load_model(self.model_hdf_file, custom_objects={'score': self.score})
             return True
         except Exception:
             # {ValueError}No model config found in the file
@@ -250,33 +251,20 @@ class TrainedNN:
         pres = self.model.predict(self.train_x).flatten()
         plt.plot(self.train_x, self.train_y, 'y--', label="true")
         plt.plot(self.train_x, pres, 'm--', label="predict")
-        png_path = self.model_path.replace("hdf5", "png")
-        png_path = png_path.replace("models", "models_png")
-        file_path, file_name = os.path.split(png_path)
-        if os.path.exists(file_path) is False:
-            os.makedirs(file_path)
         plt.legend()
-        plt.savefig(png_path)
+        plt.savefig(self.model_png_file)
         plt.close()
 
-    @staticmethod
-    def get_best_model_file(model_path):
+    def get_best_model_file(self):
         """
         find the min err model path
-        :return: perfect model path
         """
-        file_path, file_name = os.path.split(model_path)
-        tmp_split = file_name.split('.')
-        model_index = tmp_split[0]
-        suffix = tmp_split[-1]
         min_err = 'best'
-        if os.path.exists(file_path) is False:
-            return model_path
-        files = os.listdir(file_path)
+        files = os.listdir(self.model_hdf_dir)
         for file in files:
             tmp_split = file.split('.')
             tmp_model_index = tmp_split[0]
-            if tmp_model_index == model_index:
+            if tmp_model_index == self.model_index:
                 tmp_err = '.'.join(tmp_split[1:-1])
                 try:
                     tmp_err = float(tmp_err)
@@ -284,71 +272,88 @@ class TrainedNN:
                     continue
                 if (min_err == 'best' or min_err > tmp_err) and tmp_err >= 0:
                     min_err = tmp_err
-        best_file_name = '.'.join([model_index, str(min_err), suffix])
-        return os.path.join(file_path, best_file_name)
+        best_file_name = '.'.join([self.model_index, str(min_err), "hdf5"])
+        best_png_name = '.'.join([self.model_index, str(min_err), "png"])
+        best_loss_name = '.'.join([self.model_index, str(min_err), "loss"])
+        self.model_hdf_file = os.path.join(self.model_hdf_dir, best_file_name)
+        self.model_png_file = os.path.join(self.model_png_dir, best_png_name)
+        self.model_loss_file = os.path.join(self.model_loss_dir, best_loss_name)
 
-    @staticmethod
-    def rename_model_file_by_err(model_path, err):
+    def rename_model_file_by_err(self, err):
         """
         rename model file by err
-        :param model_path: old path
         :param err: float
-        :return: new path
         """
-        file_path, file_name = os.path.split(model_path)
-        tmp_split = file_name.split('.')
-        model_index = tmp_split[0]
-        suffix = tmp_split[-1]
-        new_file_name = '.'.join([model_index, str(err), suffix])
+        new_file_name = '.'.join([self.model_index, str(err), "hdf5"])
+        new_png_name = '.'.join([self.model_index, str(err), "png"])
+        new_loss_name = '.'.join([self.model_index, str(err), "loss"])
+        new_model_path = os.path.join(self.model_hdf_dir, new_file_name)
+        new_png_path = os.path.join(self.model_png_dir, new_png_name)
+        new_loss_path = os.path.join(self.model_loss_dir, new_loss_name)
         try:
-            new_model_path = os.path.join(file_path, new_file_name)
-            os.rename(model_path, new_model_path)
-            return new_model_path
+            os.rename(self.model_hdf_file, new_model_path)
         except FileExistsError:  # 相同误差的model不再重复保存
-            os.remove(model_path)
-            return model_path
+            os.remove(self.model_hdf_file)
+        except FileNotFoundError:  # 原模型不存在则跳过
+            pass
+        try:
+            os.rename(self.model_png_file, new_png_path)
+        except FileExistsError:
+            os.remove(self.model_png_file)
+        except FileNotFoundError:
+            pass
+        try:
+            os.rename(self.model_loss_file, new_loss_path)
+        except FileExistsError:
+            shutil.rmtree(self.model_loss_file)
+        except FileNotFoundError:
+            pass
+        self.model_hdf_file = new_model_path
+        self.model_png_file = new_png_path
+        self.model_loss_file = new_loss_path
 
-    @staticmethod
-    def init_model_name_by_random(model_path):
+    def init_model_name_by_random(self):
         """
         init model name by random float num
-        :param model_path: old path
-        :return: new path
         """
-        file_path, file_name = os.path.split(model_path)
-        tmp_split = file_name.split('.')
-        model_index = tmp_split[0]
-        suffix = tmp_split[-1]
-        new_file_name = '.'.join([model_index, str(random.random() * -1), suffix])
-        return os.path.join(file_path, new_file_name)
+        random_str = str(random.random() * -1)
+        new_file_name = '.'.join([self.model_index, random_str, "hdf5"])
+        new_png_name = '.'.join([self.model_index, random_str, "png"])
+        new_loss_name = '.'.join([self.model_index, random_str, "loss"])
+        self.model_hdf_file = os.path.join(self.model_hdf_dir, new_file_name)
+        self.model_png_file = os.path.join(self.model_png_dir, new_png_name)
+        self.model_loss_file = os.path.join(self.model_loss_dir, new_loss_name)
 
-    @staticmethod
-    def clean_not_best_model_file(model_path):
+    def clean_not_best_model_file(self):
         """
         delete all the model file besides the best one
-        :return: None
         """
-        file_path, file_name = os.path.split(model_path)
-        tmp_split = file_name.split('.')
-        model_index = tmp_split[0]
-        suffix = tmp_split[-1]
         min_err = 'best'
-        if os.path.exists(file_path) is False:
-            return
-        files = os.listdir(file_path)
+        files = os.listdir(self.model_hdf_dir)
         for file in files:
             tmp_split = file.split('.')
             tmp_model_index = tmp_split[0]
-            if tmp_model_index == model_index:
+            if tmp_model_index == self.model_index:
                 tmp_err = '.'.join(tmp_split[1:-1])
                 try:
                     tmp_err = float(tmp_err)
                 except:
                     continue
                 if (min_err == 'best' or min_err > tmp_err) and tmp_err >= 0:
-                    last_min_file_name = '.'.join([model_index, str(min_err), suffix])
-                    if os.path.exists(os.path.join(file_path, last_min_file_name)):
-                        os.remove(os.path.join(file_path, last_min_file_name))
-                    min_err = tmp_err
+                    tmp_min_err = tmp_err
+                    tmp_max_err = min_err
                 else:
-                    os.remove(os.path.join(file_path, file))
+                    tmp_min_err = min_err
+                    tmp_max_err = tmp_err
+                last_min_file_name = '.'.join([self.model_index, str(tmp_max_err), "hdf5"])
+                last_min_png_name = '.'.join([self.model_index, str(tmp_max_err), "png"])
+                last_min_loss_name = '.'.join([self.model_index, str(tmp_max_err), "loss"])
+                if os.path.exists(os.path.join(self.model_hdf_dir, last_min_file_name)):
+                    os.remove(os.path.join(self.model_hdf_dir, last_min_file_name))
+                if os.path.exists(os.path.join(self.model_png_dir, last_min_png_name)):
+                    os.remove(os.path.join(self.model_png_dir, last_min_png_name))
+                if os.path.exists(os.path.join(self.model_loss_dir, last_min_loss_name)):
+                    shutil.rmtree(os.path.join(self.model_loss_dir, last_min_loss_name))
+                min_err = tmp_min_err
+
+
