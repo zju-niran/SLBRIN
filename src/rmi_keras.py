@@ -68,7 +68,7 @@ class AbstractNN:
             # w * x + b
             # sigmoid(x)
             tmp_res = AbstractNN.sigmoid(tmp_res * np.mat(self.weights[i * 2]) + np.mat(self.weights[i * 2 + 1]))
-        # 值clip到最大最小值之间
+        # clip到最大最小值之间
         tmp_res = np.asarray(tmp_res).flatten()
         return nparray_normalize_reverse(tmp_res, self.output_min, self.output_max)
 
@@ -83,15 +83,13 @@ class AbstractNN:
 # Neural Network Model
 class TrainedNN:
     def __init__(self, model_path, model_index, train_x, train_y, threshold, use_threshold, cores, train_step_num,
-                 batch_size,
-                 learning_rate, keep_ratio, retrain_time_limit):
+                 batch_size, learning_rate, retrain_time_limit):
         if cores is None:
             cores = []
         self.core_nums = cores
         self.train_step_nums = train_step_num
         self.batch_size = batch_size
         self.learning_rate = learning_rate
-        self.keep_ratio = keep_ratio
         self.train_x, self.train_x_min, self.train_x_max = nparray_normalize(train_x)
         self.train_y, self.train_y_min, self.train_y_max = nparray_normalize(train_y)
         self.use_threshold = use_threshold
@@ -149,10 +147,6 @@ class TrainedNN:
                 model.add(tf.keras.layers.Dense(units=self.core_nums[i + 1],
                                                 input_dim=self.core_nums[i],
                                                 activation='sigmoid'))
-                # drop_rate = 1 - self.keep_ratio
-                # if drop_rate > 0:
-                #     model.add(tf.keras.layers.Dropout(rate=drop_rate))  # dropout防止过拟合
-                # model.add(tf.keras.layers.BatchNormalization())  #bn可以杜绝梯度消失，但是训练的慢，而且predict我没实现。。。
             model.add(tf.keras.layers.Dense(units=self.core_nums[-1],
                                             activation='sigmoid'))
             optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)

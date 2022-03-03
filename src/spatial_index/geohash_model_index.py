@@ -28,7 +28,6 @@ class GeoHashModelIndex(SpatialIndex):
         self.train_step = 3000
         self.batch_size = 1024
         self.learning_rate = 0.01
-        self.keep_ratio = 0.9
         self.retrain_time_limit = 20
         self.thread_pool_size = 1
 
@@ -111,7 +110,6 @@ class GeoHashModelIndex(SpatialIndex):
                               self.train_step,
                               self.batch_size,
                               self.learning_rate,
-                              self.keep_ratio,
                               self.retrain_time_limit)
         tmp_index.train()
         tmp_index.plot()

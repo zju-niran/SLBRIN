@@ -28,7 +28,6 @@ class ZMIndex(SpatialIndex):
         self.train_steps = [40000, 20000]
         self.batch_sizes = [1024, 1024]
         self.learning_rates = [0.01, 0.01]
-        self.keep_ratios = [0.9, 0.9]
         self.retrain_time_limits = [40, 20]
         self.thread_pool_size = 3
         self.train_inputs = [[None for i in range(self.stages[i])] for i in range(self.stage_length)]
@@ -72,7 +71,6 @@ class ZMIndex(SpatialIndex):
                               self.train_steps[i],
                               self.batch_sizes[i],
                               self.learning_rates[i],
-                              self.keep_ratios[i],
                               self.retrain_time_limits[i])
         tmp_index.train()
         tmp_index.plot()
