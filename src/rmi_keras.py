@@ -178,7 +178,7 @@ class TrainedNN:
                                      epochs=self.train_step_nums,
                                      initial_epoch=0,
                                      batch_size=self.batch_size,
-                                     verbose=2,
+                                     verbose=0,
                                      callbacks=callbacks_list)
         self.model = tf.keras.models.load_model(self.model_hdf_file, custom_objects={'score': self.score})
         self.min_err, self.max_err = self.get_err()

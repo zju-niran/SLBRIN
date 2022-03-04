@@ -16,20 +16,22 @@ from src.rmi_keras import TrainedNN, AbstractNN
 
 class ZMIndex(SpatialIndex):
     def __init__(self, region=Region(-90, 90, -180, 180), model_path=None, train_data_length=None, rmi=None,
-                 index_list=None):
+                 index_list=None, block_size=None, use_thresholds=None, thresholds=None, stages=None, cores=None,
+                 train_steps=None, batch_sizes=None, learning_rates=None, retrain_time_limits=None,
+                 thread_pool_size=None):
         super(ZMIndex, self).__init__("ZM Index")
         # nn args
-        self.block_size = 100
-        self.use_thresholds = [True, True]  # 是否使用thresholds来提前结束训练
-        self.thresholds = [30, 20]
-        self.stages = [1, 100]
+        self.block_size = block_size
+        self.use_thresholds = use_thresholds
+        self.thresholds = thresholds
+        self.stages = stages
         self.stage_length = len(self.stages)
-        self.cores = [[1, 128, 1], [1, 128, 1]]
-        self.train_steps = [40000, 20000]
-        self.batch_sizes = [1024, 1024]
-        self.learning_rates = [0.01, 0.01]
-        self.retrain_time_limits = [40, 20]
-        self.thread_pool_size = 3
+        self.cores = cores
+        self.train_steps = train_steps
+        self.batch_sizes = batch_sizes
+        self.learning_rates = learning_rates
+        self.retrain_time_limits = retrain_time_limits
+        self.thread_pool_size = thread_pool_size
         self.train_inputs = [[None for i in range(self.stages[i])] for i in range(self.stage_length)]
         self.train_labels = [[None for i in range(self.stages[i])] for i in range(self.stage_length)]
 
@@ -312,13 +314,22 @@ class MyDecoder(json.JSONDecoder):
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     # load data
-    path = '../../data/trip_data_2_100000_random.csv'
-    # read_data_and_search(path, index, None, None, 7, 8)
-    z_col, index_col = 7, 8
-    train_set_xy = pd.read_csv(path, header=None, usecols=[2, 3], names=["x", "y"])
+    path = '../../data/trip_data_1_filter.csv'
+    train_set_xy = pd.read_csv(path)
     # create index
-    model_path = "model/zm_index_2022-02-24/"
-    index = ZMIndex(region=Region(40, 42, -75, -73), model_path=model_path)
+    model_path = "model/zm_index_1451w/"
+    index = ZMIndex(region=Region(40, 42, -75, -73), model_path=model_path,
+                    train_data_length=None, rmi=None, index_list=None,
+                    block_size=100,
+                    use_thresholds=[False, False],
+                    thresholds=[30, 20],
+                    stages=[1, 100],
+                    cores=[[1, 128, 1], [1, 128, 1]],
+                    train_steps=[500, 500],
+                    batch_sizes=[1024, 1024],
+                    learning_rates=[0.01, 0.01],
+                    retrain_time_limits=[40, 20],
+                    thread_pool_size=1)
     index_name = index.name
     load_index_from_json = False
     if load_index_from_json:

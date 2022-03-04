@@ -18,18 +18,20 @@ from src.rmi_keras import TrainedNN, AbstractNN
 
 class GeoHashModelIndex(SpatialIndex):
     def __init__(self, region=Region(-90, 90, -180, 180), max_num=10000, model_path=None, train_data_length=None,
-                 brin=None, gm_dict=None, index_list=None):
+                 brin=None, gm_dict=None, index_list=None, block_size=None, use_threshold=None, threshold=None,
+                 core=None, train_step=None, batch_size=None, learning_rate=None,
+                 retrain_time_limit=None, thread_pool_size=None):
         super(GeoHashModelIndex, self).__init__("GeoHash Model Index")
         # nn args
-        self.block_size = 100
-        self.use_threshold = True
-        self.threshold = 2
-        self.core = [1, 128, 1]
-        self.train_step = 3000
-        self.batch_size = 1024
-        self.learning_rate = 0.01
-        self.retrain_time_limit = 20
-        self.thread_pool_size = 1
+        self.block_size = block_size
+        self.use_threshold = use_threshold
+        self.threshold = threshold
+        self.core = core
+        self.train_step = train_step
+        self.batch_size = batch_size
+        self.learning_rate = learning_rate
+        self.retrain_time_limit = retrain_time_limit
+        self.thread_pool_size = thread_pool_size
 
         # geohash model index args, support predict and query
         self.region = region
@@ -281,8 +283,18 @@ if __name__ == '__main__':
     z_col, index_col = 7, 8
     train_set_xy = pd.read_csv(path, header=None, usecols=[2, 3], names=["x", "y"])
     # create index
-    model_path = "model/gm_index_2022-03-01/"
-    index = GeoHashModelIndex(region=Region(40, 42, -75, -73), max_num=1000, model_path=model_path)
+    model_path = "model/zm_index_10w/"
+    index = GeoHashModelIndex(region=Region(40, 42, -75, -73), max_num=1000, model_path=model_path,
+                              train_data_length=None, brin=None, gm_dict=None, index_list=None,
+                              block_size=100,
+                              use_threshold=False,
+                              threshold=2,
+                              core=[1, 128, 1],
+                              train_step=500,
+                              batch_size=1024,
+                              learning_rate=0.01,
+                              retrain_time_limit=20,
+                              thread_pool_size=1)
     index_name = index.name
     load_index_from_json = False
     if load_index_from_json:
