@@ -181,7 +181,7 @@ class GeoHashModelIndex(SpatialIndex):
             leaf_model_index = leaf_model_indexes[i]
             leaf_model = self.gm_dict[leaf_model_index]
             # 3. predict by z and create index scope [pre - min_err, pre + max_err]
-            pre, min_err, max_err = leaf_model.predict(z)[0], leaf_model.min_err, leaf_model.max_err
+            pre, min_err, max_err = leaf_model.predict(z), leaf_model.min_err, leaf_model.max_err
             left_bound = max((pre - max_err) * self.block_size, 0)
             right_bound = min((pre - min_err) * self.block_size, self.train_data_length - 1)
             # 4. binary search in scope

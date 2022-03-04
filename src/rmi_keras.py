@@ -11,8 +11,9 @@ import tensorflow as tf
 matplotlib.use('Agg')  # 解决_tkinter.TclError: couldn't connect to display "localhost:11.0"
 import matplotlib.pyplot as plt
 
-from src.spatial_index.common_utils import nparray_normalize, nparray_normalize_minmax, nparray_diff_normalize_reverse, \
-    nparray_normalize_reverse
+from src.spatial_index.common_utils import nparray_normalize, nparray_normalize_minmax, \
+    nparray_diff_normalize_reverse_arr, \
+    nparray_normalize_reverse_arr, nparray_normalize_reverse_num
 
 
 # using cache
@@ -59,9 +60,20 @@ class AbstractNN:
     def sigmoid(x):
         return 1 / (1 + np.exp(-x))
 
-    # @memoize TODO: 要加缓存的话， 缓存的key不能是list，之前是float
+    # @memoize
     # TODO: 和model.predict有小偏差，怀疑是exp的e和elu的e不一致
-    def predict(self, input_keys):
+    def predict(self, input_key):
+        input_key = nparray_normalize_minmax(input_key, self.input_min, self.input_max)
+        tmp_res = np.mat(input_key).T
+        for i in range(len(self.core_nums) - 1):
+            # w * x + b
+            # sigmoid(x)
+            tmp_res = AbstractNN.sigmoid(tmp_res * np.mat(self.weights[i * 2]) + np.mat(self.weights[i * 2 + 1]))
+        # clip到最大最小值之间
+        tmp_res = tmp_res[0, 0]
+        return nparray_normalize_reverse_num(tmp_res, self.output_min, self.output_max)
+
+    def predicts(self, input_keys):
         input_keys = nparray_normalize_minmax(input_keys, self.input_min, self.input_max)
         tmp_res = np.mat(input_keys).T
         for i in range(len(self.core_nums) - 1):
@@ -70,7 +82,7 @@ class AbstractNN:
             tmp_res = AbstractNN.sigmoid(tmp_res * np.mat(self.weights[i * 2]) + np.mat(self.weights[i * 2 + 1]))
         # clip到最大最小值之间
         tmp_res = np.asarray(tmp_res).flatten()
-        return nparray_normalize_reverse(tmp_res, self.output_min, self.output_max)
+        return nparray_normalize_reverse_arr(tmp_res, self.output_min, self.output_max)
 
     @staticmethod
     def init_by_dict(d: dict):
@@ -237,12 +249,13 @@ class TrainedNN:
 
     def get_err(self):
         pres = self.model.predict(self.train_x).flatten()
-        errs_normalize_reverse = nparray_diff_normalize_reverse(pres, self.train_y, self.train_y_min, self.train_y_max)
+        errs_normalize_reverse = nparray_diff_normalize_reverse_arr(pres, self.train_y, self.train_y_min,
+                                                                    self.train_y_max)
         return errs_normalize_reverse.min(), errs_normalize_reverse.max()
 
     def predict(self):
         pres = self.model.predict(self.train_x).flatten()
-        return nparray_normalize_reverse(pres, self.train_y_min, self.train_y_max)
+        return nparray_normalize_reverse_arr(pres, self.train_y_min, self.train_y_max)
 
     def plot(self):
         pres = self.model.predict(self.train_x).flatten()

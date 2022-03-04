@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.append('/home/zju/wlj/st-learned-index')
-from src.spatial_index.common_utils import ZOrder, Region
+from src.spatial_index.common_utils import ZOrder, Region, Point
 from src.spatial_index.spatial_index import SpatialIndex
 from src.rmi_keras import TrainedNN, AbstractNN
 
@@ -115,7 +115,7 @@ class ZMIndex(SpatialIndex):
                     # train model
                     self.build_single_thread(i, j, inputs, labels)
                     # allocate data into training set for models in next stage
-                    pres = self.rmi[i][j].predict(self.train_inputs[i][j])
+                    pres = self.rmi[i][j].predicts(self.train_inputs[i][j])
                     for ind in range(self.stages[i + 1]):
                         self.train_inputs[i + 1][ind] = self.train_inputs[i][j][np.round(pres) == ind]
                         self.train_labels[i + 1][ind] = self.train_labels[i][j][np.round(pres) == ind]
@@ -153,12 +153,12 @@ class ZMIndex(SpatialIndex):
         # 1. predict the leaf_model by rmi
         leaf_model_index = 0
         for i in range(0, self.stage_length - 1):
-            leaf_model_index = round(self.rmi[i][leaf_model_index].predict(key)[0])
+            leaf_model_index = round(self.rmi[i][leaf_model_index].predict(key))
             if leaf_model_index > self.stages[i + 1] - 1:
                 leaf_model_index = self.stages[i + 1] - 1
         # 2. predict the index by leaf_model
         leaf_model = self.rmi[self.stage_length - 1][leaf_model_index]
-        pre = leaf_model.predict(key)[0]
+        pre = leaf_model.predict(key)
         return pre, leaf_model.min_err, leaf_model.max_err
 
     def save(self):

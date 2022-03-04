@@ -406,12 +406,12 @@ def nparray_normalize_minmax(na, min_v, max_v):
         return (na - min_v) / (max_v - min_v)
 
 
-def nparray_normalize_reverse(na, min_v, max_v):
-    f1 = np.frompyfunc(nparray_normalize_reverse_child, 3, 1)
+def nparray_normalize_reverse_arr(na, min_v, max_v):
+    f1 = np.frompyfunc(nparray_normalize_reverse_num, 3, 1)
     return f1(na, min_v, max_v).astype('float')
 
 
-def nparray_normalize_reverse_child(num, min_v, max_v):
+def nparray_normalize_reverse_num(num, min_v, max_v):
     if min_v is None or max_v is None or max_v == min_v:
         return num
     if num < 0:
@@ -421,12 +421,12 @@ def nparray_normalize_reverse_child(num, min_v, max_v):
     return num * (max_v - min_v) + min_v
 
 
-def nparray_diff_normalize_reverse(na1, na2, min_v, max_v):
-    f1 = np.frompyfunc(nparray_diff_normalize_reverse_child, 4, 1)
+def nparray_diff_normalize_reverse_arr(na1, na2, min_v, max_v):
+    f1 = np.frompyfunc(nparray_diff_normalize_reverse_num, 4, 1)
     return f1(na1, na2, min_v, max_v).astype('float')
 
 
-def nparray_diff_normalize_reverse_child(num1, num2, min_v, max_v):
+def nparray_diff_normalize_reverse_num(num1, num2, min_v, max_v):
     if min_v is None or max_v is None or max_v == min_v:
         return num1 - num2
     if num1 < 0:
