@@ -269,12 +269,10 @@ class MyDecoder(json.JSONDecoder):
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     # load data
-    path = '../../data/trip_data_2_100000_random.csv'
-    # read_data_and_search(path, index, None, None, 7, 8)
-    z_col, index_col = 7, 8
-    train_set_xy = pd.read_csv(path, header=None, usecols=[2, 3], names=["x", "y"])
+    path = '../../data/trip_data_1_filter.csv'
+    train_set_xy = pd.read_csv(path)
     # create index
-    model_path = "model/zm_index_10w/"
+    model_path = "model/gm_index_1451w/"
     index = GeoHashModelIndex(region=Region(40, 42, -75, -73), max_num=1000, model_path=model_path,
                               train_data_length=None, brin=None, gm_dict=None, index_list=None,
                               block_size=100,

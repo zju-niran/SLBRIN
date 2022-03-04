@@ -49,14 +49,10 @@ class RTree(Index):
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     # load data
-    path = '../../data/trip_data_2_100000_random.csv'
-    # read_data_and_search(path, index, None, None, 7, 8)
-    z_col, index_col = 7, 8
-    train_set_xy = pd.read_csv(path, header=None, usecols=[2, 3], names=["x", "y"])
-    test_ratio = 0.5  # 测试集占总数据集的比例
-    test_set_xy = train_set_xy.sample(n=int(len(train_set_xy) * test_ratio), random_state=1)
+    path = '../../data/trip_data_1_filter.csv'
+    train_set_xy = pd.read_csv(path)
     # create index
-    model_path = "model/zm_index_2022-01-25/"
+    model_path = "model/rtree_1451w/"
     index = RTree()
     index_name = index.name
     load_index_from_json = False
