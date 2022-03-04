@@ -185,7 +185,7 @@ class GeoHashModelIndex(SpatialIndex):
             left_bound = max((pre - max_err) * self.block_size, 0)
             right_bound = min((pre - min_err) * self.block_size, self.train_data_length - 1)
             # 4. binary search in scope
-            result = self.binary_search(self.index_list, z, int(round(left_bound)), int(round(right_bound)))
+            result = self.binary_search(self.index_list, z, round(left_bound), round(right_bound))
             results.append(result)
         return pd.Series(results)
 
