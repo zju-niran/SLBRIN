@@ -25,7 +25,7 @@ class ZMIndex(SpatialIndex):
         self.use_thresholds = use_thresholds
         self.thresholds = thresholds
         self.stages = stages
-        self.stage_length = len(self.stages)
+        self.stage_length = len(self.stages) if self.stages is not None else 0
         self.cores = cores
         self.train_steps = train_steps
         self.batch_sizes = batch_sizes
