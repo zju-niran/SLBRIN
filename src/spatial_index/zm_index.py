@@ -52,12 +52,10 @@ class ZMIndex(SpatialIndex):
         :param data: pd.dataframe, [x, y]
         :return: None
         """
-        z_order = ZOrder()
-        z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y, self.region), 1)
-        # z归一化
-        z_values_normalization = z_values / z_order.max_z
-        self.train_data_length = len(z_values_normalization)
-        self.train_inputs[0][0] = z_values_normalization.sort_values(ascending=True).values
+        z_order = ZOrder(dimensions=2, bits=21, region=self.region)
+        z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y), 1)
+        self.train_data_length = len(z_values)
+        self.train_inputs[0][0] = z_values.sort_values(ascending=True).values
         self.train_labels[0][0] = pd.Series(np.arange(0, self.train_data_length) / self.block_size).values
 
     def build_single_thread(self, curr_stage, current_stage_step, inputs, labels, tmp_dict=None):
@@ -198,26 +196,23 @@ class ZMIndex(SpatialIndex):
         """
         query index by x/y point
         1. compute z from x/y of points
-        2. normalize z by z.min and z.max
-        3. predict by z and create index scope [pre - min_err, pre + max_err]
-        4. binary search in scope
+        2. predict by z and create index scope [pre - min_err, pre + max_err]
+        3. binary search in scope
         :param data: pd.DataFrame, [x, y]
         :return: pd.DataFrame, [pre]
         """
-        z_order = ZOrder()
         # 写法1：list
+        z_order = ZOrder(dimensions=2, bits=21, region=self.region)
         results = []
         for index, point in data.iterrows():
             # 1. compute z from x/y of points
-            z_value = z_order.point_to_z(point.x, point.y, self.region)
-            # 2. normalize z by z.min and z.max
-            z = z_value / z_order.max_z
-            # 3. predict by z and create index scope [pre - min_err, pre + max_err]
-            pre, min_err, max_err = self.predict(z)
+            z_value = z_order.point_to_z(point.x, point.y)
+            # 2. predict by z and create index scope [pre - min_err, pre + max_err]
+            pre, min_err, max_err = self.predict(z_value)
             left_bound = max((pre - max_err) * self.block_size, 0)
             right_bound = min((pre - min_err) * self.block_size, self.train_data_length - 1)
-            # 4. binary search in scope
-            result = self.binary_search(self.index_list, z, int(round(left_bound)), int(round(right_bound)))
+            # 3. binary search in scope
+            result = self.binary_search(self.index_list, z_value, int(round(left_bound)), int(round(right_bound)))
             results.append(result)
         return pd.Series(results)
         # 写法2：pd.DataFrame

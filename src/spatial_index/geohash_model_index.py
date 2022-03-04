@@ -52,10 +52,8 @@ class GeoHashModelIndex(SpatialIndex):
         :param data: pd.dataframe, [x, y]
         :return: None
         """
-        z_order = ZOrder()
-        z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y, self.region), 1)
-        # z归一化
-        data["z"] = z_values / z_order.max_z
+        z_order = ZOrder(dimensions=2, bits=21, region=self.region)
+        data["z"] = data.apply(lambda t: z_order.point_to_z(t.x, t.y), 1)
         data.sort_values(by=["z"], ascending=True, inplace=True)
         data.reset_index(drop=True, inplace=True)
         self.train_data_length = len(data)
@@ -166,25 +164,23 @@ class GeoHashModelIndex(SpatialIndex):
         """
         query index by x/y point
         1. compute z from x/y of points
-        2. normalize z by z.min and z.max
-        3. predict the leaf model by brin
-        4. predict by leaf model and create index scope [pre - min_err, pre + max_err]
-        5. binary search in scope
+        2. predict the leaf model by brin
+        3. predict by leaf model and create index scope [pre - min_err, pre + max_err]
+        4. binary search in scope
         :param data: pd.DataFrame, [x, y]
         :return: pd.DataFrame, [pre]
         """
-        z_order = ZOrder()
+        z_order = ZOrder(dimensions=2, bits=21, region=self.region)
         results = []
         # 1. compute z from x/y of points
-        # 2. normalize z by z.min and z.max
-        z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y, self.region) / z_order.max_z, 1)
-        # 3. predicted the leaf model by brin
+        z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y), 1)
+        # 2. predicted the leaf model by brin
         leaf_model_indexes = self.brin.point_query(z_values)
         for i in range(len(z_values)):
             z = z_values[i]
             leaf_model_index = leaf_model_indexes[i]
             leaf_model = self.gm_dict[leaf_model_index]
-            # 4. predict by z and create index scope [pre - min_err, pre + max_err]
+            # 3. predict by z and create index scope [pre - min_err, pre + max_err]
             pre, min_err, max_err = leaf_model.predict(z)[0], leaf_model.min_err, leaf_model.max_err
             left_bound = max((pre - max_err) * self.block_size, 0)
             right_bound = min((pre - min_err) * self.block_size, self.train_data_length - 1)

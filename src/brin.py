@@ -159,9 +159,7 @@ if __name__ == '__main__':
     z_col, index_col = 7, 8
     data = pd.read_csv(path, header=None, usecols=[2, 3], names=["x", "y"])
     z_order = ZOrder()
-    z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y, Region(40, 42, -75, -73)), 1)
-    # z归一化
-    data["z"] = z_values / z_order.max_z
+    data["z"] = data.apply(lambda t: z_order.point_to_z(t.x, t.y), 1)
     data.sort_values(by=["z"], ascending=True, inplace=True)
     data.reset_index(drop=True, inplace=True)
     train_data_length = len(data)

@@ -8,7 +8,6 @@ from reprlib import repr
 from sys import getsizeof, stderr
 
 import morton
-import numpy
 import numpy as np
 import pandas as pd
 
@@ -65,25 +64,93 @@ class Region:
 
 
 class ZOrder:
-    def __init__(self):
-        self.bits = 21
-        self.morton = morton.Morton(dimensions=2, bits=self.bits)
-        self.max_z = (1 << self.bits * 2) - 1
+    def __init__(self, dimensions, bits, region):
+        self.dimensions = dimensions
+        self.bits = bits
+        self.region = region
+        self.region_width = region.right - region.left
+        self.region_height = region.up - region.bottom
 
-    def point_to_z(self, lng, lat, region):
+        def flp2(x):
+            '''Greatest power of 2 less than or equal to x, branch-free.'''
+            x |= x >> 1
+            x |= x >> 2
+            x |= x >> 4
+            x |= x >> 8
+            x |= x >> 16
+            x |= x >> 32
+            x -= x >> 1
+            return x
+
+        shift = flp2(self.dimensions * (self.bits - 1))
+        masks = []
+        lshifts = []
+        max_value = (1 << (shift * self.bits)) - 1
+        while shift > 0:
+            mask = 0
+            shifted = 0
+            for bit in range(self.bits):
+                distance = (self.dimensions * bit) - bit
+                shifted |= shift & distance
+                mask |= 1 << bit << (((shift - 1) ^ max_value) & distance)
+
+            if shifted != 0:
+                masks.append(mask)
+                lshifts.append(shift)
+
+            shift >>= 1
+        self.lshifts = [0] + lshifts
+        self.rshifts = lshifts + [0]
+        self.max_num = 1 << self.bits
+        self.masks = [self.max_num - 1] + masks
+
+    def split(self, value):
+        for o in range(len(self.masks)):
+            value = (value | (value << self.lshifts[o])) & self.masks[o]
+        return value
+
+    def pack(self, *args):
+        code = 0
+        for i in range(self.dimensions):
+            code |= self.split(args[i]) << i
+        return code
+
+    def compact(self, code):
+        for o in range(len(self.masks) - 1, -1, -1):
+            code = (code | (code >> self.rshifts[o])) & self.masks[o]
+        return code
+
+    def unpack(self, code):
+        values = []
+        for i in range(self.dimensions):
+            values.append(self.compact(code >> i))
+        return values
+
+    def point_to_z(self, lng, lat):
         """
         计算point的z order
         1. 经纬度都先根据region归一化到0-1，然后缩放到0-2^self.bits
         2. 使用morton-py.pack(int, int): int计算z order，顺序是左下、右下、左上、右上
         :param lng:
         :param lat:
-        :param region:
         :return:
         """
-        max_num = 1 << self.bits
-        lng_zoom = int((lng - region.left) * max_num / (region.right - region.left))
-        lat_zoom = int((lat - region.bottom) * max_num / (region.up - region.bottom))
-        return self.morton.pack(lng_zoom, lat_zoom)
+        lng_zoom = int((lng - self.region.left) * self.max_num / self.region_width)
+        lat_zoom = int((lat - self.region.bottom) * self.max_num / self.region_height)
+        return self.pack(lng_zoom, lat_zoom)
+
+    def z_to_point(self, z):
+        """
+        计算z order的point
+        1. 使用morton-py.unpack(int)
+        2. 反归一化
+        :param z:
+        :return:
+        """
+        lng_zoom, lat_zoom = self.unpack(z)
+        lng = lng_zoom * self.region_width / self.max_num + self.region.left
+        lat = lat_zoom * self.region_height / self.max_num + self.region.bottom
+        return lng, lat
 
 
 class Geohash:
@@ -185,7 +252,7 @@ class Geohash:
         del i
         start_time = time.time()
         for ind in range(len(train_set_point)):
-            hashcode = pygeohash.encode(train_set_point[ind].lat, train_set_point[ind].lng, precision=5)
+            hashcode = pygeohash.encode(train_set_point[ind].lat, train_set_point[ind].lng, precision=12)
         end_time = time.time()
         search_time = (end_time - start_time) / len(train_set_point)
         print("Python-Geohash create time ", search_time)
@@ -219,41 +286,6 @@ def create_data(path):
             lat = random.uniform(-90, 90)
             index += 1
             writer.writerow([index, lng, lat])
-
-
-def create_data_z(input_path, output_path, lng_col, lat_col, region):
-    """
-    compute and add z order into file
-    1. compute z order by lng and lat
-    2. add z order into file
-    :param input_path:
-    :param output_path:
-    :param lng_col:
-    :param lat_col:
-    :param region:
-    :return:
-    """
-    df = pd.read_csv(input_path, header=None)
-    z_order = ZOrder()
-    z_values = []
-    z_values_normalization = []
-    for i in range(df.count()[0]):
-        z_value = z_order.point_to_z(df[lng_col][i], df[lat_col][i], region)
-        z_values.append(z_value)
-    # z归一化
-    min_z_value = min(z_values)
-    max_z_value = max(z_values)
-    for i in range(df.count()[0]):
-        z_value_normalization = (z_values[i] - min_z_value) / (max_z_value - min_z_value)
-        z_values_normalization.append(z_value_normalization)
-    df["z_value"] = z_values
-    df["z_value_normalization"] = z_values_normalization
-    df = df.rename(columns={lng_col: "lng", lat_col: "lat"})
-    df = df.sort_values(['z_value'], ascending=[True])
-    df = df.reset_index()
-    df = df.drop(columns=["index"])
-    df["index"] = numpy.divide(numpy.array(range(df.count()[0])), 100)  # 100是block size
-    df.to_csv(output_path, index_label="index", header=None)
 
 
 def read_data_and_search(path, index, lng_col, lat_col, z_col, index_col):
@@ -405,7 +437,12 @@ def nparray_diff_normalize_reverse_child(num1, num2, min_v, max_v):
 
 
 if __name__ == '__main__':
-    geohash = Geohash()
-    print(geohash.encode(-5.6, 42.6, precision=25))
-    print(geohash.decode('0110111111110000010000010'))
-    geohash.compare_with_python_geohash()
+    # geohash = Geohash()
+    # print(geohash.encode(-5.6, 42.6, precision=25))
+    # print(geohash.decode('0110111111110000010000010'))
+    # geohash.compare_with_python_geohash()
+
+    zorder = ZOrder(dimensions=2, bits=21, region=Region(-90, 90, -180, 180))
+    z = zorder.point_to_z(-73.982681, 40.722618)
+    point = zorder.z_to_point(z)
+    print("")
