@@ -29,33 +29,22 @@ class BRIN:
     def build(self):
         return None
 
-    def point_query(self, data: pd.DataFrame):
+    def point_query(self, point):
         """
-        query index by x point
+        query index by z point
         1. get the value in regular_pages.values which contains x
         2. get the geohash of leaf model from blknums by value
-        :param data: pd.DataFrame, [x]
-        :return: pd.DataFrame, [geohash of leaf_model]
+        :param data: z
+        :return: geohash
         """
-        data = data.sort_values(ascending=True)
-        data_length = len(data)
-        tmp_index = 0
-        result = [None] * data_length
         for regular_page in self.regular_pages:
             for i in range(len(regular_page.itemoffsets)):
                 value = regular_page.values[i]
-                while tmp_index < data_length:
-                    data_value = data.iloc[tmp_index]
-                    data_index = data.index[tmp_index]
-                    if data_value >= value[0]:
-                        if data_value <= value[1]:
-                            result[data_index] = regular_page.blknums[i]
-                        else:
-                            break
-                    else:
-                        result[data_index] = None
-                    tmp_index += 1
-        return pd.Series(result)
+                if point >= value[0]:
+                    if point <= value[1]:
+                        return regular_page.blknums[i]
+                else:
+                    return None
 
     def build_by_quad_tree(self, quad_tree):
         """
@@ -149,23 +138,3 @@ class RegularPage:
                            hasnulls=d['hasnulls'],
                            placeholders=d['placeholders'],
                            values=d['values'])
-
-
-if __name__ == '__main__':
-    import os
-
-    os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    path = '../data/trip_data_2_100000_random.csv'
-    z_col, index_col = 7, 8
-    data = pd.read_csv(path, header=None, usecols=[2, 3], names=["x", "y"])
-    z_order = ZOrder()
-    data["z"] = data.apply(lambda t: z_order.point_to_z(t.x, t.y), 1)
-    data.sort_values(by=["z"], ascending=True, inplace=True)
-    data.reset_index(drop=True, inplace=True)
-    train_data_length = len(data)
-    data["z_index"] = pd.Series(np.arange(0, train_data_length) / 100)
-    quad_tree = QuadTree(region=Region(40, 42, -75, -73), max_num=1000)
-    quad_tree.build(data, z=True)
-    quad_tree.geohash()
-    brin = BRIN(version=0, pages_per_range=None, revmap_page_maxitems=200, regular_page_maxitems=50)
-    brin.build_by_quad_tree(quad_tree)

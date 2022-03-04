@@ -31,15 +31,17 @@ class RTree(Index):
         for index, point in data.iterrows():
             self.insert(Point(point.x, point.y, index=index))
 
-    def point_query(self, data: pd.DataFrame):
+    def point_query(self, points):
         """
         query index by x/y point
         1. search by x/y
         2. for duplicate point: only return the first one
-        :param data: pd.DataFrame, [x, y]
-        :return: pd.DataFrame, [pre]
+        :param points: list, [x, y]
+        :return: list, [pre]
         """
-        results = data.apply(lambda t: self.search(Point(t.x, t.y))[0], 1)
+        results = []
+        for point in points:
+            results.append(self.search(Point(point[0], point[1]))[0])
         return results
 
 
@@ -69,12 +71,13 @@ def main():
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)
         # index.save()  # TODO: create save
+    train_set_xy_list = train_set_xy.values.tolist()
     start_time = time.time()
-    result = index.point_query(test_set_xy)
+    result = index.point_query(train_set_xy_list)
     end_time = time.time()
-    search_time = (end_time - start_time) / len(test_set_xy)
+    search_time = (end_time - start_time) / len(train_set_xy_list)
     print("Search time ", search_time)
-    print("Not found nums ", result.isna().sum())
+    print("Not found nums ", pd.Series(result).isna().sum())
     print("*************end %s************" % index_name)
 
 

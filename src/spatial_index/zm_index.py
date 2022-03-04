@@ -137,8 +137,7 @@ class ZMIndex(SpatialIndex):
             self.rmi[i][key] = value
 
         # 3. clear train data and label to save memory
-        self.index_list = pd.DataFrame({'key': self.train_inputs[0][0],
-                                        "key_index": self.train_labels[0][0]})
+        self.index_list = self.train_inputs[0][0]
         self.train_inputs = None
         self.train_labels = None
 
@@ -168,7 +167,7 @@ class ZMIndex(SpatialIndex):
         """
         if os.path.exists(self.model_path) is False:
             os.makedirs(self.model_path)
-        self.index_list.to_csv(self.model_path + 'index_list.csv', sep=',', header=True, index=False)
+        np.savetxt(self.model_path + 'index_list.csv', self.index_list, delimiter=',', fmt='%.f')
         with open(self.model_path + 'zm_index.json', "w") as f:
             json.dump(self, f, cls=MyEncoder, ensure_ascii=False)
 
@@ -181,8 +180,7 @@ class ZMIndex(SpatialIndex):
             zm_index = json.load(f, cls=MyDecoder)
             self.train_data_length = zm_index.train_data_length
             self.rmi = zm_index.rmi
-            self.index_list = pd.read_csv(self.model_path + 'index_list.csv',
-                                          float_precision='round_trip')  # round_trip保留小数位数
+            self.index_list = np.loadtxt(self.model_path + 'index_list.csv', delimiter=",").tolist()
             del zm_index
 
     @staticmethod
@@ -192,21 +190,21 @@ class ZMIndex(SpatialIndex):
                        rmi=d['rmi'],
                        index_list=d['index_list'])
 
-    def point_query(self, data: pd.DataFrame):
+    def point_query(self, points):
         """
         query index by x/y point
         1. compute z from x/y of points
         2. predict by z and create index scope [pre - min_err, pre + max_err]
         3. binary search in scope
-        :param data: pd.DataFrame, [x, y]
-        :return: pd.DataFrame, [pre]
+        :param points: list, [x, y]
+        :return: list, [pre]
         """
         # 写法1：list
         z_order = ZOrder(dimensions=2, bits=21, region=self.region)
         results = []
-        for index, point in data.iterrows():
+        for point in points:
             # 1. compute z from x/y of points
-            z_value = z_order.point_to_z(point.x, point.y)
+            z_value = z_order.point_to_z(point[0], point[1])
             # 2. predict by z and create index scope [pre - min_err, pre + max_err]
             pre, min_err, max_err = self.predict(z_value)
             left_bound = max((pre - max_err) * self.block_size, 0)
@@ -251,17 +249,17 @@ class ZMIndex(SpatialIndex):
     def binary_search(self, nums, x, left, right):
         """
         binary search x in nums[left, right]
-        :param nums: pd.DataFrame, [key, key_index], index table
-        :param x: key
+        :param nums: list, value list
+        :param x: value
         :param left:
         :param right:
-        :return: key index
+        :return: index
         """
         while left <= right:
             mid = (left + right) // 2
-            if nums.iloc[mid].key == x:
-                return nums.iloc[mid].key_index
-            if nums.iloc[mid].key < x:
+            if nums[mid] == x:
+                return mid
+            if nums[mid] < x:
                 left = mid + 1
             else:
                 right = mid - 1
@@ -338,10 +336,11 @@ if __name__ == '__main__':
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)
         index.save()
+    train_set_xy_list = train_set_xy.values.tolist()
     start_time = time.time()
-    result = index.point_query(train_set_xy)
+    result = index.point_query(train_set_xy_list)
     end_time = time.time()
-    search_time = (end_time - start_time) / len(train_set_xy)
+    search_time = (end_time - start_time) / len(train_set_xy_list)
     print("Search time ", search_time)
-    print("Not found nums ", result.isna().sum())
+    print("Not found nums ", pd.Series(result).isna().sum())
     print("*************end %s************" % index_name)

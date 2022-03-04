@@ -57,9 +57,7 @@ class GeoHashModelIndex(SpatialIndex):
         data.sort_values(by=["z"], ascending=True, inplace=True)
         data.reset_index(drop=True, inplace=True)
         self.train_data_length = len(data)
-        data["z_index"] = pd.Series(np.arange(0, self.train_data_length) / self.block_size)
-        self.index_list = pd.DataFrame({'key': data.z,
-                                        "key_index": data.z_index})
+        self.index_list = data.z.tolist()
 
     def build(self, data: pd.DataFrame):
         """
@@ -87,7 +85,7 @@ class GeoHashModelIndex(SpatialIndex):
         for geohash_key in split_data:
             points = split_data[geohash_key]["items"]
             inputs = np.array([item.z for item in points])
-            labels = np.array([item.index for item in points])
+            labels = np.array([item.index / self.block_size for item in points])
             if len(labels) == 0:
                 continue
             pool.apply_async(self.build_single_thread, (1, geohash_key, inputs, labels, mp_dict))
@@ -133,7 +131,7 @@ class GeoHashModelIndex(SpatialIndex):
         """
         if os.path.exists(self.model_path) is False:
             os.makedirs(self.model_path)
-        self.index_list.to_csv(self.model_path + 'index_list.csv', sep=',', header=True, index=False)
+        np.savetxt(self.model_path + 'index_list.csv', self.index_list, delimiter=',', fmt='%.f')
         with open(self.model_path + 'gm_index.json', "w") as f:
             json.dump(self, f, cls=MyEncoder, ensure_ascii=False)
 
@@ -147,8 +145,7 @@ class GeoHashModelIndex(SpatialIndex):
             self.train_data_length = gm_index.train_data_length
             self.brin = gm_index.brin
             self.gm_dict = gm_index.gm_dict
-            self.index_list = pd.read_csv(self.model_path + 'index_list.csv',
-                                          float_precision='round_trip')  # round_trip保留小数位数
+            self.index_list = np.loadtxt(self.model_path + 'index_list.csv', delimiter=",").tolist()
             del gm_index
 
     @staticmethod
@@ -160,25 +157,23 @@ class GeoHashModelIndex(SpatialIndex):
                                  gm_dict=d['gm_dict'],
                                  index_list=d['index_list'])
 
-    def point_query(self, data: pd.DataFrame):
+    def point_query(self, points):
         """
         query index by x/y point
         1. compute z from x/y of points
         2. predict the leaf model by brin
         3. predict by leaf model and create index scope [pre - min_err, pre + max_err]
         4. binary search in scope
-        :param data: pd.DataFrame, [x, y]
-        :return: pd.DataFrame, [pre]
+        :param points: list, [x, y]
+        :return: list, [pre]
         """
         z_order = ZOrder(dimensions=2, bits=21, region=self.region)
         results = []
-        # 1. compute z from x/y of points
-        z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y), 1)
-        # 2. predicted the leaf model by brin
-        leaf_model_indexes = self.brin.point_query(z_values)
-        for i in range(len(z_values)):
-            z = z_values[i]
-            leaf_model_index = leaf_model_indexes[i]
+        for point in points:
+            # 1. compute z from x/y of points
+            z = z_order.point_to_z(point[0], point[1])
+            # 2. predicted the leaf model by brin
+            leaf_model_index = self.brin.point_query(z)
             leaf_model = self.gm_dict[leaf_model_index]
             # 3. predict by z and create index scope [pre - min_err, pre + max_err]
             pre, min_err, max_err = leaf_model.predict(z), leaf_model.min_err, leaf_model.max_err
@@ -186,24 +181,24 @@ class GeoHashModelIndex(SpatialIndex):
             right_bound = min((pre - min_err) * self.block_size, self.train_data_length - 1)
             # 4. binary search in scope
             result = self.binary_search(self.index_list, z, round(left_bound), round(right_bound))
-            results.append(result)
-        return pd.Series(results)
+            results.append(result / self.block_size)
+        return results
 
     # TODO: 无法处理有重复的数组
     def binary_search(self, nums, x, left, right):
         """
         binary search x in nums[left, right]
-        :param nums: pd.DataFrame, [key, key_index], index table
-        :param x: key
+        :param nums: list, value list
+        :param x: value
         :param left:
         :param right:
-        :return: key index
+        :return: index
         """
         while left <= right:
             mid = (left + right) // 2
-            if nums.iloc[mid].key == x:
-                return nums.iloc[mid].key_index
-            if nums.iloc[mid].key < x:
+            if nums[mid] == x:
+                return mid
+            if nums[mid] < x:
                 left = mid + 1
             else:
                 right = mid - 1
@@ -304,10 +299,11 @@ if __name__ == '__main__':
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)
         index.save()
+    train_set_xy_list = train_set_xy.values.tolist()
     start_time = time.time()
-    result = index.point_query(train_set_xy)
+    result = index.point_query(train_set_xy_list)
     end_time = time.time()
-    search_time = (end_time - start_time) / len(train_set_xy)
+    search_time = (end_time - start_time) / len(train_set_xy_list)
     print("Search time ", search_time)
-    print("Not found nums ", result.isna().sum())
+    print("Not found nums ", pd.Series(result).isna().sum())
     print("*************end %s************" % index_name)
