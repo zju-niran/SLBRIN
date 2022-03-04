@@ -190,7 +190,6 @@ class ZMIndex(SpatialIndex):
                        rmi=d['rmi'],
                        index_list=d['index_list'])
 
-    def point_query(self, points):
         """
         query index by x/y point
         1. compute z from x/y of points
@@ -199,8 +198,7 @@ class ZMIndex(SpatialIndex):
         :param points: list, [x, y]
         :return: list, [pre]
         """
-        # 写法1：list
-        z_order = ZOrder(dimensions=2, bits=21, region=self.region)
+        z_order = ZOrder(dimensions=2, bits=21, region=self.region) if z is None else z
         results = []
         for point in points:
             # 1. compute z from x/y of points
@@ -212,19 +210,6 @@ class ZMIndex(SpatialIndex):
             # 3. binary search in scope
             result = self.binary_search(self.index_list, z_value, round(left_bound), round(right_bound))
             results.append(result)
-        return pd.Series(results)
-        # 写法2：pd.DataFrame
-        # z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y, self.region), 1)
-        # # z归一化
-        # data["z"] = (z_values - self.z_values_normalization_min_max[0]) / (
-        #         self.z_values_normalization_min_max[1] - self.z_values_normalization_min_max[0])
-        # data["pres"] = data.z.apply(self.predict)
-        # data["left_bound"] = data.pres.apply(lambda pre: max((pre - self.errs[0]) * self.block_size, 0))
-        # data["right_bound"] = data.pres.apply(
-        #     lambda pre: min((pre + self.errs[1]) * self.block_size, self.train_data_length))
-        # results = data.apply(
-        #     lambda t: self.binary_search(self.index_list, t.z, int(round(t.left_bound)), int(round(t.right_bound))), 1)
-        # return results
 
     # def range_query(self, data: pd.DataFrame):
     #     """
