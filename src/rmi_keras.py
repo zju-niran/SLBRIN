@@ -63,30 +63,40 @@ class AbstractNN:
     # @memoize
     # TODO: 和model.predict有小偏差，怀疑是exp的e和elu的e不一致
     def predict(self, input_key):
-        input_key = nparray_normalize_minmax(input_key, self.input_min, self.input_max)
-        tmp_res = np.mat(input_key).T
+        """
+        单个key的矩阵计算
+        :param input_key:
+        :return:
+        """
+        y = nparray_normalize_minmax(input_key, self.input_min, self.input_max)
         for i in range(len(self.core_nums) - 1):
-            # w * x + b
-            # sigmoid(x)
-            tmp_res = AbstractNN.sigmoid(tmp_res * np.mat(self.weights[i * 2]) + np.mat(self.weights[i * 2 + 1]))
+            # sigmoid(w * x + b)
+            y = AbstractNN.sigmoid(y * self.weights[i * 2] + self.weights[i * 2 + 1])
         # clip到最大最小值之间
-        tmp_res = tmp_res[0, 0]
-        return nparray_normalize_reverse_num(tmp_res, self.output_min, self.output_max)
+        return nparray_normalize_reverse_num(y[0, 0], self.output_min, self.output_max)
 
     def predicts(self, input_keys):
+        """
+        list key的矩阵计算
+        :param input_keys:
+        :return:
+        """
         input_keys = nparray_normalize_minmax(input_keys, self.input_min, self.input_max)
-        tmp_res = np.mat(input_keys).T
+        y = np.mat(input_keys).T
         for i in range(len(self.core_nums) - 1):
-            # w * x + b
-            # sigmoid(x)
-            tmp_res = AbstractNN.sigmoid(tmp_res * np.mat(self.weights[i * 2]) + np.mat(self.weights[i * 2 + 1]))
+            # sigmoid(w * x + b)
+            y = AbstractNN.sigmoid(y * self.weights[i * 2] + self.weights[i * 2 + 1])
         # clip到最大最小值之间
-        tmp_res = np.asarray(tmp_res).flatten()
-        return nparray_normalize_reverse_arr(tmp_res, self.output_min, self.output_max)
+        y = np.asarray(y).flatten()
+        return nparray_normalize_reverse_arr(y, self.output_min, self.output_max)
 
     @staticmethod
     def init_by_dict(d: dict):
-        return AbstractNN(d['weights'], d['core_nums'],
+        weights = d['weights']
+        weights_mat = []
+        for weight in weights:
+            weights_mat.append(np.mat(weight))
+        return AbstractNN(weights_mat, d['core_nums'],
                           d['input_min'], d['input_max'],
                           d['output_min'], d['output_max'],
                           d['min_err'], d['max_err'], )
@@ -236,7 +246,11 @@ class TrainedNN:
             return False
 
     def get_weights(self):
-        return self.model.get_weights()
+        weights = self.model.get_weights()
+        weights_mat = []
+        for weight in weights:
+            weights_mat.append(np.mat(weight))
+        return weights_mat
 
     def score(self, y_true, y_pred):
         # 这里的y应该是局部的，因此scores和err算出来不一致
