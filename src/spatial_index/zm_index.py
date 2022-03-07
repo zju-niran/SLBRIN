@@ -190,6 +190,7 @@ class ZMIndex(SpatialIndex):
                        rmi=d['rmi'],
                        index_list=d['index_list'])
 
+    def point_query(self, points, z=None):
         """
         query index by x/y point
         1. compute z from x/y of points
@@ -209,7 +210,10 @@ class ZMIndex(SpatialIndex):
             right_bound = min((pre - min_err) * self.block_size, self.train_data_length - 1)
             # 3. binary search in scope
             result = self.binary_search(self.index_list, z_value, round(left_bound), round(right_bound))
+            if result is not None:
+                result /= self.block_size
             results.append(result)
+        return results
 
     # def range_query(self, data: pd.DataFrame):
     #     """

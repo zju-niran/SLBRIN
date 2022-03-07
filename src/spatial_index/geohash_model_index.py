@@ -174,14 +174,19 @@ class GeoHashModelIndex(SpatialIndex):
             z = z_order.point_to_z(point[0], point[1])
             # 2. predicted the leaf model by brin
             leaf_model_index = self.brin.point_query(z)
-            leaf_model = self.gm_dict[leaf_model_index]
-            # 3. predict by z and create index scope [pre - min_err, pre + max_err]
-            pre, min_err, max_err = leaf_model.predict(z), leaf_model.min_err, leaf_model.max_err
-            left_bound = max((pre - max_err) * self.block_size, 0)
-            right_bound = min((pre - min_err) * self.block_size, self.train_data_length - 1)
-            # 4. binary search in scope
-            result = self.binary_search(self.index_list, z, round(left_bound), round(right_bound))
-            results.append(result / self.block_size)
+            if leaf_model_index is None:
+                result = None
+            else:
+                leaf_model = self.gm_dict[leaf_model_index]
+                # 3. predict by z and create index scope [pre - min_err, pre + max_err]
+                pre, min_err, max_err = leaf_model.predict(z), leaf_model.min_err, leaf_model.max_err
+                left_bound = max((pre - max_err) * self.block_size, 0)
+                right_bound = min((pre - min_err) * self.block_size, self.train_data_length - 1)
+                # 4. binary search in scope
+                result = self.binary_search(self.index_list, z, round(left_bound), round(right_bound))
+                if result is not None:
+                    result /= self.block_size
+            results.append(result)
         return results
 
     # TODO: 无法处理有重复的数组
