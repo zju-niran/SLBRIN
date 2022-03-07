@@ -302,7 +302,7 @@ if __name__ == '__main__':
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)
         index.save()
-    train_set_xy_list = train_set_xy.values.tolist()
+    train_set_xy_list = np.delete(train_set_xy.values, 0, 1).tolist()
     start_time = time.time()
     result = index.point_query(train_set_xy_list)
     end_time = time.time()
