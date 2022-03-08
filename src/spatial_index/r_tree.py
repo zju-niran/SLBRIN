@@ -2,7 +2,6 @@ import os
 import sys
 import time
 
-import numpy as np
 import pandas as pd
 from memory_profiler import profile
 from rtree import index
@@ -52,6 +51,17 @@ class RTree(Index):
             results.append(list(self.index.intersection((window[2], window[0], window[3], window[1]))))
         return results
 
+    def knn_query(self, knns):
+        """
+        query index by x1/y1/n knn
+        :param knns: list, [x1, y1, n]
+        :return: list, [pres]
+        """
+        results = []
+        for knn in knns:
+            results.append(list(self.index.nearest((knn[0], knn[1]), knn[2])))
+        return results
+
 
 @profile(precision=8)
 def main():
@@ -76,7 +86,7 @@ def main():
         print("Build %s time " % index_name, build_time)
         # index.save()  # TODO: create save
     print("*************start point query************")
-    point_query_list = np.delete(train_set_xy.values, 0, 1).tolist()
+    point_query_list = train_set_xy.drop("index", axis=1).values.tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)
     end_time = time.time()
@@ -85,8 +95,8 @@ def main():
     print("Not found nums ", pd.Series(results).isna().sum())
     print("*************start range query************")
     path = '../../data/trip_data_1_range_query.csv'
-    range_query_df = pd.read_csv(path)
-    range_query_list = np.delete(range_query_df.values, [0, -1], 1).tolist()
+    range_query_df = pd.read_csv(path, usecols=[1, 2, 3, 4, 5])
+    range_query_list = range_query_df.drop("count", axis=1).values.tolist()
     start_time = time.time()
     results = index.range_query(range_query_list)
     end_time = time.time()
@@ -94,6 +104,15 @@ def main():
     print("Range query time ", search_time)
     range_query_df["query"] = pd.Series(results).apply(len)
     print("Not found nums ", (range_query_df["query"] != range_query_df["count"]).sum())
+    print("*************start knn query************")
+    path = '../../data/trip_data_1_knn_query.csv'
+    knn_query_df = pd.read_csv(path, usecols=[1, 2, 3], dtype={"n": int})
+    knn_query_list = [[value[0], value[1], int(value[2])] for value in knn_query_df.values]
+    start_time = time.time()
+    results = index.knn_query(knn_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(knn_query_list)
+    print("KNN query time ", search_time)
     print("*************end %s************" % index_name)
 
 
