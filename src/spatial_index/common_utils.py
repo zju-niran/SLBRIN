@@ -1,4 +1,5 @@
 import csv
+import math
 import random
 import time
 from collections import deque
@@ -39,6 +40,14 @@ class Point:
         else:
             return False
 
+    def distance(self, other):
+        """
+        计算两点距离
+        :param other:
+        :return: distance
+        """
+        return math.sqrt((self.lng - other.lng) ** 2 + (self.lat - other.lat) ** 2)
+
 
 class Region:
     def __init__(self, bottom, up, left, right):
@@ -53,6 +62,32 @@ class Region:
 
     def contain_and_border(self, point):
         return self.up >= point.lat >= self.bottom and self.right >= point.lng >= self.left
+
+    def within_distance(self, point, distance):
+        if point.lng >= self.right and point.lat >= self.up:
+            return point.distance(Point(self.right, self.up)) <= distance
+        elif point.lng >= self.right and point.lat < self.up and point.lat > self.bottom:
+            return Point(point.lng, 0).distance(Point(self.right, 0)) <= distance
+        elif point.lng >= self.right and point.lat <= self.bottom:
+            return point.distance(Point(self.right, self.bottom)) < distance
+        elif point.lng >= self.left and point.lng <= self.right and point.lat <= self.bottom:
+            return Point(0, point.lat).distance(Point(0, self.bottom)) < distance
+        elif point.lng <= self.left and point.lat <= self.bottom:
+            return point.distance(Point(self.left, self.bottom)) < distance
+        elif point.lng <= self.left and point.lat >= self.bottom:
+            return Point(point.lng, 0).distance(Point(self.left, 0)) < distance
+        elif point.lng <= self.left and point.lat >= self.up:
+            return point.distance(Point(self.left, self.up)) < distance
+        elif point.lng >= self.left and point.lng <= self.right and point.lat >= self.up:
+            return Point(0, point.lat).distance(Point(0, self.up)) < distance
+        elif self.contain_and_border(point):
+            return True
+
+    @staticmethod
+    def create_region_from_points(x1, y1, x2, y2):
+        (bottom, up) = (y2, y1) if y1 > y2 else (y1, y2)
+        (left, right) = (x2, x1) if x1 > x2 else (x1, x2)
+        return Region(bottom, up, left, right)
 
     @staticmethod
     def init_by_dict(d: dict):
@@ -441,7 +476,24 @@ if __name__ == '__main__':
     # print(geohash.decode('0110111111110000010000010'))
     # geohash.compare_with_python_geohash()
 
-    zorder = ZOrder(dimensions=2, bits=21, region=Region(-90, 90, -180, 180))
-    z = zorder.point_to_z(-73.982681, 40.722618)
-    point = zorder.z_to_point(z)
-    print("")
+    # zorder = ZOrder(dimensions=2, bits=21, region=Region(-90, 90, -180, 180))
+    # z = zorder.point_to_z(-73.982681, 40.722618)
+    # point = zorder.z_to_point(z)
+    # print("")
+
+    index_list = np.loadtxt('D:\Code\Paper\st-learned-index\src\spatial_index\model\zm_index_10w\index_list.csv',
+                            dtype="int64", delimiter=",").tolist()
+
+    start_time = time.time()
+    for i in range(100000):
+        biased_search(index_list, 1786809638720, 47476, 0, 99999)
+    end_time = time.time()
+    build_time = end_time - start_time
+    print("Build %s time " % build_time)
+
+    start_time = time.time()
+    for i in range(100000):
+        binary_search(index_list, 1786809638720, 0, 99999)
+    end_time = time.time()
+    build_time = end_time - start_time
+    print("Build %s time " % build_time)

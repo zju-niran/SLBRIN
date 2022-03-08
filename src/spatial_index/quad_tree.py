@@ -268,6 +268,39 @@ class QuadTree(Index):
             results.append(result)
         return results
 
+    def knn_query(self, knns):
+        """
+        query index by x1/y1/n knn
+        代码参考：https://github.com/diana12333/QuadtreeNN
+        :param knns: list, [x1, y1, n]
+        :return: list, [pres]
+        """
+        results = []
+        for knn in knns:
+            point = Point(knn[0], knn[1])
+            n = knn[2]
+            stack = [self.root_node]
+            nearest_distance = (float('-inf'), None)
+            point_heap = []
+            while len(stack):
+                cur = stack.pop(-1)
+                if cur.is_leaf and cur.region.within_distance(point, -nearest_distance[0]):
+                    for item in cur.items:
+                        if len(point_heap) < n:
+                            heapq.heappush(point_heap, (-point.distance(item), item.index))
+                            nearest_distance = heapq.nsmallest(1, point_heap)[0]
+                        elif point.distance(item) < -nearest_distance[0]:
+                            heapq.heappop(point_heap)
+                            heapq.heappush(point_heap, (-point.distance(item), item.index))
+                            nearest_distance = heapq.nsmallest(1, point_heap)[0]
+                elif not cur.is_leaf:
+                    if cur.region.within_distance(point, -nearest_distance[0]):
+                        stack.append(cur.LB)
+                        stack.append(cur.RB)
+                        stack.append(cur.LU)
+                        stack.append(cur.RU)
+            results.append([itr[1] for itr in point_heap])
+        return results
 
 @profile(precision=8)
 def main():
@@ -310,12 +343,12 @@ def main():
     print("Range query time ", search_time)
     range_query_df["query"] = pd.Series(results).apply(len)
     print("Not found nums ", (range_query_df["query"] != range_query_df["count"]).sum())
+    print("*************start knn query************")
+    path = '../../data/trip_data_1_knn_query.csv'
+    knn_query_df = pd.read_csv(path, usecols=[1, 2, 3], dtype={"n": int})
     start_time = time.time()
-    result = index.point_query(train_set_xy_list)
     end_time = time.time()
-    search_time = (end_time - start_time) / len(train_set_xy_list)
-    print("Search time ", search_time)
-    print("Not found nums ", pd.Series(result).isna().sum())
+    search_time = (end_time - start_time) / len(knn_query_list)
     print("*************end %s************" % index_name)
 
 
