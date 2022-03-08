@@ -21,10 +21,6 @@ class RTree(Index):
     def insert(self, point):
         self.index.insert(point.index, (point.lng, point.lat))
 
-    def search(self, point):
-        search_result = self.index.intersection((point.lng, point.lat))
-        return list(search_result)
-
     def delete(self, point):
         self.index.delete(point.index, (point.lng, point.lat))
 
@@ -42,7 +38,18 @@ class RTree(Index):
         """
         results = []
         for point in points:
-            results.append(self.search(Point(point[0], point[1]))[0])
+            results.append(list(self.index.intersection((point[0], point[1])))[0])
+        return results
+
+    def range_query(self, windows):
+        """
+        query index by x1/y1/x2/y2 window
+        :param windows: list, [x1, y1, x2, y2]
+        :return: list, [pres]
+        """
+        results = []
+        for window in windows:
+            results.append(list(self.index.intersection((window[2], window[0], window[3], window[1]))))
         return results
 
 
@@ -68,13 +75,25 @@ def main():
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)
         # index.save()  # TODO: create save
-    train_set_xy_list = np.delete(train_set_xy.values, 0, 1).tolist()
+    print("*************start point query************")
+    point_query_list = np.delete(train_set_xy.values, 0, 1).tolist()
     start_time = time.time()
-    result = index.point_query(train_set_xy_list)
+    results = index.point_query(point_query_list)
     end_time = time.time()
-    search_time = (end_time - start_time) / len(train_set_xy_list)
-    print("Search time ", search_time)
-    print("Not found nums ", pd.Series(result).isna().sum())
+    search_time = (end_time - start_time) / len(point_query_list)
+    print("Point query time ", search_time)
+    print("Not found nums ", pd.Series(results).isna().sum())
+    print("*************start range query************")
+    path = '../../data/trip_data_1_range_query.csv'
+    range_query_df = pd.read_csv(path)
+    range_query_list = np.delete(range_query_df.values, [0, -1], 1).tolist()
+    start_time = time.time()
+    results = index.range_query(range_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(range_query_list)
+    print("Range query time ", search_time)
+    range_query_df["query"] = pd.Series(results).apply(len)
+    print("Not found nums ", (range_query_df["query"] != range_query_df["count"]).sum())
     print("*************end %s************" % index_name)
 
 
