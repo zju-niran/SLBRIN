@@ -1,7 +1,11 @@
 import csv
+import json
+import logging
+import multiprocessing
 import os
 
 import pandas
+import pandas as pd
 
 from src.spatial_index.common_utils import Point, Region
 
@@ -25,7 +29,7 @@ def filter_row_from_csv(input_path, output_path, lines_limit, range_limit=None):
                 break
 
             if count == 0:
-                writer.writerow(["id", "x", "y"])
+                writer.writerow(["index", "x", "y"])
             if count != 0:
                 pickup_lng = line[10]
                 pickup_lat = line[11]
@@ -49,6 +53,64 @@ def sample_from_csv(input_path, output_path, lines_limit, range_limit=None):
     df.to_csv(output_path, index_label="index")
 
 
+def print_window_from_csv_to_log(input_path, output_path, window_limit, thread_pool_size):
+    df = pandas.read_csv(input_path)
+    multiprocessing.set_start_method('spawn')  # 解决CUDA_ERROR_NOT_INITIALIZED报错
+    pool = multiprocessing.Pool(processes=thread_pool_size)
+    df_sample = df.sample(n=window_limit, random_state=1)
+    df_sample = df_sample.reset_index()
+    df_sample = df_sample.drop(columns={"level_0", "index"})
+    for index1, point1 in df_sample.iterrows():
+        for index2, point2 in df_sample.iterrows():
+            pool.apply_async(print_window_from_csv_child, (output_path, df, index1, point1, index2, point2))
+    pool.close()
+    pool.join()
+
+
+def print_window_from_csv_child(output_path, df, index1, point1, index2, point2):
+    region = Region.create_region_from_points(point1.x, point1.y, point2.x, point2.y)
+    count = 0
+    for index, point in df.iterrows():
+        if region.contain_and_border(Point(point.x, point.y)):
+            count += 1
+    logging.basicConfig(filename=output_path,
+                        level=logging.INFO,
+                        format="%(message)s")
+    logging.info({"index1": index1,
+                  "index2": index2,
+                  "bottom": region.bottom,
+                  "up": region.up,
+                  "left": region.left,
+                  "right": region.right,
+                  "count": count})
+
+
+def create_window_from_log_to_csv(log_file, output_path):
+    file = open(log_file, "r", encoding='UTF-8')
+    results = []
+    for line in file:
+        result = json.loads(line.replace("\'", '"'))
+        results.append(result)
+    df = pandas.DataFrame(results)
+    df.sort_values(by=["count"], ascending=True, inplace=True)
+    df.drop(['index1', 'index2'], axis=1, inplace=True)
+    df.reset_index(drop=True, inplace=True)
+    df.to_csv(output_path)
+
+
+def create_knn_from_csv(input_path, output_path, knn_point_limit, knn_n_limit):
+    df = pandas.read_csv(input_path)
+    df_sample = df.sample(n=knn_point_limit, random_state=1)
+    df_sample.drop(columns={"index"}, inplace=True)
+    df_sample.reset_index(drop=True, inplace=True)
+    result = None
+    for i in range(1, knn_n_limit + 1):
+        df_sample["n"] = pd.Series([i for j in range(100000)])
+        result = result.append(df_sample) if result is not None else df_sample.copy()
+    result.reset_index(drop=True, inplace=True)
+    result.to_csv(output_path)
+
+
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     headers = ['medallion',
@@ -68,8 +130,24 @@ if __name__ == '__main__':
     # 数据来源：从http://www.andresmh.com/nyctaxitrips/下载trip_data.7z，拿到其中的一月份数据csv
     # 数据总记录数：14776616，region内14507253
     # csv文件size：2459600863字节=2.29GB
-    input_path = "../../data/trip_data_1.csv"
-    output_path = "../../data/trip_data_1_filter.csv"
+    # input_path = "../../data/trip_data_1.csv"
+    # output_path = "../../data/trip_data_1_filter.csv"
+    # 1. 生成数据
     # filter_row_from_csv(input_path, output_path, None, Region(40, 42, -75, -73))
+    # 2. 生成100000的数据
+    # input_path = "../../data/trip_data_1.csv"
+    # output_path_100000_sample = '../../data/trip_data_1_100000.csv'
+    # sample_from_csv(input_path, output_path_100000_sample, 100000, Region(40, 42, -75, -73))
+    # 3. 生成range检索范围
+    # output_path_100000_sample = '../../data/trip_data_1_100000.csv'
+    # output_path_range_query_csv = '../../data/trip_data_1_range_query.csv'
+    # output_path_range_query_log = '../../data/trip_data_1_range_query.log'
+    # window_limit = 1000
+    # print_window_from_csv_to_log(output_path_100000_sample, output_path_range_query_log, window_limit, 6)
+    # create_window_from_log_to_csv(output_path_range_query_log, output_path_range_query_csv)
+    # 4.生成knn检索范围
     output_path_100000_sample = '../../data/trip_data_1_100000.csv'
-    sample_from_csv(input_path, output_path_100000_sample, 100000, Region(40, 42, -75, -73))
+    output_path_knn_query_csv = '../../data/trip_data_1_knn_query.csv'
+    knn_point_limit = 1000
+    knn_n_limit = 10
+    create_knn_from_csv(output_path_100000_sample, output_path_knn_query_csv, knn_point_limit, knn_n_limit)
