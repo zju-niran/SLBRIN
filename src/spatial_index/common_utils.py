@@ -48,9 +48,8 @@ class Region:
         self.right = right
 
     def contain(self, point):
-        return (self.up > point.lat > self.bottom and self.right > point.lng > self.left) \
-               or self.bottom == point.lat \
-               or self.left == point.lng
+        return self.bottom == point.lat or self.left == point.lng or (
+                self.up > point.lat > self.bottom and self.right > point.lng > self.left)
 
     def contain_and_border(self, point):
         return self.up >= point.lat >= self.bottom and self.right >= point.lng >= self.left

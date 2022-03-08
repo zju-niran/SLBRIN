@@ -2,7 +2,6 @@ import os
 import sys
 import time
 
-import numpy as np
 import pandas as pd
 from memory_profiler import profile
 
@@ -225,6 +224,49 @@ class QuadTree(Index):
             results.append(self.search(Point(point[0], point[1]))[0])
         return results
 
+    def range_search(self, region, node=None, result: list = []):
+        if node is None:
+            node = self.root_node
+        if node.is_leaf == 1:
+            for item in node.items:
+                if region.contain_and_border(item):
+                    result.append(item.index)
+        else:
+            # 所有的or：region的四至点刚好在子节点的region上，因为split的时候经纬度都是向上取整，所以子节点的重心在右和上
+            if node.LB.region.contain(Point(region.left, region.bottom)):
+                self.range_search(Region(region.bottom, min(node.LB.region.up, region.up),
+                                         region.left, min(node.LB.region.right, region.right)),
+                                  node.LB, result)
+            if node.RB.region.contain(Point(region.right, region.bottom)) \
+                    or (region.bottom < node.RB.region.up and region.right == node.RB.region.right):
+                self.range_search(Region(region.bottom, min(node.LB.region.up, region.up),
+                                         max(node.RU.region.left, region.left), region.right),
+                                  node.RB, result)
+            if node.LU.region.contain(Point(region.left, region.up)) \
+                    or (region.left < node.LU.region.right and region.up == node.LU.region.up):
+                self.range_search(Region(max(node.RU.region.bottom, region.bottom), region.up,
+                                         region.left, min(node.LB.region.right, region.right)),
+                                  node.LU, result)
+            if node.RU.region.contain(Point(region.right, region.up)) \
+                    or (region.right > node.RU.region.left and region.up == node.RU.region.up) \
+                    or (region.up > node.RU.region.bottom and region.right == node.RU.region.right):
+                self.range_search(Region(max(node.RU.region.bottom, region.bottom), region.up,
+                                         max(node.RU.region.left, region.left), region.right),
+                                  node.RU, result)
+
+    def range_query(self, windows):
+        """
+        query index by x1/y1/x2/y2 window
+        :param windows: list, [x1, y1, x2, y2]
+        :return: list, [pres]
+        """
+        results = []
+        for window in windows:
+            result = []
+            region = Region(window[0], window[1], window[2], window[3])
+            self.range_search(region=region, node=None, result=result)
+            results.append(result)
+        return results
 
 
 @profile(precision=8)
@@ -249,7 +291,25 @@ def main():
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)
         # index.save()  # TODO: create save
-    train_set_xy_list = np.delete(train_set_xy.values, 0, 1).tolist()
+    print("*************start point query************")
+    point_query_list = train_set_xy.drop("index", axis=1).values.tolist()
+    start_time = time.time()
+    results = index.point_query(point_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(point_query_list)
+    print("Point query time ", search_time)
+    print("Not found nums ", pd.Series(results).isna().sum())
+    print("*************start range query************")
+    path = '../../data/trip_data_1_range_query.csv'
+    range_query_df = pd.read_csv(path, usecols=[1, 2, 3, 4, 5])
+    range_query_list = range_query_df.drop("count", axis=1).values.tolist()
+    start_time = time.time()
+    results = index.range_query(range_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(range_query_list)
+    print("Range query time ", search_time)
+    range_query_df["query"] = pd.Series(results).apply(len)
+    print("Not found nums ", (range_query_df["query"] != range_query_df["count"]).sum())
     start_time = time.time()
     result = index.point_query(train_set_xy_list)
     end_time = time.time()
