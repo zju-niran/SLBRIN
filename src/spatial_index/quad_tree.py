@@ -31,7 +31,7 @@ class QuadTreeNode:
 
 
 class QuadTree(Index):
-    def __init__(self, region=Region(-90, 90, -180, 180), max_num=MAX_ELE_NUM):
+    def __init__(self, region=Region(-90, 90, -180, 180), max_num=MAX_ELE_NUM, data_precision=6, max_depth=21):
         """
         初始化非满四叉树，超过阈值就分裂
         :param region: 四叉树整体的bbox
@@ -39,6 +39,8 @@ class QuadTree(Index):
         """
         super(QuadTree, self).__init__("QuadTree")
         self.max_num = max_num
+        self.data_precision = data_precision
+        self.max_depth = max_depth
         self.root_node = QuadTreeNode(region=region)
         self.geohash_items_map = {}
 
@@ -48,16 +50,14 @@ class QuadTree(Index):
         1.判断是否已分裂，已分裂的选择适合的子节点，插入；
         2.未分裂的查看是否过载，过载的分裂节点，重新插入；
         3.未过载的直接添加
-    
-        @param node
-        @param point
-    
+        :param node:
+        :param point:
         todo 使用元素原地址，避免重新分配内存造成的效率浪费
         """
         if node is None:
             node = self.root_node
         if node.is_leaf == 1:
-            if len(node.items) + 1 > self.max_num:
+            if len(node.items) >= self.max_num and node.depth < self.max_depth - 1:
                 self.split_node(node)
                 self.insert(point, node)
             else:
@@ -65,8 +65,8 @@ class QuadTree(Index):
                 node.items.append(point)
             return
 
-        y_center = (node.region.up + node.region.bottom) / 2
-        x_center = (node.region.left + node.region.right) / 2
+        y_center = round((node.region.up + node.region.bottom) / 2, self.data_precision)
+        x_center = round((node.region.left + node.region.right) / 2, self.data_precision)
         if point.lat < y_center:
             if point.lng < x_center:
                 self.insert(point, node.LB)
@@ -84,8 +84,8 @@ class QuadTree(Index):
         1.通过父节点获取子节点的深度和范围
         2.生成四个节点，挂载到父节点下
         """
-        y_center = (node.region.up + node.region.bottom) / 2
-        x_center = (node.region.left + node.region.right) / 2
+        y_center = round((node.region.up + node.region.bottom) / 2, self.data_precision)
+        x_center = round((node.region.left + node.region.right) / 2, self.data_precision)
 
         node.is_leaf = 0
         node.LB = self.create_child_node(node, node.region.bottom, y_center, node.region.left, x_center)
@@ -121,8 +121,8 @@ class QuadTree(Index):
                     del node.items[i]
             return combine_flag
         else:
-            y_center = (node.region.up + node.region.bottom) / 2
-            x_center = (node.region.left + node.region.right) / 2
+            y_center = round((node.region.up + node.region.bottom) / 2, self.data_precision)
+            x_center = round((node.region.left + node.region.right) / 2, self.data_precision)
             if point.lat > y_center:
                 if point.lng > x_center:
                     combine_flag = self.delete(point, node.RU)
@@ -164,8 +164,8 @@ class QuadTree(Index):
                     search_result.append(item.index)
             return search_result
 
-        y_center = (node.region.up + node.region.bottom) / 2
-        x_center = (node.region.left + node.region.right) / 2
+        y_center = round((node.region.up + node.region.bottom) / 2, self.data_precision)
+        x_center = round((node.region.left + node.region.right) / 2, self.data_precision)
         if point.lat < y_center:
             if point.lng < x_center:
                 return self.search(point, node.LB)
@@ -396,7 +396,7 @@ def main():
     train_set_xy = pd.read_csv(path)
     # create index
     model_path = "model/quadtree_1451w/"
-    index = QuadTree(region=Region(40, 42, -75, -73), max_num=1000)
+    index = QuadTree(region=Region(40, 42, -75, -73), max_num=1000, data_precision=6, max_depth=21)
     index_name = index.name
     load_index_from_json = False
     if load_index_from_json:

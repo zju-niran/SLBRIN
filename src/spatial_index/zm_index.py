@@ -15,10 +15,10 @@ from src.rmi_keras import TrainedNN, AbstractNN
 
 
 class ZMIndex(SpatialIndex):
-    def __init__(self, region=Region(-90, 90, -180, 180), model_path=None, train_data_length=None, rmi=None,
-                 index_list=None, point_list=None, block_size=None, use_thresholds=None, thresholds=None, stages=None,
-                 cores=None, train_steps=None, batch_sizes=None, learning_rates=None, retrain_time_limits=None,
-                 thread_pool_size=None):
+    def __init__(self, region=Region(-90, 90, -180, 180), data_precision=6, model_path=None, train_data_length=None,
+                 rmi=None, index_list=None, point_list=None, block_size=None, use_thresholds=None, thresholds=None,
+                 stages=None, cores=None, train_steps=None, batch_sizes=None, learning_rates=None,
+                 retrain_time_limits=None, thread_pool_size=None):
         super(ZMIndex, self).__init__("ZM Index")
         # nn args
         self.block_size = block_size
@@ -37,6 +37,7 @@ class ZMIndex(SpatialIndex):
 
         # zm index args, support predict and query
         self.region = region
+        self.data_precision = data_precision
         self.model_path = model_path
         self.train_data_length = train_data_length
         self.rmi = [[None for i in range(self.stages[i])] for i in range(self.stage_length)] if rmi is None else rmi
@@ -53,7 +54,7 @@ class ZMIndex(SpatialIndex):
         :param data: pd.dataframe, [x, y]
         :return: None
         """
-        z_order = ZOrder(dimensions=2, bits=21, region=self.region)
+        z_order = ZOrder(dimensions=2, bits=21, data_precision=self.data_precision, region=self.region)
         data["z"] = data.apply(lambda t: z_order.point_to_z(t.x, t.y), 1)
         data.sort_values(by=["z"], ascending=True, inplace=True)
         data.reset_index(drop=True, inplace=True)
@@ -190,6 +191,7 @@ class ZMIndex(SpatialIndex):
     @staticmethod
     def init_by_dict(d: dict):
         return ZMIndex(region=d['region'],
+                       data_precision=d['data_precision'],
                        train_data_length=d['train_data_length'],
                        rmi=d['rmi'],
                        index_list=d['index_list'],
@@ -204,7 +206,7 @@ class ZMIndex(SpatialIndex):
         :param points: list, [x, y]
         :return: list, [pre]
         """
-        z_order = ZOrder(dimensions=2, bits=21, region=self.region)
+        z_order = ZOrder(dimensions=2, bits=21, data_precision=self.data_precision, region=self.region)
         results = []
         for point in points:
             # 1. compute z from x/y of points
@@ -230,7 +232,7 @@ class ZMIndex(SpatialIndex):
         :param windows: list, [x1, y1, x2, y2]
         :return: list, [pres]
         """
-        z_order = ZOrder(dimensions=2, bits=21, region=self.region)
+        z_order = ZOrder(dimensions=2, bits=21, data_precision=self.data_precision, region=self.region)
         results = []
         for window in windows:
             # 1. compute z of window_left and window_right
@@ -308,7 +310,8 @@ if __name__ == '__main__':
     train_set_xy = pd.read_csv(path)
     # create index
     model_path = "model/zm_index_1451w/"
-    index = ZMIndex(region=Region(40, 42, -75, -73), model_path=model_path,
+    index = ZMIndex(region=Region(40, 42, -75, -73), data_precision=6,
+                    model_path=model_path,
                     train_data_length=None, rmi=None, index_list=None,
                     block_size=100,
                     use_thresholds=[False, False],

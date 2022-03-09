@@ -17,9 +17,9 @@ from src.rmi_keras import TrainedNN, AbstractNN
 
 
 class GeoHashModelIndex(SpatialIndex):
-    def __init__(self, region=Region(-90, 90, -180, 180), max_num=10000, model_path=None, train_data_length=None,
-                 brin=None, gm_dict=None, index_list=None, block_size=None, use_threshold=None, threshold=None,
-                 core=None, train_step=None, batch_size=None, learning_rate=None,
+    def __init__(self, region=Region(-90, 90, -180, 180), max_num=10000, data_precision=6, max_depth=21,
+                 model_path=None, train_data_length=None, brin=None, gm_dict=None, index_list=None, block_size=None,
+                 use_threshold=None, threshold=None, core=None, train_step=None, batch_size=None, learning_rate=None,
                  retrain_time_limit=None, thread_pool_size=None):
         super(GeoHashModelIndex, self).__init__("GeoHash Model Index")
         # nn args
@@ -36,6 +36,8 @@ class GeoHashModelIndex(SpatialIndex):
         # geohash model index args, support predict and query
         self.region = region
         self.max_num = max_num
+        self.data_precision = data_precision
+        self.max_depth = max_depth
         self.model_path = model_path
         self.train_data_length = train_data_length
         self.brin = brin
@@ -52,7 +54,7 @@ class GeoHashModelIndex(SpatialIndex):
         :param data: pd.dataframe, [x, y]
         :return: None
         """
-        z_order = ZOrder(dimensions=2, bits=21, region=self.region)
+        z_order = ZOrder(dimensions=2, bits=21, data_precision=self.data_precision, region=self.region)
         data["z"] = data.apply(lambda t: z_order.point_to_z(t.x, t.y), 1)
         data.sort_values(by=["z"], ascending=True, inplace=True)
         data.reset_index(drop=True, inplace=True)
@@ -71,7 +73,8 @@ class GeoHashModelIndex(SpatialIndex):
         # 1. init train z->index data from x/y data
         self.init_train_data(data)
         # 2. split data by quad tree
-        quad_tree = QuadTree(region=self.region, max_num=self.max_num)
+        quad_tree = QuadTree(region=self.region, max_num=self.max_num, data_precision=self.data_precision,
+                             max_depth=self.max_depth)
         quad_tree.build(data, z=True)
         quad_tree.geohash()
         split_data = quad_tree.geohash_items_map
@@ -152,6 +155,8 @@ class GeoHashModelIndex(SpatialIndex):
     def init_by_dict(d: dict):
         return GeoHashModelIndex(region=d['region'],
                                  max_num=d['max_num'],
+                                 data_precision=d['data_precision'],
+                                 max_depth=d['max_depth'],
                                  train_data_length=d['train_data_length'],
                                  brin=d['brin'],
                                  gm_dict=d['gm_dict'],
@@ -167,7 +172,7 @@ class GeoHashModelIndex(SpatialIndex):
         :param points: list, [x, y]
         :return: list, [pre]
         """
-        z_order = ZOrder(dimensions=2, bits=21, region=self.region)
+        z_order = ZOrder(dimensions=2, bits=21, data_precision=self.data_precision, region=self.region)
         results = []
         for point in points:
             # 1. compute z from x/y of points
@@ -278,7 +283,8 @@ if __name__ == '__main__':
     train_set_xy = pd.read_csv(path)
     # create index
     model_path = "model/gm_index_1451w/"
-    index = GeoHashModelIndex(region=Region(40, 42, -75, -73), max_num=1000, model_path=model_path,
+    index = GeoHashModelIndex(region=Region(40, 42, -75, -73), max_num=1000, data_precision=6, max_depth=21,
+                              model_path=model_path,
                               train_data_length=None, brin=None, gm_dict=None, index_list=None,
                               block_size=100,
                               use_threshold=False,

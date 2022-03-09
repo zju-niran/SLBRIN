@@ -132,9 +132,10 @@ class Region:
 
 
 class ZOrder:
-    def __init__(self, dimensions, bits, region):
+    def __init__(self, dimensions, bits, data_precision, region):
         self.dimensions = dimensions
         self.bits = bits
+        self.data_precision = data_precision
         self.region = region
         self.region_width = region.right - region.left
         self.region_height = region.up - region.bottom
@@ -203,8 +204,8 @@ class ZOrder:
         :param lat:
         :return:
         """
-        lng_zoom = int((lng - self.region.left) * self.max_num / self.region_width)
-        lat_zoom = int((lat - self.region.bottom) * self.max_num / self.region_height)
+        lng_zoom = round((lng - self.region.left) * self.max_num / self.region_width)
+        lat_zoom = round((lat - self.region.bottom) * self.max_num / self.region_height)
         return self.pack(lng_zoom, lat_zoom)
 
     def z_to_point(self, z):
@@ -218,7 +219,7 @@ class ZOrder:
         lng_zoom, lat_zoom = self.unpack(z)
         lng = lng_zoom * self.region_width / self.max_num + self.region.left
         lat = lat_zoom * self.region_height / self.max_num + self.region.bottom
-        return lng, lat
+        return Point(round(lng, self.data_precision), round(lat, self.data_precision))
 
 
 class Geohash:
