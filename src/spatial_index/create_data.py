@@ -142,12 +142,21 @@ if __name__ == '__main__':
     # output_path_100000_sample = '../../data/trip_data_1_100000.csv'
     # output_path_range_query_csv = '../../data/trip_data_1_range_query.csv'
     # output_path_range_query_log = '../../data/trip_data_1_range_query.log'
-    # window_limit = 1000
+    # window_limit = 100
     # print_window_from_csv_to_log(output_path_100000_sample, output_path_range_query_log, window_limit, 6)
     # create_window_from_log_to_csv(output_path_range_query_log, output_path_range_query_csv)
     # 4.生成knn检索范围
-    output_path_100000_sample = '../../data/trip_data_1_100000.csv'
-    output_path_knn_query_csv = '../../data/trip_data_1_knn_query.csv'
-    knn_point_limit = 1000
-    knn_n_limit = 10
-    create_knn_from_csv(output_path_100000_sample, output_path_knn_query_csv, knn_point_limit, knn_n_limit)
+    # output_path_100000_sample = '../../data/trip_data_1_100000.csv'
+    # output_path_knn_query_csv = '../../data/trip_data_1_knn_query.csv'
+    # knn_point_limit = 1000
+    # knn_n_limit = 10
+    # create_knn_from_csv(output_path_100000_sample, output_path_knn_query_csv, knn_point_limit, knn_n_limit)
+    # 从range和数据精度计算四叉树的最大树高 或者是 morton的bit
+    r = Region(40, 42, -75, -73)
+    n = 0.000001  # 数据精度
+    limit = min(r.up - r.bottom, r.right - r.left)
+    count = 0
+    while limit > n:
+        count += 1
+        limit = limit / 2
+    print(count) # 21
