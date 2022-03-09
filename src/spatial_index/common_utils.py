@@ -48,6 +48,14 @@ class Point:
         """
         return math.sqrt((self.lng - other.lng) ** 2 + (self.lat - other.lat) ** 2)
 
+    def distance_pow(self, other):
+        """
+        计算两点距离的平方
+        :param other:
+        :return: distance ** 2
+        """
+        return (self.lng - other.lng) ** 2 + (self.lat - other.lat) ** 2
+
 
 class Region:
     def __init__(self, bottom, up, left, right):
@@ -64,24 +72,50 @@ class Region:
         return self.up >= point.lat >= self.bottom and self.right >= point.lng >= self.left
 
     def within_distance(self, point, distance):
-        if point.lng >= self.right and point.lat >= self.up:
-            return point.distance(Point(self.right, self.up)) <= distance
-        elif point.lng >= self.right and point.lat < self.up and point.lat > self.bottom:
-            return Point(point.lng, 0).distance(Point(self.right, 0)) <= distance
-        elif point.lng >= self.right and point.lat <= self.bottom:
-            return point.distance(Point(self.right, self.bottom)) < distance
-        elif point.lng >= self.left and point.lng <= self.right and point.lat <= self.bottom:
-            return Point(0, point.lat).distance(Point(0, self.bottom)) < distance
-        elif point.lng <= self.left and point.lat <= self.bottom:
-            return point.distance(Point(self.left, self.bottom)) < distance
-        elif point.lng <= self.left and point.lat >= self.bottom:
-            return Point(point.lng, 0).distance(Point(self.left, 0)) < distance
-        elif point.lng <= self.left and point.lat >= self.up:
-            return point.distance(Point(self.left, self.up)) < distance
-        elif point.lng >= self.left and point.lng <= self.right and point.lat >= self.up:
-            return Point(0, point.lat).distance(Point(0, self.up)) < distance
-        elif self.contain_and_border(point):
-            return True
+        if point.lng >= self.right:
+            if point.lat >= self.up:
+                return point.distance(Point(self.right, self.up)) <= distance
+            elif self.bottom < point.lat < self.up:
+                return Point(point.lng, 0).distance(Point(self.right, 0)) <= distance
+            else:
+                return point.distance(Point(self.right, self.bottom)) <= distance
+        elif self.left < point.lng < self.right:
+            if point.lat <= self.bottom:
+                return Point(0, point.lat).distance(Point(0, self.bottom)) <= distance
+            elif self.bottom < point.lat < self.up:
+                return True
+            else:
+                return Point(0, point.lat).distance(Point(0, self.up)) <= distance
+        else:
+            if point.lat <= self.bottom:
+                return point.distance(Point(self.left, self.bottom)) <= distance
+            elif self.bottom < point.lat < self.up:
+                return Point(point.lng, 0).distance(Point(self.left, 0)) <= distance
+            else:
+                return point.distance(Point(self.left, self.up)) < distance
+
+    def within_distance_pow(self, point, distance_pow):
+        if point.lng >= self.right:
+            if point.lat >= self.up:
+                return point.distance_pow(Point(self.right, self.up)) <= distance_pow
+            elif self.bottom < point.lat < self.up:
+                return Point(point.lng, 0).distance_pow(Point(self.right, 0)) <= distance_pow
+            else:
+                return point.distance_pow(Point(self.right, self.bottom)) <= distance_pow
+        elif self.left < point.lng < self.right:
+            if point.lat <= self.bottom:
+                return Point(0, point.lat).distance_pow(Point(0, self.bottom)) <= distance_pow
+            elif self.bottom < point.lat < self.up:
+                return True
+            else:
+                return Point(0, point.lat).distance_pow(Point(0, self.up)) <= distance_pow
+        else:
+            if point.lat <= self.bottom:
+                return point.distance_pow(Point(self.left, self.bottom)) <= distance_pow
+            elif self.bottom < point.lat < self.up:
+                return Point(point.lng, 0).distance_pow(Point(self.left, 0)) <= distance_pow
+            else:
+                return point.distance_pow(Point(self.left, self.up)) < distance_pow
 
     @staticmethod
     def create_region_from_points(x1, y1, x2, y2):
