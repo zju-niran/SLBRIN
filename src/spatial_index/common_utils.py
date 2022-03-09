@@ -505,6 +505,50 @@ def nparray_diff_normalize_reverse_num(num1, num2, min_v, max_v):
     return (num1 - num2) * (max_v - min_v)
 
 
+def binary_search(nums, x, left, right):
+    """
+    binary search x in nums[left, right]
+    :param nums: list, value list
+    :param x: value
+    :param left:
+    :param right:
+    :return: index
+    """
+    while left <= right:
+        mid = (left + right) // 2
+        if nums[mid] == x:
+            return mid
+        if nums[mid] < x:
+            left = mid + 1
+        else:
+            right = mid - 1
+    return None
+
+
+# TODO: 无法处理有重复的数组
+def biased_search(nums, x, pre, left, right):
+    """
+    binary search x in nums[left, right], but the first mid is pre
+    如果pre不在[left, right]里，会变慢
+    :param nums: list, value list
+    :param x: value
+    :param pre:
+    :param left:
+    :param right:
+    :return: index
+    """
+    mid = pre
+    while left <= right:
+        if nums[mid] == x:
+            return mid
+        if nums[mid] < x:
+            left = mid + 1
+        else:
+            right = mid - 1
+        mid = (left + right) // 2
+    return None
+
+
 if __name__ == '__main__':
     # geohash = Geohash()
     # print(geohash.encode(-5.6, 42.6, precision=25))

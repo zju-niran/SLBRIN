@@ -11,7 +11,7 @@ import pandas as pd
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.brin import BRIN, RegularPage, RevMapPage, MetaPage
 from src.spatial_index.quad_tree import QuadTree
-from src.spatial_index.common_utils import ZOrder, Region
+from src.spatial_index.common_utils import ZOrder, Region, biased_search
 from src.spatial_index.spatial_index import SpatialIndex
 from src.rmi_keras import TrainedNN, AbstractNN
 
@@ -185,34 +185,27 @@ class GeoHashModelIndex(SpatialIndex):
                 leaf_model = self.gm_dict[leaf_model_index]
                 # 3. predict by z and create index scope [pre - min_err, pre + max_err]
                 pre, min_err, max_err = leaf_model.predict(z), leaf_model.min_err, leaf_model.max_err
-                left_bound = max((pre - max_err) * self.block_size, 0)
-                right_bound = min((pre - min_err) * self.block_size, self.train_data_length - 1)
+                pre_init = int(pre * self.block_size)  # int比round快一倍
+                left_bound = max(round((pre - max_err) * self.block_size), 0)
+                right_bound = min(round((pre - min_err) * self.block_size), self.train_data_length - 1)
                 # 4. binary search in scope
-                result = self.binary_search(self.index_list, z, round(left_bound), round(right_bound))
+                result = biased_search(self.index_list, z, pre_init, left_bound, right_bound)
                 if result is not None:
                     result /= self.block_size
             results.append(result)
         return results
 
-    # TODO: 无法处理有重复的数组
-    def binary_search(self, nums, x, left, right):
+    def range_query(self, data: pd.DataFrame):
         """
-        binary search x in nums[left, right]
-        :param nums: list, value list
-        :param x: value
-        :param left:
-        :param right:
-        :return: index
+        query index by x1/y1/x2/y2 window
+        1. get
+        2. normalize z by z.min and z.max
+        3. predict the leaf model by brin
+        4. predict by leaf model and create index scope [pre - min_err, pre + max_err]
+        5. binary search in scope
+        :param data: pd.DataFrame, [x, y]
+        :return: pd.DataFrame, [pre]
         """
-        while left <= right:
-            mid = (left + right) // 2
-            if nums[mid] == x:
-                return mid
-            if nums[mid] < x:
-                left = mid + 1
-            else:
-                right = mid - 1
-        return None
 
 
 class MyEncoder(json.JSONEncoder):

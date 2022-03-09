@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.append('/home/zju/wlj/st-learned-index')
-from src.spatial_index.common_utils import ZOrder, Region, binary_search, Point
+from src.spatial_index.common_utils import ZOrder, Region, Point, biased_search
 from src.spatial_index.spatial_index import SpatialIndex
 from src.rmi_keras import TrainedNN, AbstractNN
 
@@ -185,7 +185,7 @@ class ZMIndex(SpatialIndex):
             self.train_data_length = zm_index.train_data_length
             self.rmi = zm_index.rmi
             self.index_list = np.loadtxt(self.model_path + 'index_list.csv', dtype=np.int64, delimiter=",").tolist()
-            self.point_list = np.loadtxt(self.model_path + 'point_list.csv', dtype=np.float, delimiter=",").tolist()
+            self.point_list = np.loadtxt(self.model_path + 'point_list.csv', dtype=float, delimiter=",").tolist()
             del zm_index
 
     @staticmethod
@@ -213,10 +213,11 @@ class ZMIndex(SpatialIndex):
             z_value = z_order.point_to_z(point[0], point[1])
             # 2. predict by z and create index scope [pre - min_err, pre + max_err]
             pre, min_err, max_err = self.predict(z_value)
-            left_bound = max((pre - max_err) * self.block_size, 0)
-            right_bound = min((pre - min_err) * self.block_size, self.train_data_length - 1)
+            pre_init = int(pre * self.block_size)  # int比round快一倍
+            left_bound = max(round((pre - max_err) * self.block_size), 0)
+            right_bound = min(round((pre - min_err) * self.block_size), self.train_data_length - 1)
             # 3. binary search in scope
-            result = binary_search(self.index_list, z_value, round(left_bound), round(right_bound))
+            result = biased_search(self.index_list, z_value, pre_init, left_bound, right_bound)
             if result is not None:
                 result /= self.block_size
             results.append(result)
@@ -241,17 +242,19 @@ class ZMIndex(SpatialIndex):
             # 2. find index_left by point query
             # if point not found, index_left = pre - min_err
             pre1, min_err1, max_err1 = self.predict(z_value1)
-            left_bound1 = round(max((pre1 - max_err1) * self.block_size, 0))
-            right_bound1 = round(min((pre1 - min_err1) * self.block_size, self.train_data_length - 1))
-            index_left = binary_search(self.index_list, z_value1, left_bound1, right_bound1)
+            pre1_init = int(pre1 * self.block_size)
+            left_bound1 = max(round((pre1 - max_err1) * self.block_size), 0)
+            right_bound1 = min(round((pre1 - min_err1) * self.block_size), self.train_data_length - 1)
+            index_left = biased_search(self.index_list, z_value1, pre1_init, left_bound1, right_bound1)
             if index_left is None:
                 index_left = left_bound1
             # 3. find index_right by point query
             # if point not found, index_right = pre - max_err
             pre2, min_err2, max_err2 = self.predict(z_value2)
-            left_bound2 = round(max((pre2 - max_err2) * self.block_size, 0))
-            right_bound2 = round(min((pre2 - min_err2) * self.block_size, self.train_data_length - 1))
-            index_right = binary_search(self.index_list, z_value2, left_bound2, right_bound2)
+            pre2_init = int(pre2 * self.block_size)
+            left_bound2 = max(round((pre2 - max_err2) * self.block_size), 0)
+            right_bound2 = min(round((pre2 - min_err2) * self.block_size), self.train_data_length - 1)
+            index_right = biased_search(self.index_list, z_value2, pre2_init, left_bound2, right_bound2)
             if index_right is None:
                 index_right = right_bound2
             # 4. filter all the point of scope[index1, index2] by range(x1/y1/x2/y2).contain(point)
