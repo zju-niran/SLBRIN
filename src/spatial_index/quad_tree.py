@@ -65,8 +65,8 @@ class QuadTree(Index):
                 node.items.append(point)
             return
 
-        y_center = round((node.region.up + node.region.bottom) / 2, self.data_precision)
-        x_center = round((node.region.left + node.region.right) / 2, self.data_precision)
+        y_center = (node.region.up + node.region.bottom) / 2
+        x_center = (node.region.left + node.region.right) / 2
         if point.lat < y_center:
             if point.lng < x_center:
                 self.insert(point, node.LB)
@@ -84,9 +84,8 @@ class QuadTree(Index):
         1.通过父节点获取子节点的深度和范围
         2.生成四个节点，挂载到父节点下
         """
-        y_center = round((node.region.up + node.region.bottom) / 2, self.data_precision)
-        x_center = round((node.region.left + node.region.right) / 2, self.data_precision)
-
+        y_center = (node.region.up + node.region.bottom) / 2
+        x_center = (node.region.left + node.region.right) / 2
         node.is_leaf = 0
         node.LB = self.create_child_node(node, node.region.bottom, y_center, node.region.left, x_center)
         node.RB = self.create_child_node(node, node.region.bottom, y_center, x_center, node.region.right)
@@ -121,8 +120,8 @@ class QuadTree(Index):
                     del node.items[i]
             return combine_flag
         else:
-            y_center = round((node.region.up + node.region.bottom) / 2, self.data_precision)
-            x_center = round((node.region.left + node.region.right) / 2, self.data_precision)
+            y_center = (node.region.up + node.region.bottom) / 2
+            x_center = (node.region.left + node.region.right) / 2
             if point.lat > y_center:
                 if point.lng > x_center:
                     combine_flag = self.delete(point, node.RU)
@@ -164,8 +163,8 @@ class QuadTree(Index):
                     search_result.append(item.index)
             return search_result
 
-        y_center = round((node.region.up + node.region.bottom) / 2, self.data_precision)
-        x_center = round((node.region.left + node.region.right) / 2, self.data_precision)
+        y_center = (node.region.up + node.region.bottom) / 2
+        x_center = (node.region.left + node.region.right) / 2
         if point.lat < y_center:
             if point.lng < x_center:
                 return self.search(point, node.LB)
@@ -188,8 +187,8 @@ class QuadTree(Index):
             node = self.root_node
         if node.is_leaf == 1:
             return node
-        y_center = round((node.region.up + node.region.bottom) / 2, self.data_precision)
-        x_center = round((node.region.left + node.region.right) / 2, self.data_precision)
+        y_center = (node.region.up + node.region.bottom) / 2
+        x_center = (node.region.left + node.region.right) / 2
         if point.lat < y_center:
             if point.lng < x_center:
                 return self.search_node(point, node.LB)

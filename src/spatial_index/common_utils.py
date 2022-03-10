@@ -130,11 +130,23 @@ class Region:
                       left=d['left'],
                       right=d['right'])
 
+    def get_bits_by_region_and_precision(self, precision):
+        """
+        从range和数据精度计算morton的bit，最终效果是不重复数据的z不重复
+        原理是：不重复数据个数 < region的最短边/10^-precision < 能表示的不重复z个数pow(2, bit)
+        => bit = ceil(log2(limit/10^-precision))
+        +1是因为后续希望region的角点也能计算z，因此精度+1，来保证region必能把point区分开
+        :param precision:
+        :return:
+        """
+        limit = min(self.up - self.bottom, self.right - self.left)
+        return math.ceil(math.log(limit / math.pow(10, -precision - 1), 2))
+
 
 class ZOrder:
-    def __init__(self, dimensions, bits, data_precision, region):
-        self.dimensions = dimensions
-        self.bits = bits
+    def __init__(self, data_precision, region):
+        self.dimensions = 2
+        self.bits = region.get_bits_by_region_and_precision(data_precision)
         self.data_precision = data_precision
         self.region = region
         self.region_width = region.right - region.left
@@ -554,25 +566,3 @@ if __name__ == '__main__':
     # print(geohash.encode(-5.6, 42.6, precision=25))
     # print(geohash.decode('0110111111110000010000010'))
     # geohash.compare_with_python_geohash()
-
-    # zorder = ZOrder(dimensions=2, bits=21, region=Region(-90, 90, -180, 180))
-    # z = zorder.point_to_z(-73.982681, 40.722618)
-    # point = zorder.z_to_point(z)
-    # print("")
-
-    index_list = np.loadtxt('D:\Code\Paper\st-learned-index\src\spatial_index\model\zm_index_10w\index_list.csv',
-                            dtype="int64", delimiter=",").tolist()
-
-    start_time = time.time()
-    for i in range(100000):
-        biased_search(index_list, 1786809638720, 47476, 0, 99999)
-    end_time = time.time()
-    build_time = end_time - start_time
-    print("Build %s time " % build_time)
-
-    start_time = time.time()
-    for i in range(100000):
-        binary_search(index_list, 1786809638720, 0, 99999)
-    end_time = time.time()
-    build_time = end_time - start_time
-    print("Build %s time " % build_time)

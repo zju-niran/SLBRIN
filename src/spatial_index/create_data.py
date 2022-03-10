@@ -151,12 +151,3 @@ if __name__ == '__main__':
     # knn_point_limit = 1000
     # knn_n_limit = 10
     # create_knn_from_csv(output_path_100000_sample, output_path_knn_query_csv, knn_point_limit, knn_n_limit)
-    # 从range和数据精度计算四叉树的最大树高 或者是 morton的bit
-    r = Region(40, 42, -75, -73)
-    n = 0.000001  # 数据精度
-    limit = min(r.up - r.bottom, r.right - r.left)
-    count = 0
-    while limit > n:
-        count += 1
-        limit = limit / 2
-    print(count) # 21
