@@ -11,9 +11,8 @@ import tensorflow as tf
 matplotlib.use('Agg')  # 解决_tkinter.TclError: couldn't connect to display "localhost:11.0"
 import matplotlib.pyplot as plt
 
-from src.spatial_index.common_utils import nparray_normalize, nparray_normalize_minmax, \
-    nparray_diff_normalize_reverse_arr, \
-    nparray_normalize_reverse_arr, nparray_normalize_reverse_num
+from src.spatial_index.common_utils import nparray_normalize, nparray_diff_normalize_reverse_arr, \
+    nparray_normalize_reverse_arr, nparray_normalize_reverse_num, normalize_minmax
 
 
 # using cache
@@ -68,27 +67,12 @@ class AbstractNN:
         :param input_key:
         :return:
         """
-        y = nparray_normalize_minmax(input_key, self.input_min, self.input_max)
+        y = normalize_minmax(input_key, self.input_min, self.input_max)
         for i in range(len(self.core_nums) - 1):
             # sigmoid(w * x + b)
             y = AbstractNN.sigmoid(y * self.weights[i * 2] + self.weights[i * 2 + 1])
         # clip到最大最小值之间
         return nparray_normalize_reverse_num(y[0, 0], self.output_min, self.output_max)
-
-    def predicts(self, input_keys):
-        """
-        list key的矩阵计算
-        :param input_keys:
-        :return:
-        """
-        input_keys = nparray_normalize_minmax(input_keys, self.input_min, self.input_max)
-        y = np.mat(input_keys).T
-        for i in range(len(self.core_nums) - 1):
-            # sigmoid(w * x + b)
-            y = AbstractNN.sigmoid(y * self.weights[i * 2] + self.weights[i * 2 + 1])
-        # clip到最大最小值之间
-        y = np.asarray(y).flatten()
-        return nparray_normalize_reverse_arr(y, self.output_min, self.output_max)
 
     @staticmethod
     def init_by_dict(d: dict):
@@ -104,7 +88,7 @@ class AbstractNN:
 
 # Neural Network Model
 class TrainedNN:
-    def __init__(self, model_path, model_index, train_x, train_y, threshold, use_threshold, cores, train_step_num,
+    def __init__(self, model_path, model_index, train_x, train_y, use_threshold, threshold, cores, train_step_num,
                  batch_size, learning_rate, retrain_time_limit):
         if cores is None:
             cores = []
@@ -112,8 +96,8 @@ class TrainedNN:
         self.train_step_nums = train_step_num
         self.batch_size = batch_size
         self.learning_rate = learning_rate
-        self.train_x, self.train_x_min, self.train_x_max = nparray_normalize(train_x)
-        self.train_y, self.train_y_min, self.train_y_max = nparray_normalize(train_y)
+        self.train_x, self.train_x_min, self.train_x_max = nparray_normalize(np.array(train_x))
+        self.train_y, self.train_y_min, self.train_y_max = nparray_normalize(np.array(train_y))
         self.use_threshold = use_threshold
         self.threshold = threshold
         self.model = None

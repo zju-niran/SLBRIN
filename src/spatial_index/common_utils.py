@@ -185,6 +185,17 @@ class ZOrder:
         self.max_num = 1 << self.bits
         self.masks = [self.max_num - 1] + masks
 
+    def dict(self):
+        return {
+            'data_precision': self.data_precision,
+            'region': self.region
+        }
+
+    @staticmethod
+    def init_by_dict(d: dict):
+        return ZOrder(data_precision=d['data_precision'],
+                      region=d['region'])
+
     def split(self, value):
         for o in range(len(self.masks)):
             value = (value | (value << self.lshifts[o])) & self.masks[o]
@@ -455,8 +466,6 @@ def total_size(o, handlers={}, verbose=False):
 def is_sorted_list(lst):
     """
     判断list是否有序
-    :param lst: list
-    :return:
     """
     return sorted(lst) == lst or sorted(lst, reverse=True) == lst
 
@@ -464,8 +473,6 @@ def is_sorted_list(lst):
 def nparray_normalize(na):
     """
     对np.array进行最大最小值归一化
-    :param na: np.array
-    :return: 归一化的np.array和最大最小值
     """
     min_v = na.min(axis=0)
     max_v = na.max(axis=0)
@@ -475,16 +482,14 @@ def nparray_normalize(na):
         return (na - min_v) / (max_v - min_v), min_v, max_v
 
 
-def nparray_normalize_minmax(na, min_v, max_v):
+def normalize_minmax(value, min_v, max_v):
     """
-    对np.array进行指定最大最小值归一化
-    :param na: np.array
-    :return: 归一化的np.array
+    进行指定最大最小值归一化
     """
     if min_v is None or max_v is None or max_v == min_v:
-        return na
+        return value
     else:
-        return (na - min_v) / (max_v - min_v)
+        return (value - min_v) / (max_v - min_v)
 
 
 def nparray_normalize_reverse_arr(na, min_v, max_v):

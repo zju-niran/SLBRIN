@@ -9,38 +9,20 @@ import numpy as np
 import pandas as pd
 
 sys.path.append('/home/zju/wlj/st-learned-index')
-from src.spatial_index.common_utils import ZOrder, Region, Point, biased_search
+from src.spatial_index.common_utils import Region, Point, biased_search, ZOrder
 from src.spatial_index.spatial_index import SpatialIndex
 from src.rmi_keras import TrainedNN, AbstractNN
 
 
 class ZMIndex(SpatialIndex):
-    def __init__(self, region=Region(-90, 90, -180, 180), data_precision=6, model_path=None, train_data_length=None,
-                 rmi=None, index_list=None, point_list=None, block_size=None, use_thresholds=None, thresholds=None,
-                 stages=None, cores=None, train_steps=None, batch_sizes=None, learning_rates=None,
-                 retrain_time_limits=None, thread_pool_size=None):
+    def __init__(self, model_path=None, z_order=None, train_data_length=None, stage_length=0, rmi=None, index_list=None,
+                 point_list=None):
         super(ZMIndex, self).__init__("ZM Index")
-        # nn args
-        self.block_size = block_size
-        self.use_thresholds = use_thresholds
-        self.thresholds = thresholds
-        self.stages = stages
-        self.stage_length = len(self.stages) if self.stages is not None else 0
-        self.cores = cores
-        self.train_steps = train_steps
-        self.batch_sizes = batch_sizes
-        self.learning_rates = learning_rates
-        self.retrain_time_limits = retrain_time_limits
-        self.thread_pool_size = thread_pool_size
-        self.train_inputs = [[None for i in range(self.stages[i])] for i in range(self.stage_length)]
-        self.train_labels = [[None for i in range(self.stages[i])] for i in range(self.stage_length)]
-
-        # zm index args, support predict and query
-        self.region = region
-        self.data_precision = data_precision
         self.model_path = model_path
+        self.z_order = z_order
         self.train_data_length = train_data_length
-        self.rmi = [[None for i in range(self.stages[i])] for i in range(self.stage_length)] if rmi is None else rmi
+        self.stage_length = stage_length
+        self.rmi = rmi
         self.index_list = index_list
         self.point_list = point_list
 
@@ -48,41 +30,94 @@ class ZMIndex(SpatialIndex):
         """
         init train data from x/y data
         1. compute z from data.x and data.y
-        2. normalize z by z.min and z.max
-        3. sort z and reset index
-        4. inputs = z and labels = index / block_size
+        2. inputs = z and labels = range(0, data_length)
         :param data: pd.dataframe, [x, y]
         :return: None
         """
-        z_order = ZOrder(dimensions=2, bits=21, data_precision=self.data_precision, region=self.region)
-        data["z"] = data.apply(lambda t: z_order.point_to_z(t.x, t.y), 1)
+        data["z"] = data.apply(lambda t: self.z_order.point_to_z(t.x, t.y), 1)
         data.sort_values(by=["z"], ascending=True, inplace=True)
         data.reset_index(drop=True, inplace=True)
         self.train_data_length = len(data)
-        self.train_inputs[0][0] = data.z.values
-        self.train_labels[0][0] = pd.Series(np.arange(0, self.train_data_length) / self.block_size).values
-        self.index_list = data.z.values.tolist()
+        self.index_list = data.z.tolist()
         self.point_list = data[["x", "y"]].values.tolist()
 
-    def build_single_thread(self, curr_stage, current_stage_step, inputs, labels, tmp_dict=None):
+    def build(self, data: pd.DataFrame, data_precision, region, use_thresholds, thresholds, stages, cores, train_steps,
+              batch_sizes, learning_rates, retrain_time_limits, thread_pool_size):
+        """
+        build index by multi threads
+        1. init train z->index data from x/y data
+        2. create rmi for train z->index data
+        """
+        self.z_order = ZOrder(data_precision=data_precision, region=region)
+        self.stage_length = len(stages)
+        train_inputs = [[[] for i in range(stages[i])] for i in range(self.stage_length)]
+        train_labels = [[[] for i in range(stages[i])] for i in range(self.stage_length)]
+        self.rmi = [[None for i in range(stages[i])] for i in range(self.stage_length)]
+        # 1. init train z->index data from x/y data
+        self.init_train_data(data)
+        train_inputs[0][0] = self.index_list
+        train_labels[0][0] = np.arange(0, self.train_data_length).tolist()
+        # 2. create rmi for train z->index data
+        # 构建stage_nums结构的树状NNs
+        for i in range(self.stage_length - 1):
+            for j in range(stages[i]):
+                if train_labels[i][j] is None:
+                    continue
+                else:
+                    inputs = train_inputs[i][j]
+                    labels = []
+                    # 非叶子结点决定下一层要用的NN是哪个
+                    # first stage, calculate how many models in next stage
+                    divisor = stages[i + 1] * 1.0 / self.train_data_length
+                    for k in train_labels[i][j]:
+                        labels.append(int(k * divisor))
+                    # train model
+                    self.build_single_thread(i, j, inputs, labels, use_thresholds[i], thresholds[i], cores[i],
+                                             train_steps[i], batch_sizes[i], learning_rates[i], retrain_time_limits[i])
+                    # allocate data into training set for models in next stage
+                    for ind in range(len(train_inputs[i][j])):
+                        # pick model in next stage with output of this model
+                        pre = round(self.rmi[i][j].predict(train_inputs[i][j][ind]))
+                        train_inputs[i + 1][pre].append(train_inputs[i][j][ind])
+                        train_labels[i + 1][pre].append(train_labels[i][j][ind])
+        # 叶子节点使用线程池训练
+        multiprocessing.set_start_method('spawn')  # 解决CUDA_ERROR_NOT_INITIALIZED报错
+        pool = multiprocessing.Pool(processes=thread_pool_size)
+        mp_dict = multiprocessing.Manager().dict()  # 使用共享dict暂存index[i]的所有model
+        i = self.stage_length - 1
+        task_size = stages[i]
+        for j in range(task_size):
+            inputs = train_inputs[i][j]
+            labels = train_labels[i][j]
+            if labels is None or len(labels) == 0:
+                continue
+            pool.apply_async(self.build_single_thread,
+                             (i, j, inputs, labels, use_thresholds[i], thresholds[i], cores[i],
+                              train_steps[i], batch_sizes[i], learning_rates[i], retrain_time_limits[i], mp_dict))
+        pool.close()
+        pool.join()
+        for (key, value) in mp_dict.items():
+            self.rmi[i][key] = value
+
+    def build_single_thread(self, curr_stage, current_stage_step, inputs, labels, use_threshold, threshold,
+                            core, train_step, batch_size, learning_rate, retrain_time_limit, tmp_dict=None):
         # train model
         i = curr_stage
         j = current_stage_step
-        model_path = self.model_path
         model_index = str(i) + "_" + str(j)
-        tmp_index = TrainedNN(model_path, model_index, inputs, labels,
-                              self.thresholds[i],
-                              self.use_thresholds[i],
-                              self.cores[i],
-                              self.train_steps[i],
-                              self.batch_sizes[i],
-                              self.learning_rates[i],
-                              self.retrain_time_limits[i])
+        tmp_index = TrainedNN(self.model_path, model_index, inputs, labels,
+                              use_threshold,
+                              threshold,
+                              core,
+                              train_step,
+                              batch_size,
+                              learning_rate,
+                              retrain_time_limit)
         tmp_index.train()
         tmp_index.plot()
         # get parameters in model (weight matrix and bias matrix)
         abstract_index = AbstractNN(tmp_index.get_weights(),
-                                    self.cores[i],
+                                    core,
                                     tmp_index.train_x_min,
                                     tmp_index.train_x_max,
                                     tmp_index.train_y_min,
@@ -95,56 +130,6 @@ class ZMIndex(SpatialIndex):
             tmp_dict[j] = abstract_index
         else:
             self.rmi[i][j] = abstract_index
-
-    def build(self, data: pd.DataFrame):
-        """
-        build index by multi threads
-        1. init train z->index data from x/y data
-        2. create rmi for train z->index data
-        3. clear train data and label to save memory
-        """
-        # 1. init train z->index data from x/y data
-        self.init_train_data(data)
-        # 2. create rmi for train z->index data
-        # 构建stage_nums结构的树状NNs
-        for i in range(0, self.stage_length - 1):
-            for j in range(0, self.stages[i]):
-                if self.train_labels[i][j] is None:
-                    continue
-                else:
-                    inputs = self.train_inputs[i][j]
-                    labels = []
-                    # 非叶子结点决定下一层要用的NN是哪个
-                    # first stage, calculate how many models in next stage
-                    divisor = self.stages[i + 1] * 1.0 / (self.train_data_length / self.block_size)
-                    labels = (self.train_labels[i][j] * divisor).astype(int)
-                    # train model
-                    self.build_single_thread(i, j, inputs, labels)
-                    # allocate data into training set for models in next stage
-                    pres = self.rmi[i][j].predicts(self.train_inputs[i][j])
-                    for ind in range(self.stages[i + 1]):
-                        self.train_inputs[i + 1][ind] = self.train_inputs[i][j][np.round(pres) == ind]
-                        self.train_labels[i + 1][ind] = self.train_labels[i][j][np.round(pres) == ind]
-        # 叶子节点使用线程池训练
-        multiprocessing.set_start_method('spawn')  # 解决CUDA_ERROR_NOT_INITIALIZED报错
-        pool = multiprocessing.Pool(processes=self.thread_pool_size)
-        mp_dict = multiprocessing.Manager().dict()  # 使用共享dict暂存index[i]的所有model
-        i = self.stage_length - 1
-        task_size = self.stages[i]
-        for j in range(task_size):
-            inputs = self.train_inputs[i][j]
-            labels = self.train_labels[i][j]
-            if labels is None or len(labels) == 0:
-                continue
-            pool.apply_async(self.build_single_thread, (i, j, inputs, labels, mp_dict))
-        pool.close()
-        pool.join()
-        for (key, value) in mp_dict.items():
-            self.rmi[i][key] = value
-
-        # 3. clear train data and label to save memory
-        self.train_inputs = None
-        self.train_labels = None
 
     def predict(self, key):
         """
@@ -172,6 +157,8 @@ class ZMIndex(SpatialIndex):
             os.makedirs(self.model_path)
         np.savetxt(self.model_path + 'index_list.csv', self.index_list, delimiter=',', fmt='%d')
         np.savetxt(self.model_path + 'point_list.csv', self.point_list, delimiter=',', fmt='%f,%f')
+        self.index_list = None
+        self.point_list = None
         with open(self.model_path + 'zm_index.json', "w") as f:
             json.dump(self, f, cls=MyEncoder, ensure_ascii=False)
 
@@ -182,7 +169,9 @@ class ZMIndex(SpatialIndex):
         """
         with open(self.model_path + 'zm_index.json', "r") as f:
             zm_index = json.load(f, cls=MyDecoder)
+            self.z_order = zm_index.z_order
             self.train_data_length = zm_index.train_data_length
+            self.stage_length = zm_index.stage_length
             self.rmi = zm_index.rmi
             self.index_list = np.loadtxt(self.model_path + 'index_list.csv', dtype=np.int64, delimiter=",").tolist()
             self.point_list = np.loadtxt(self.model_path + 'point_list.csv', dtype=float, delimiter=",").tolist()
@@ -190,12 +179,10 @@ class ZMIndex(SpatialIndex):
 
     @staticmethod
     def init_by_dict(d: dict):
-        return ZMIndex(region=d['region'],
-                       data_precision=d['data_precision'],
+        return ZMIndex(z_order=d['z_order'],
                        train_data_length=d['train_data_length'],
-                       rmi=d['rmi'],
-                       index_list=d['index_list'],
-                       point_list=d['point_list'])
+                       stage_length=d['stage_length'],
+                       rmi=d['rmi'])
 
     def point_query(self, points):
         """
@@ -206,20 +193,17 @@ class ZMIndex(SpatialIndex):
         :param points: list, [x, y]
         :return: list, [pre]
         """
-        z_order = ZOrder(dimensions=2, bits=21, data_precision=self.data_precision, region=self.region)
         results = []
         for point in points:
             # 1. compute z from x/y of points
-            z_value = z_order.point_to_z(point[0], point[1])
+            z_value = self.z_order.point_to_z(point[0], point[1])
             # 2. predict by z and create index scope [pre - min_err, pre + max_err]
             pre, min_err, max_err = self.predict(z_value)
-            pre_init = int(pre * self.block_size)  # int比round快一倍
-            left_bound = max(round((pre - max_err) * self.block_size), 0)
-            right_bound = min(round((pre - min_err) * self.block_size), self.train_data_length - 1)
+            pre_init = int(pre)  # int比round快一倍
+            left_bound = max(round(pre - max_err), 0)
+            right_bound = min(round(pre - min_err), self.train_data_length - 1)
             # 3. binary search in scope
             result = biased_search(self.index_list, z_value, pre_init, left_bound, right_bound)
-            if result is not None:
-                result /= self.block_size
             results.append(result)
         return results
 
@@ -233,27 +217,28 @@ class ZMIndex(SpatialIndex):
         :param windows: list, [x1, y1, x2, y2]
         :return: list, [pres]
         """
-        z_order = ZOrder(dimensions=2, bits=21, data_precision=self.data_precision, region=self.region)
         results = []
         for window in windows:
+            if window[0] == 40.758011 and window[1] == 40.768429 and window[2] == -73.937584 and window[3] == -73.862885:
+                print("")
             # 1. compute z of window_left and window_right
-            z_value1 = z_order.point_to_z(window[2], window[0])
-            z_value2 = z_order.point_to_z(window[3], window[1])
+            z_value1 = self.z_order.point_to_z(window[2], window[0])
+            z_value2 = self.z_order.point_to_z(window[3], window[1])
             # 2. find index_left by point query
             # if point not found, index_left = pre - min_err
             pre1, min_err1, max_err1 = self.predict(z_value1)
-            pre1_init = int(pre1 * self.block_size)
-            left_bound1 = max(round((pre1 - max_err1) * self.block_size), 0)
-            right_bound1 = min(round((pre1 - min_err1) * self.block_size), self.train_data_length - 1)
+            pre1_init = int(pre1)
+            left_bound1 = max(round(pre1 - max_err1), 0)
+            right_bound1 = min(round(pre1 - min_err1), self.train_data_length - 1)
             index_left = biased_search(self.index_list, z_value1, pre1_init, left_bound1, right_bound1)
             if index_left is None:
                 index_left = left_bound1
             # 3. find index_right by point query
             # if point not found, index_right = pre - max_err
             pre2, min_err2, max_err2 = self.predict(z_value2)
-            pre2_init = int(pre2 * self.block_size)
-            left_bound2 = max(round((pre2 - max_err2) * self.block_size), 0)
-            right_bound2 = min(round((pre2 - min_err2) * self.block_size), self.train_data_length - 1)
+            pre2_init = int(pre2)
+            left_bound2 = max(round(pre2 - max_err2), 0)
+            right_bound2 = min(round(pre2 - min_err2), self.train_data_length - 1)
             index_right = biased_search(self.index_list, z_value2, pre2_init, left_bound2, right_bound2)
             if index_right is None:
                 index_right = right_bound2
@@ -270,9 +255,7 @@ class ZMIndex(SpatialIndex):
 
 class MyEncoder(json.JSONEncoder):
     def default(self, obj):
-        if isinstance(obj, pd.DataFrame):
-            return None
-        elif isinstance(obj, np.int64):
+        if isinstance(obj, np.int64):
             return int(obj)
         elif isinstance(obj, np.int32):
             return int(obj)
@@ -280,6 +263,8 @@ class MyEncoder(json.JSONEncoder):
             return obj.tolist()
         elif isinstance(obj, Region):
             return obj.__dict__
+        elif isinstance(obj, ZOrder):
+            return obj.dict()
         elif isinstance(obj, ZMIndex):
             return obj.__dict__
         elif isinstance(obj, AbstractNN):
@@ -301,8 +286,12 @@ class MyDecoder(json.JSONDecoder):
         elif len(d.keys()) == 4 and d.__contains__("bottom") and d.__contains__("up") \
                 and d.__contains__("left") and d.__contains__("right"):
             t = Region.init_by_dict(d)
+        elif len(d.keys()) == 2 and d.__contains__("data_precision") and d.__contains__("region"):
+            t = ZOrder.init_by_dict(d)
         elif d.__contains__("name") and d["name"] == "ZM Index":
             t = ZMIndex.init_by_dict(d)
+        else:
+            t = d
         return t
 
 
@@ -313,10 +302,16 @@ if __name__ == '__main__':
     train_set_xy = pd.read_csv(path)
     # create index
     model_path = "model/zm_index_1451w/"
-    index = ZMIndex(region=Region(40, 42, -75, -73), data_precision=6,
-                    model_path=model_path,
-                    train_data_length=None, rmi=None, index_list=None,
-                    block_size=100,
+    index = ZMIndex(model_path=model_path)
+    index_name = index.name
+    load_index_from_json = True
+    if load_index_from_json:
+        index.load()
+    else:
+        print("*************start %s************" % index_name)
+        print("Start Build")
+        start_time = time.time()
+        index.build(data=train_set_xy, data_precision=6, region=Region(40, 42, -75, -73),
                     use_thresholds=[False, False],
                     thresholds=[30, 20],
                     stages=[1, 100],
@@ -326,15 +321,6 @@ if __name__ == '__main__':
                     learning_rates=[0.01, 0.01],
                     retrain_time_limits=[40, 20],
                     thread_pool_size=1)
-    index_name = index.name
-    load_index_from_json = False
-    if load_index_from_json:
-        index.load()
-    else:
-        print("*************start %s************" % index_name)
-        print("Start Build")
-        start_time = time.time()
-        index.build(train_set_xy)
         end_time = time.time()
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)

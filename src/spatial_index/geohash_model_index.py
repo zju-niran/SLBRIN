@@ -5,6 +5,7 @@ import os
 import sys
 import time
 
+import line_profiler
 import numpy as np
 import pandas as pd
 
@@ -17,106 +18,91 @@ from src.rmi_keras import TrainedNN, AbstractNN
 
 
 class GeoHashModelIndex(SpatialIndex):
-    def __init__(self, region=Region(-90, 90, -180, 180), max_num=10000, data_precision=6, max_depth=21,
-                 model_path=None, train_data_length=None, brin=None, gm_dict=None, index_list=None, block_size=None,
-                 use_threshold=None, threshold=None, core=None, train_step=None, batch_size=None, learning_rate=None,
-                 retrain_time_limit=None, thread_pool_size=None):
+    def __init__(self, model_path=None, z_order=None, train_data_length=None, brin=None, gm_dict=None,
+                 index_list=None):
         super(GeoHashModelIndex, self).__init__("GeoHash Model Index")
-        # nn args
-        self.block_size = block_size
-        self.use_threshold = use_threshold
-        self.threshold = threshold
-        self.core = core
-        self.train_step = train_step
-        self.batch_size = batch_size
-        self.learning_rate = learning_rate
-        self.retrain_time_limit = retrain_time_limit
-        self.thread_pool_size = thread_pool_size
-
-        # geohash model index args, support predict and query
-        self.region = region
-        self.max_num = max_num
-        self.data_precision = data_precision
-        self.max_depth = max_depth
         self.model_path = model_path
+        self.z_order = z_order
         self.train_data_length = train_data_length
         self.brin = brin
-        self.gm_dict = gm_dict if gm_dict is not None else {}
-        self.index_list = index_list  # 索引列
+        self.gm_dict = gm_dict
+        self.index_list = index_list
 
     def init_train_data(self, data: pd.DataFrame):
         """
         init train data from x/y data
         1. compute z from data.x and data.y
-        2. normalize z by z.min and z.max
-        3. sort z and reset index
-        4. inputs = z and labels = index / block_size
+        2. inputs = z and labels = range(0, data_length)
         :param data: pd.dataframe, [x, y]
         :return: None
         """
-        z_order = ZOrder(dimensions=2, bits=21, data_precision=self.data_precision, region=self.region)
-        data["z"] = data.apply(lambda t: z_order.point_to_z(t.x, t.y), 1)
+        data["z"] = data.apply(lambda t: self.z_order.point_to_z(t.x, t.y), 1)
         data.sort_values(by=["z"], ascending=True, inplace=True)
         data.reset_index(drop=True, inplace=True)
         self.train_data_length = len(data)
         self.index_list = data.z.tolist()
 
-    def build(self, data: pd.DataFrame):
+    def build(self, data: pd.DataFrame, max_num, data_precision, region, use_threshold, threshold, core, train_step,
+              batch_size, learning_rate, retrain_time_limit, thread_pool_size):
         """
         build index
         1. init train z->index data from x/y data
         2. split data by quad tree: geohash->data_list
         3. create brin index
         4. create zm-model(stage=1) for every leaf node
-        5. clear train data and label to save memory
         """
+        self.z_order = ZOrder(data_precision=data_precision, region=region)
+        self.gm_dict = {}
         # 1. init train z->index data from x/y data
         self.init_train_data(data)
         # 2. split data by quad tree
-        quad_tree = QuadTree(region=self.region, max_num=self.max_num, data_precision=self.data_precision,
-                             max_depth=self.max_depth)
+        quad_tree = QuadTree(region=region, max_num=max_num, data_precision=data_precision)
         quad_tree.build(data, z=True)
-        quad_tree.geohash()
+        quad_tree.geohash(self.z_order)
         split_data = quad_tree.geohash_items_map
         # 3. create brin index
         self.brin = BRIN(version=0, pages_per_range=None, revmap_page_maxitems=500, regular_page_maxitems=500)
         self.brin.build_by_quad_tree(quad_tree)
         # 4. in every part data, create zm-model
         multiprocessing.set_start_method('spawn')  # 解决CUDA_ERROR_NOT_INITIALIZED报错
-        pool = multiprocessing.Pool(processes=self.thread_pool_size)
+        pool = multiprocessing.Pool(processes=thread_pool_size)
         mp_dict = multiprocessing.Manager().dict()  # 使用共享dict暂存index[i]的所有model
         for geohash_key in split_data:
             points = split_data[geohash_key]["items"]
-            inputs = np.array([item.z for item in points])
-            labels = np.array([item.index / self.block_size for item in points])
+            inputs = []
+            labels = []
+            for point in points:
+                inputs.append(point.z)
+                labels.append(point.index)
             if len(labels) == 0:
                 continue
-            pool.apply_async(self.build_single_thread, (1, geohash_key, inputs, labels, mp_dict))
+            pool.apply_async(self.build_single_thread, (1, geohash_key, inputs, labels, use_threshold, threshold, core,
+                                                        train_step, batch_size, learning_rate, retrain_time_limit,
+                                                        mp_dict))
         pool.close()
         pool.join()
         for (key, value) in mp_dict.items():
             self.gm_dict[key] = value
-        # 5. clear train data and label to save memory
 
-    def build_single_thread(self, curr_stage, current_stage_step, inputs, labels, tmp_dict=None):
+    def build_single_thread(self, curr_stage, current_stage_step, inputs, labels, use_threshold, threshold,
+                            core, train_step, batch_size, learning_rate, retrain_time_limit, tmp_dict=None):
         # train model
         i = curr_stage
         j = current_stage_step
-        model_path = self.model_path
         model_index = str(i) + "_" + str(j)
-        tmp_index = TrainedNN(model_path, model_index, inputs, labels,
-                              self.threshold,
-                              self.use_threshold,
-                              self.core,
-                              self.train_step,
-                              self.batch_size,
-                              self.learning_rate,
-                              self.retrain_time_limit)
+        tmp_index = TrainedNN(self.model_path, model_index, inputs, labels,
+                              use_threshold,
+                              threshold,
+                              core,
+                              train_step,
+                              batch_size,
+                              learning_rate,
+                              retrain_time_limit)
         tmp_index.train()
         tmp_index.plot()
         # get parameters in model (weight matrix and bias matrix)
         abstract_index = AbstractNN(tmp_index.get_weights(),
-                                    self.core,
+                                    core,
                                     tmp_index.train_x_min,
                                     tmp_index.train_x_max,
                                     tmp_index.train_y_min,
@@ -134,7 +120,8 @@ class GeoHashModelIndex(SpatialIndex):
         """
         if os.path.exists(self.model_path) is False:
             os.makedirs(self.model_path)
-        np.savetxt(self.model_path + 'index_list.csv', self.index_list, delimiter=',', fmt='%.f')
+        np.savetxt(self.model_path + 'index_list.csv', self.index_list, delimiter=',', fmt='%d')
+        self.index_list = None
         with open(self.model_path + 'gm_index.json', "w") as f:
             json.dump(self, f, cls=MyEncoder, ensure_ascii=False)
 
@@ -145,6 +132,7 @@ class GeoHashModelIndex(SpatialIndex):
         """
         with open(self.model_path + 'gm_index.json', "r") as f:
             gm_index = json.load(f, cls=MyDecoder)
+            self.z_order = gm_index.z_order
             self.train_data_length = gm_index.train_data_length
             self.brin = gm_index.brin
             self.gm_dict = gm_index.gm_dict
@@ -153,14 +141,10 @@ class GeoHashModelIndex(SpatialIndex):
 
     @staticmethod
     def init_by_dict(d: dict):
-        return GeoHashModelIndex(region=d['region'],
-                                 max_num=d['max_num'],
-                                 data_precision=d['data_precision'],
-                                 max_depth=d['max_depth'],
+        return GeoHashModelIndex(z_order=d['z_order'],
                                  train_data_length=d['train_data_length'],
                                  brin=d['brin'],
-                                 gm_dict=d['gm_dict'],
-                                 index_list=d['index_list'])
+                                 gm_dict=d['gm_dict'])
 
     def point_query(self, points):
         """
@@ -172,11 +156,10 @@ class GeoHashModelIndex(SpatialIndex):
         :param points: list, [x, y]
         :return: list, [pre]
         """
-        z_order = ZOrder(dimensions=2, bits=21, data_precision=self.data_precision, region=self.region)
         results = []
         for point in points:
             # 1. compute z from x/y of points
-            z = z_order.point_to_z(point[0], point[1])
+            z = self.z_order.point_to_z(point[0], point[1])
             # 2. predicted the leaf model by brin
             leaf_model_index = self.brin.point_query(z)
             if leaf_model_index is None:
@@ -185,13 +168,11 @@ class GeoHashModelIndex(SpatialIndex):
                 leaf_model = self.gm_dict[leaf_model_index]
                 # 3. predict by z and create index scope [pre - min_err, pre + max_err]
                 pre, min_err, max_err = leaf_model.predict(z), leaf_model.min_err, leaf_model.max_err
-                pre_init = int(pre * self.block_size)  # int比round快一倍
-                left_bound = max(round((pre - max_err) * self.block_size), 0)
-                right_bound = min(round((pre - min_err) * self.block_size), self.train_data_length - 1)
+                pre_init = int(pre)  # int比round快一倍
+                left_bound = max(round(pre - max_err), 0)
+                right_bound = min(round(pre - min_err), self.train_data_length - 1)
                 # 4. binary search in scope
                 result = biased_search(self.index_list, z, pre_init, left_bound, right_bound)
-                if result is not None:
-                    result /= self.block_size
             results.append(result)
         return results
 
@@ -220,6 +201,8 @@ class MyEncoder(json.JSONEncoder):
             return obj.tolist()
         elif isinstance(obj, Region):
             return obj.__dict__
+        elif isinstance(obj, ZOrder):
+            return obj.dict()
         elif isinstance(obj, GeoHashModelIndex):
             return obj.__dict__
         elif isinstance(obj, AbstractNN):
@@ -248,6 +231,8 @@ class MyDecoder(json.JSONDecoder):
         elif len(d.keys()) == 4 and d.__contains__("bottom") and d.__contains__("up") \
                 and d.__contains__("left") and d.__contains__("right"):
             t = Region.init_by_dict(d)
+        elif len(d.keys()) == 2 and d.__contains__("data_precision") and d.__contains__("region"):
+            t = ZOrder.init_by_dict(d)
         elif d.__contains__("name") and d["name"] == "GeoHash Model Index":
             t = GeoHashModelIndex.init_by_dict(d)
         elif len(d.keys()) == 3 and d.__contains__("version") \
@@ -276,18 +261,7 @@ if __name__ == '__main__':
     train_set_xy = pd.read_csv(path)
     # create index
     model_path = "model/gm_index_1451w/"
-    index = GeoHashModelIndex(region=Region(40, 42, -75, -73), max_num=1000, data_precision=6, max_depth=21,
-                              model_path=model_path,
-                              train_data_length=None, brin=None, gm_dict=None, index_list=None,
-                              block_size=100,
-                              use_threshold=False,
-                              threshold=2,
-                              core=[1, 128, 1],
-                              train_step=500,
-                              batch_size=1024,
-                              learning_rate=0.01,
-                              retrain_time_limit=20,
-                              thread_pool_size=1)
+    index = GeoHashModelIndex(model_path=model_path)
     index_name = index.name
     load_index_from_json = False
     if load_index_from_json:
@@ -296,7 +270,15 @@ if __name__ == '__main__':
         print("*************start %s************" % index_name)
         print("Start Build")
         start_time = time.time()
-        index.build(train_set_xy)
+        index.build(data=train_set_xy, max_num=1000, data_precision=6, region=Region(40, 42, -75, -73),
+                    use_threshold=False,
+                    threshold=2,
+                    core=[1, 128, 1],
+                    train_step=500,
+                    batch_size=1024,
+                    learning_rate=0.01,
+                    retrain_time_limit=20,
+                    thread_pool_size=1)
         end_time = time.time()
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)

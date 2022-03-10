@@ -31,16 +31,17 @@ class QuadTreeNode:
 
 
 class QuadTree(Index):
-    def __init__(self, region=Region(-90, 90, -180, 180), max_num=MAX_ELE_NUM, data_precision=6, max_depth=21):
+    def __init__(self, region=Region(-90, 90, -180, 180), max_num=MAX_ELE_NUM, data_precision=6):
         """
         初始化非满四叉树，超过阈值就分裂
         :param region: 四叉树整体的bbox
         :param max_num: 节点内的点数据数量预置
         """
         super(QuadTree, self).__init__("QuadTree")
+        self.region = region
         self.max_num = max_num
         self.data_precision = data_precision
-        self.max_depth = max_depth
+        self.max_depth = region.get_bits_by_region_and_precision(precision=data_precision) - 1
         self.root_node = QuadTreeNode(region=region)
         self.geohash_items_map = {}
 
@@ -154,7 +155,6 @@ class QuadTree(Index):
     def search(self, point, node=None):
         if node is None:
             node = self.root_node
-        # 节点内部查找：遍历
         if node.is_leaf == 1:
             search_result = []
             for item in node.items:
@@ -200,9 +200,10 @@ class QuadTree(Index):
             else:
                 return self.search_node(point, node.RU)
 
-    def geohash(self, node=None, parent_geohash=None):
+    def geohash(self, z_order, node=None, parent_geohash=None):
         """
         get geohash->items by quad tree
+        :param z_order: for iter
         :param node: for iter
         :param parent_geohash: for iter
         :return: save geohash->items in self.geohash_data_map
@@ -211,7 +212,6 @@ class QuadTree(Index):
             node = self.root_node
         if parent_geohash is None:
             parent_geohash = ""
-        # 节点内部查找：遍历
         if node.is_leaf == 1:
             if len(node.items) > 0:
                 sorted_items = sorted(node.items, key=lambda point: point.z)
@@ -222,10 +222,10 @@ class QuadTree(Index):
                 }
             return
         else:
-            self.geohash(node.LB, parent_geohash + "00")
-            self.geohash(node.RB, parent_geohash + "01")
-            self.geohash(node.LU, parent_geohash + "10")
-            self.geohash(node.RU, parent_geohash + "11")
+            self.geohash(z_order, node.LB, parent_geohash + "00")
+            self.geohash(z_order, node.RB, parent_geohash + "01")
+            self.geohash(z_order, node.LU, parent_geohash + "10")
+            self.geohash(z_order, node.RU, parent_geohash + "11")
 
     def build(self, data: pd.DataFrame, z=False):
         if z is False:
@@ -395,7 +395,7 @@ def main():
     train_set_xy = pd.read_csv(path)
     # create index
     model_path = "model/quadtree_1451w/"
-    index = QuadTree(region=Region(40, 42, -75, -73), max_num=1000, data_precision=6, max_depth=21)
+    index = QuadTree(region=Region(40, 42, -75, -73), max_num=1000, data_precision=6)
     index_name = index.name
     load_index_from_json = False
     if load_index_from_json:
