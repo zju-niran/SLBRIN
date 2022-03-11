@@ -156,13 +156,7 @@ class QuadTree(Index):
         if node is None:
             node = self.root_node
         if node.is_leaf == 1:
-            search_result = []
-            for item in node.items:
-                if item == point:
-                    # if point.near(item):
-                    search_result.append(item.index)
-            return search_result
-
+            return [item.index for item in node.items if item == point]
         y_center = (node.region.up + node.region.bottom) / 2
         x_center = (node.region.left + node.region.right) / 2
         if point.lat < y_center:
@@ -243,10 +237,7 @@ class QuadTree(Index):
         :param points: list, [x, y]
         :return: list, [pre]
         """
-        results = []
-        for point in points:
-            results.append(self.search(Point(point[0], point[1]))[0])
-        return results
+        return [self.search(Point(point[0], point[1])) for point in points]
 
     def range_search(self, region, node=None, result: list = []):
         if node is None:
@@ -285,8 +276,7 @@ class QuadTree(Index):
         results = []
         for window in windows:
             result = []
-            region = Region(window[0], window[1], window[2], window[3])
-            self.range_search(region=region, node=None, result=result)
+            self.range_search(region=Region(window[0], window[1], window[2], window[3]), node=None, result=result)
             results.append(result)
         return results
 
@@ -325,10 +315,7 @@ class QuadTree(Index):
                                 heapq.heappush(point_heap, (-point_distance, item.index))
                                 nearest_distance = heapq.nsmallest(1, point_heap)[0]
                     else:
-                        stack.append(cur.LB)
-                        stack.append(cur.RB)
-                        stack.append(cur.LU)
-                        stack.append(cur.RU)
+                        stack.extend([cur.LB, cur.RB, cur.LU, cur.RU])
             results.append([itr[1] for itr in point_heap])
         return results
 
@@ -378,10 +365,7 @@ class QuadTree(Index):
                                 heapq.heappush(point_heap, (-point_distance, item.index))
                                 nearest_distance = heapq.nsmallest(1, point_heap)[0]
                     elif not cur.is_leaf:
-                        stack.append(cur.LB)
-                        stack.append(cur.RB)
-                        stack.append(cur.LU)
-                        stack.append(cur.RU)
+                        stack.extend([cur.LB, cur.RB, cur.LU, cur.RU])
             results.append([itr[1] for itr in point_heap])
         return results
 

@@ -35,10 +35,7 @@ class RTree(Index):
         :param points: list, [x, y]
         :return: list, [pre]
         """
-        results = []
-        for point in points:
-            results.append(list(self.index.intersection((point[0], point[1])))[0])
-        return results
+        return [list(self.index.intersection((point[0], point[1]))) for point in points]
 
     def range_query(self, windows):
         """
@@ -46,10 +43,7 @@ class RTree(Index):
         :param windows: list, [x1, y1, x2, y2]
         :return: list, [pres]
         """
-        results = []
-        for window in windows:
-            results.append(list(self.index.intersection((window[2], window[0], window[3], window[1]))))
-        return results
+        return [list(self.index.intersection((window[2], window[0], window[3], window[1]))) for window in windows]
 
     def knn_query(self, knns):
         """
@@ -57,10 +51,7 @@ class RTree(Index):
         :param knns: list, [x1, y1, n]
         :return: list, [pres]
         """
-        results = []
-        for knn in knns:
-            results.append(list(self.index.nearest((knn[0], knn[1]), knn[2])))
-        return results
+        return [list(self.index.nearest((knn[0], knn[1]), knn[2])) for knn in knns]
 
 
 @profile(precision=8)

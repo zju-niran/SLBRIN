@@ -76,10 +76,7 @@ class AbstractNN:
 
     @staticmethod
     def init_by_dict(d: dict):
-        weights = d['weights']
-        weights_mat = []
-        for weight in weights:
-            weights_mat.append(np.mat(weight))
+        weights_mat = [np.mat(weight) for weight in d['weights']]
         return AbstractNN(weights_mat, d['core_nums'],
                           d['input_min'], d['input_max'],
                           d['output_min'], d['output_max'],
@@ -230,11 +227,7 @@ class TrainedNN:
             return False
 
     def get_weights(self):
-        weights = self.model.get_weights()
-        weights_mat = []
-        for weight in weights:
-            weights_mat.append(np.mat(weight))
-        return weights_mat
+        return [np.mat(weight) for weight in self.model.get_weights()]
 
     def score(self, y_true, y_pred):
         # 这里的y应该是局部的，因此scores和err算出来不一致

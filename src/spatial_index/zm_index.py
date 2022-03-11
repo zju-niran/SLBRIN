@@ -65,12 +65,10 @@ class ZMIndex(SpatialIndex):
                     continue
                 else:
                     inputs = train_inputs[i][j]
-                    labels = []
                     # 非叶子结点决定下一层要用的NN是哪个
                     # first stage, calculate how many models in next stage
-                    for k in train_labels[i][j]:
-                        labels.append(int(k * divisor))
                     divisor = stages[i + 1] * 1.0 / (self.train_data_length + 1)
+                    labels = [int(k * divisor) for k in train_labels[i][j]]
                     # train model
                     self.build_single_thread(i, j, inputs, labels, use_thresholds[i], thresholds[i], cores[i],
                                              train_steps[i], batch_sizes[i], learning_rates[i], retrain_time_limits[i])
@@ -230,18 +228,16 @@ class ZMIndex(SpatialIndex):
             pre1_init = int(pre1)
             left_bound1 = max(round(pre1 - max_err1), 0)
             index_left = biased_search(self.index_list, z_value1, pre1_init, left_bound1, right_bound1)
-            if index_left is None:
-                index_left = left_bound1
             right_bound1 = min(round(pre1 - min_err1), self.train_data_length)
+            index_left = left_bound1 if len(index_left) == 0 else min(index_left)
             # 3. find index_right by point query
             # if point not found, index_right = pre - max_err
             pre2, min_err2, max_err2 = self.predict(z_value2)
             pre2_init = int(pre2)
             left_bound2 = max(round(pre2 - max_err2), 0)
             index_right = biased_search(self.index_list, z_value2, pre2_init, left_bound2, right_bound2)
-            if index_right is None:
-                index_right = right_bound2
             right_bound2 = min(round(pre2 - min_err2), self.train_data_length)
+            index_right = right_bound2 if len(index_right) == 0 else max(index_right)
             # 4. filter all the point of scope[index1, index2] by range(x1/y1/x2/y2).contain(point)
             tmp_results = []
             region = Region(window[0], window[1], window[2], window[3])
