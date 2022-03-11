@@ -533,48 +533,56 @@ def nparray_diff_normalize_reverse_num(num1, num2, min_v, max_v):
     return (num1 - num2) * (max_v - min_v)
 
 
-def binary_search(nums, x, left, right):
+def binary_search(nums, num_length, x, left, right):
     """
     binary search x in nums[left, right]
-    :param nums: list, value list
-    :param x: value
-    :param left:
-    :param right:
-    :return: index
     """
+    result = []
     while left <= right:
         mid = (left + right) // 2
         if nums[mid] == x:
-            return mid
-        if nums[mid] < x:
+            result.append(mid)
+            mid_left = mid - 1
+            while mid_left >= 0 and nums[mid_left] == x:
+                result.append(mid_left)
+                mid_left -= 1
+            mid_right = mid + 1
+            while mid_right < num_length and nums[mid_right] == x:
+                result.append(mid_right)
+                mid_right += 1
+            return result
+        elif nums[mid] < x:
             left = mid + 1
         else:
             right = mid - 1
-    return None
+    return result
 
 
-# TODO: 无法处理有重复的数组
-def biased_search(nums, x, pre, left, right):
+def biased_search(nums, num_length, x, pre, left, right):
     """
     binary search x in nums[left, right], but the first mid is pre
     如果pre不在[left, right]里，会变慢
-    :param nums: list, value list
-    :param x: value
-    :param pre:
-    :param left:
-    :param right:
-    :return: index
     """
     mid = pre
+    result = []
     while left <= right:
         if nums[mid] == x:
-            return mid
-        if nums[mid] < x:
+            result.append(mid)
+            mid_left = mid - 1
+            while mid_left >= 0 and nums[mid_left] == x:
+                result.append(mid_left)
+                mid_left -= 1
+            mid_right = mid + 1
+            while mid_right <= num_length and nums[mid_right] == x:
+                result.append(mid_right)
+                mid_right += 1
+            return result
+        elif nums[mid] < x:
             left = mid + 1
         else:
             right = mid - 1
         mid = (left + right) // 2
-    return None
+    return result
 
 
 if __name__ == '__main__':

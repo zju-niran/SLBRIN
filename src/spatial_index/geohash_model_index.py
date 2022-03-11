@@ -180,7 +180,7 @@ class GeoHashModelIndex(SpatialIndex):
                 left_bound = max(round(pre - max_err), 0)
                 right_bound = min(round(pre - min_err), self.train_data_length)
                 # 4. binary search in scope
-                result = biased_search(self.index_list, z, pre_init, left_bound, right_bound)
+                result = biased_search(self.index_list, self.train_data_length, z, pre_init, left_bound, right_bound)
             results.append(result)
         return results
 
