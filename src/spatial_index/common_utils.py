@@ -148,6 +148,7 @@ class Region:
 
 class ZOrder:
     def __init__(self, data_precision, region):
+        self.name = "Z Order"
         self.dimensions = 2
         self.bits = region.get_bits_by_region_and_precision(data_precision)
         self.data_precision = data_precision
@@ -188,8 +189,9 @@ class ZOrder:
         self.max_num = 1 << self.bits
         self.masks = [self.max_num - 1] + masks
 
-    def dict(self):
+    def save_to_dict(self):
         return {
+            'name': self.name,
             'data_precision': self.data_precision,
             'region': self.region
         }

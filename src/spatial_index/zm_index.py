@@ -155,8 +155,6 @@ class ZMIndex(SpatialIndex):
             os.makedirs(self.model_path)
         np.savetxt(self.model_path + 'index_list.csv', self.index_list, delimiter=',', fmt='%d')
         np.savetxt(self.model_path + 'point_list.csv', self.point_list, delimiter=',', fmt='%f,%f')
-        self.index_list = None
-        self.point_list = None
         with open(self.model_path + 'zm_index.json', "w") as f:
             json.dump(self, f, cls=MyEncoder, ensure_ascii=False)
 
@@ -181,6 +179,15 @@ class ZMIndex(SpatialIndex):
                        train_data_length=d['train_data_length'],
                        stage_length=d['stage_length'],
                        rmi=d['rmi'])
+
+    def save_to_dict(self):
+        return {
+            'name': self.name,
+            'z_order': self.z_order,
+            'train_data_length': self.train_data_length,
+            'stage_length': self.stage_length,
+            'rmi': self.rmi
+        }
 
     def point_query(self, points):
         """
@@ -260,9 +267,9 @@ class MyEncoder(json.JSONEncoder):
         elif isinstance(obj, Region):
             return obj.__dict__
         elif isinstance(obj, ZOrder):
-            return obj.dict()
+            return obj.save_to_dict()
         elif isinstance(obj, ZMIndex):
-            return obj.__dict__
+            return obj.save_to_dict()
         elif isinstance(obj, AbstractNN):
             return obj.__dict__
         else:
@@ -282,7 +289,7 @@ class MyDecoder(json.JSONDecoder):
         elif len(d.keys()) == 4 and d.__contains__("bottom") and d.__contains__("up") \
                 and d.__contains__("left") and d.__contains__("right"):
             t = Region.init_by_dict(d)
-        elif len(d.keys()) == 2 and d.__contains__("data_precision") and d.__contains__("region"):
+        elif d.__contains__("name") and d["name"] == "Z Order":
             t = ZOrder.init_by_dict(d)
         elif d.__contains__("name") and d["name"] == "ZM Index":
             t = ZMIndex.init_by_dict(d)
