@@ -37,7 +37,7 @@ class ZMIndex(SpatialIndex):
         data["z"] = data.apply(lambda t: self.z_order.point_to_z(t.x, t.y), 1)
         data.sort_values(by=["z"], ascending=True, inplace=True)
         data.reset_index(drop=True, inplace=True)
-        self.train_data_length = len(data)
+        self.train_data_length = len(data) - 1
         self.index_list = data.z.tolist()
         self.point_list = data[["x", "y"]].values.tolist()
 
@@ -56,7 +56,7 @@ class ZMIndex(SpatialIndex):
         # 1. init train z->index data from x/y data
         self.init_train_data(data)
         train_inputs[0][0] = self.index_list
-        train_labels[0][0] = np.arange(0, self.train_data_length).tolist()
+        train_labels[0][0] = np.arange(0, self.train_data_length + 1).tolist()
         # 2. create rmi for train z->index data
         # 构建stage_nums结构的树状NNs
         for i in range(self.stage_length - 1):
@@ -68,9 +68,9 @@ class ZMIndex(SpatialIndex):
                     labels = []
                     # 非叶子结点决定下一层要用的NN是哪个
                     # first stage, calculate how many models in next stage
-                    divisor = stages[i + 1] * 1.0 / self.train_data_length
                     for k in train_labels[i][j]:
                         labels.append(int(k * divisor))
+                    divisor = stages[i + 1] * 1.0 / (self.train_data_length + 1)
                     # train model
                     self.build_single_thread(i, j, inputs, labels, use_thresholds[i], thresholds[i], cores[i],
                                              train_steps[i], batch_sizes[i], learning_rates[i], retrain_time_limits[i])
@@ -201,7 +201,7 @@ class ZMIndex(SpatialIndex):
             pre, min_err, max_err = self.predict(z_value)
             pre_init = int(pre)  # int比round快一倍
             left_bound = max(round(pre - max_err), 0)
-            right_bound = min(round(pre - min_err), self.train_data_length - 1)
+            right_bound = min(round(pre - min_err), self.train_data_length)
             # 3. binary search in scope
             result = biased_search(self.index_list, z_value, pre_init, left_bound, right_bound)
             results.append(result)
@@ -229,19 +229,19 @@ class ZMIndex(SpatialIndex):
             pre1, min_err1, max_err1 = self.predict(z_value1)
             pre1_init = int(pre1)
             left_bound1 = max(round(pre1 - max_err1), 0)
-            right_bound1 = min(round(pre1 - min_err1), self.train_data_length - 1)
             index_left = biased_search(self.index_list, z_value1, pre1_init, left_bound1, right_bound1)
             if index_left is None:
                 index_left = left_bound1
+            right_bound1 = min(round(pre1 - min_err1), self.train_data_length)
             # 3. find index_right by point query
             # if point not found, index_right = pre - max_err
             pre2, min_err2, max_err2 = self.predict(z_value2)
             pre2_init = int(pre2)
             left_bound2 = max(round(pre2 - max_err2), 0)
-            right_bound2 = min(round(pre2 - min_err2), self.train_data_length - 1)
             index_right = biased_search(self.index_list, z_value2, pre2_init, left_bound2, right_bound2)
             if index_right is None:
                 index_right = right_bound2
+            right_bound2 = min(round(pre2 - min_err2), self.train_data_length)
             # 4. filter all the point of scope[index1, index2] by range(x1/y1/x2/y2).contain(point)
             tmp_results = []
             region = Region(window[0], window[1], window[2], window[3])

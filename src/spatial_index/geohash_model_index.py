@@ -39,7 +39,7 @@ class GeoHashModelIndex(SpatialIndex):
         data["z"] = data.apply(lambda t: self.z_order.point_to_z(t.x, t.y), 1)
         data.sort_values(by=["z"], ascending=True, inplace=True)
         data.reset_index(drop=True, inplace=True)
-        self.train_data_length = len(data)
+        self.train_data_length = len(data) - 1
         self.index_list = data.z.tolist()
 
     def build(self, data: pd.DataFrame, max_num, data_precision, region, use_threshold, threshold, core, train_step,
@@ -170,7 +170,7 @@ class GeoHashModelIndex(SpatialIndex):
                 pre, min_err, max_err = leaf_model.predict(z), leaf_model.min_err, leaf_model.max_err
                 pre_init = int(pre)  # int比round快一倍
                 left_bound = max(round(pre - max_err), 0)
-                right_bound = min(round(pre - min_err), self.train_data_length - 1)
+                right_bound = min(round(pre - min_err), self.train_data_length)
                 # 4. binary search in scope
                 result = biased_search(self.index_list, z, pre_init, left_bound, right_bound)
             results.append(result)
