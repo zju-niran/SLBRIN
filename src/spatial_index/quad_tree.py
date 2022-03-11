@@ -218,10 +218,8 @@ class QuadTree(Index):
             parent_geohash = ""
         if node.is_leaf == 1:
             if len(node.items) > 0:
-                sorted_items = sorted(node.items, key=lambda point: point.z)
                 self.geohash_items_map[parent_geohash] = {
-                    "z_border": [sorted_items[0].z, sorted_items[-1].z],
-                    "xy_border": node.region,
+                    "first_z": z_order.point_to_z(node.region.left, node.region.bottom),
                     "items": node.items
                 }
             return
