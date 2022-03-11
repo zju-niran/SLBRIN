@@ -53,6 +53,23 @@ def sample_from_csv(input_path, output_path, lines_limit, range_limit=None):
     df.to_csv(output_path, index_label="index")
 
 
+def create_point_from_csv(input_path, output_path, point_limit):
+    df = pandas.read_csv(input_path)
+    df_sample = df.sample(n=point_limit, random_state=1)
+    df_sample = df_sample.reset_index()
+    df_sample = df_sample.drop(columns={"level_0", "index"})
+    replicates = []
+    for index1, point1 in df_sample.iterrows():
+        replicate = 0
+        for index, point in df.iterrows():
+            if point.x == point1.x and point.y == point1.y:
+                replicate += 1
+        replicates.append(replicate)
+    df_sample["count"] = pd.Series(replicates)
+    df_sample.sort_values(by=["count"], ascending=True, inplace=True)
+    df_sample.reset_index(drop=True, inplace=True)
+    df_sample.to_csv(output_path)
+
 def print_window_from_csv_to_log(input_path, output_path, window_limit, thread_pool_size):
     df = pandas.read_csv(input_path)
     multiprocessing.set_start_method('spawn')  # 解决CUDA_ERROR_NOT_INITIALIZED报错
@@ -138,14 +155,19 @@ if __name__ == '__main__':
     # input_path = "../../data/trip_data_1.csv"
     # output_path_100000_sample = '../../data/trip_data_1_100000.csv'
     # sample_from_csv(input_path, output_path_100000_sample, 100000, Region(40, 42, -75, -73))
-    # 3. 生成range检索范围
+    # 3. 生成point检索范围
+    output_path_100000_sample = '../../data/trip_data_1_100000.csv'
+    output_path_point_query_csv = '../../data/trip_data_1_point_query.csv'
+    point_limit = 10000
+    create_point_from_csv(output_path_100000_sample, output_path_point_query_csv, point_limit)
+    # 4. 生成range检索范围
     # output_path_100000_sample = '../../data/trip_data_1_100000.csv'
     # output_path_range_query_csv = '../../data/trip_data_1_range_query.csv'
     # output_path_range_query_log = '../../data/trip_data_1_range_query.log'
     # window_limit = 100
     # print_window_from_csv_to_log(output_path_100000_sample, output_path_range_query_log, window_limit, 6)
     # create_window_from_log_to_csv(output_path_range_query_log, output_path_range_query_csv)
-    # 4.生成knn检索范围
+    # 5.生成knn检索范围
     # output_path_100000_sample = '../../data/trip_data_1_100000.csv'
     # output_path_knn_query_csv = '../../data/trip_data_1_knn_query.csv'
     # knn_point_limit = 1000
