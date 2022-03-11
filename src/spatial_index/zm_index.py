@@ -247,7 +247,7 @@ class ZMIndex(SpatialIndex):
             region = Region(window[0], window[1], window[2], window[3])
             for index in range(index_left, index_right + 1):
                 point = self.point_list[index]
-                if region.contain_and_border(Point(point[0], point[1])):
+                if region.contain_and_border(point[0], point[1]):
                     tmp_results.append(index)
             results.append(tmp_results)
         return results

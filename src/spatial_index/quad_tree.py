@@ -252,9 +252,7 @@ class QuadTree(Index):
         if node is None:
             node = self.root_node
         if node.is_leaf == 1:
-            for item in node.items:
-                if region.contain_and_border(item):
-                    result.append(item.index)
+            result.extend([item.index for item in node.items if region.contain_and_border_by_point(item)])
         else:
             # 所有的or：region的四至点刚好在子节点的region上，因为split的时候经纬度都是向上取整，所以子节点的重心在右和上
             if node.LB.region.contain(Point(region.left, region.bottom)):

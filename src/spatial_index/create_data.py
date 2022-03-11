@@ -88,7 +88,7 @@ def print_window_from_csv_child(output_path, df, index1, point1, index2, point2)
     region = Region.create_region_from_points(point1.x, point1.y, point2.x, point2.y)
     count = 0
     for index, point in df.iterrows():
-        if region.contain_and_border(Point(point.x, point.y)):
+        if region.contain_and_border(point.x, point.y):
             count += 1
     logging.basicConfig(filename=output_path,
                         level=logging.INFO,

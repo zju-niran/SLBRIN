@@ -68,8 +68,11 @@ class Region:
         return self.bottom == point.lat or self.left == point.lng or (
                 self.up > point.lat > self.bottom and self.right > point.lng > self.left)
 
-    def contain_and_border(self, point):
+    def contain_and_border_by_point(self, point):
         return self.up >= point.lat >= self.bottom and self.right >= point.lng >= self.left
+
+    def contain_and_border(self, lng, lat):
+        return self.up >= lat >= self.bottom and self.right >= lng >= self.left
 
     def within_distance(self, point, distance):
         if point.lng >= self.right:
