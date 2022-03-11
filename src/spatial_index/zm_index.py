@@ -321,15 +321,15 @@ if __name__ == '__main__':
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)
         index.save()
-    print("*************start point query************")
-    point_query_list = train_set_xy.drop("index", axis=1).values.tolist()
+    path = '../../data/trip_data_1_point_query.csv'
+    point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
+    point_query_list = point_query_df.drop("count", axis=1).values.tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(point_query_list)
     print("Point query time ", search_time)
-    print("Not found nums ", pd.Series(results).isna().sum())
-    print("*************start range query************")
+    np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     path = '../../data/trip_data_1_range_query.csv'
     range_query_df = pd.read_csv(path, usecols=[1, 2, 3, 4, 5])
     range_query_list = range_query_df.drop("count", axis=1).values.tolist()
@@ -338,6 +338,5 @@ if __name__ == '__main__':
     end_time = time.time()
     search_time = (end_time - start_time) / len(range_query_list)
     print("Range query time ", search_time)
-    range_query_df["query"] = pd.Series(results).apply(len)
-    print("Not found nums ", (range_query_df["query"] != range_query_df["count"]).sum())
+    np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     print("*************end %s************" % index_name)

@@ -283,11 +283,13 @@ if __name__ == '__main__':
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)
         index.save()
-    train_set_xy_list = np.delete(train_set_xy.values, 0, 1).tolist()
+    path = '../../data/trip_data_1_point_query.csv'
+    point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
+    point_query_list = point_query_df.drop("count", axis=1).values.tolist()
     start_time = time.time()
-    result = index.point_query(train_set_xy_list)
+    results = index.point_query(point_query_list)
     end_time = time.time()
-    search_time = (end_time - start_time) / len(train_set_xy_list)
-    print("Search time ", search_time)
-    print("Not found nums ", pd.Series(result).isna().sum())
+    search_time = (end_time - start_time) / len(point_query_list)
+    print("Point query time ", search_time)
+    np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     print("*************end %s************" % index_name)
