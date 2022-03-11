@@ -30,6 +30,15 @@ class QuadTreeNode:
         self.RU = None
         self.items = []
 
+    def get_all_items(self, result):
+        if self.is_leaf == 1:
+            result.extend([item.index for item in self.items])
+        else:
+            self.LB.get_all_items(result)
+            self.RB.get_all_items(result)
+            self.LU.get_all_items(result)
+            self.RU.get_all_items(result)
+
 
 class QuadTree(Index):
     def __init__(self, model_path=None, region=Region(-90, 90, -180, 180), max_num=MAX_ELE_NUM, data_precision=6):
@@ -64,7 +73,6 @@ class QuadTree(Index):
                 self.split_node(node)
                 self.insert(point, node)
             else:
-                # todo 点排重（不排重的话如果相同的点数目大于 MAX_ELE_NUM， 会造成无限循环分裂）
                 node.items.append(point)
             return
 
@@ -242,8 +250,10 @@ class QuadTree(Index):
         return [self.search(Point(point[0], point[1])) for point in points]
 
     def range_search(self, region, node=None, result: list = []):
-        if node is None:
-            node = self.root_node
+        node = self.root_node if node is None else node
+        if node.region == region:
+            node.get_all_items(result)
+            return
         if node.is_leaf == 1:
             result.extend([item.index for item in node.items if region.contain_and_border_by_point(item)])
         else:

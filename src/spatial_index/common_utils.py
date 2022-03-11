@@ -64,6 +64,12 @@ class Region:
         self.left = left
         self.right = right
 
+    def __eq__(self, other):
+        if other.bottom == self.bottom and other.up == self.up and other.left == self.left and other.right == self.right:
+            return True
+        else:
+            return False
+
     def contain(self, point):
         return self.bottom == point.lat or self.left == point.lng or (
                 self.up > point.lat > self.bottom and self.right > point.lng > self.left)
