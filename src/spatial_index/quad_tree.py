@@ -51,7 +51,7 @@ class QuadTree(Index):
         self.region = region
         self.max_num = max_num
         self.data_precision = data_precision
-        self.max_depth = region.get_bits_by_region_and_precision(precision=data_precision) - 1
+        self.max_depth = region.get_max_depth_by_region_and_precision(precision=data_precision)
         self.root_node = QuadTreeNode(region=region)
         self.leaf_nodes = []
 
@@ -59,7 +59,7 @@ class QuadTree(Index):
         """
         插入元素
         1.判断是否已分裂，已分裂的选择适合的子节点，插入；
-        2.未分裂的查看是否过载，过载的分裂节点，重新插入；
+        2.未分裂的查看过载和树高，过载且树高未满的分裂节点，重新插入；
         3.未过载的直接添加
         :param node:
         :param point:
@@ -68,7 +68,7 @@ class QuadTree(Index):
         if node is None:
             node = self.root_node
         if node.is_leaf == 1:
-            if len(node.items) >= self.max_num and node.depth < self.max_depth - 1:
+            if len(node.items) >= self.max_num and node.depth < self.max_depth:
                 self.split_node(node)
                 self.insert(point, node)
             else:

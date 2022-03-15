@@ -151,6 +151,18 @@ class Region:
         limit = min(self.up - self.bottom, self.right - self.left)
         return math.ceil(math.log(limit / math.pow(10, -precision - 1), 2))
 
+    def get_max_depth_by_region_and_precision(self, precision):
+        """
+        区别在于精度不加1，来保证最小节点的region宽度>0.000001且再分裂一次就开始小于了
+        从range和数据精度计算morton的bit，最终效果是不重复数据的z不重复
+        原理是：不重复数据个数 < region的最短边/10^-precision < 能表示的不重复z个数pow(2, bit)
+        => bit = ceil(log2(limit/10^-precision))
+        :param precision:
+        :return:
+        """
+        limit = min(self.up - self.bottom, self.right - self.left)
+        return math.ceil(math.log(limit / math.pow(10, -precision), 2))
+
 
 class ZOrder:
     def __init__(self, data_precision, region):
