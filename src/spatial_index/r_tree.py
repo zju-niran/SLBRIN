@@ -4,7 +4,6 @@ import time
 
 import numpy as np
 import pandas as pd
-from memory_profiler import profile
 from rtree import index
 
 sys.path.append('D:/Code/Paper/st-learned-index')
@@ -70,7 +69,6 @@ class RTree(Index):
         """
 
 
-@profile(precision=8)
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     # load data

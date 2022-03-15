@@ -92,3 +92,9 @@ Index Structures. https://arxiv.org/abs/1712.01208, 2017
 1. 新插入数据冲突少，加快插入速度。
 2. 无需重新调整索引，降低索引维护代价，支持了新数据插入场景。
 
+
+## 实验结果
+tensorboard --logdir=D:\Code\Paper\st-learned-index\src\tb_model_save_dir --host=0.0.0.0
+kill -9 `ps -ef | grep wlj | grep -v grep | awk '{print $2}'`
+查看文件数量：可以看出跑了多少个模型
+ls -l /home/zju/wlj/st-learned-index/src/spatial_index/model/gm_index_2022-02-26/models_png |grep "^-"|wc -l 
