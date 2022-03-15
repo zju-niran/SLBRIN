@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from rtree import index
 
-sys.path.append('D:/Code/Paper/st-learned-index')
+sys.path.append('/home/zju/wlj/st-learned-index')
 from src.index import Index
 from src.spatial_index.common_utils import Point
 

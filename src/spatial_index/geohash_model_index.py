@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.append('/home/zju/wlj/st-learned-index')
-from src.brin import BRIN, RegularPage, RevMapPage, MetaPage
+from src.zbrin import ZBRIN
 from src.spatial_index.quad_tree import QuadTree
 from src.spatial_index.common_utils import ZOrder, Region, biased_search
 from src.spatial_index.spatial_index import SpatialIndex
@@ -18,15 +18,16 @@ from src.rmi_keras import TrainedNN, AbstractNN
 
 
 class GeoHashModelIndex(SpatialIndex):
-    def __init__(self, model_path=None, z_order=None, train_data_length=None, brin=None, gm_dict=None,
-                 index_list=None):
+    def __init__(self, model_path=None, z_order=None, train_data_length=None, zbrin=None, gm_dict=None,
+                 index_list=None, point_list=None):
         super(GeoHashModelIndex, self).__init__("GeoHash Model Index")
         self.model_path = model_path
         self.z_order = z_order
         self.train_data_length = train_data_length
-        self.brin = brin
+        self.zbrin = zbrin
         self.gm_dict = gm_dict
         self.index_list = index_list
+        self.point_list = point_list
 
     def init_train_data(self, data: pd.DataFrame):
         """
@@ -41,6 +42,7 @@ class GeoHashModelIndex(SpatialIndex):
         data.reset_index(drop=True, inplace=True)
         self.train_data_length = len(data) - 1
         self.index_list = data.z.tolist()
+        self.point_list = data[["x", "y"]].values.tolist()
 
     def build(self, data: pd.DataFrame, max_num, data_precision, region, use_threshold, threshold, core, train_step,
               batch_size, learning_rate, retrain_time_limit, thread_pool_size):
@@ -52,23 +54,24 @@ class GeoHashModelIndex(SpatialIndex):
         4. create zm-model(stage=1) for every leaf node
         """
         self.z_order = ZOrder(data_precision=data_precision, region=region)
-        self.gm_dict = {}
         # 1. init train z->index data from x/y data
         self.init_train_data(data)
         # 2. split data by quad tree
         quad_tree = QuadTree(region=region, max_num=max_num, data_precision=data_precision)
         quad_tree.build(data, z=True)
         quad_tree.geohash(self.z_order)
-        split_data = quad_tree.geohash_items_map
+        split_data = quad_tree.leaf_nodes
         # 3. create brin index
-        self.brin = BRIN(version=0, pages_per_range=None, revmap_page_maxitems=500, regular_page_maxitems=500)
-        self.brin.build_by_quad_tree(quad_tree)
+        self.zbrin = ZBRIN()
+        self.zbrin.build(quad_tree)
         # 4. in every part data, create zm-model
         multiprocessing.set_start_method('spawn')  # 解决CUDA_ERROR_NOT_INITIALIZED报错
         pool = multiprocessing.Pool(processes=thread_pool_size)
         mp_dict = multiprocessing.Manager().dict()  # 使用共享dict暂存index[i]的所有model
-        for geohash_key in split_data:
-            points = split_data[geohash_key]["items"]
+        block_num = len(split_data)
+        self.gm_dict = [None for i in range(block_num)]
+        for index in range(len(split_data)):
+            points = split_data[index]["items"]
             inputs = []
             labels = []
             for point in points:
@@ -76,7 +79,7 @@ class GeoHashModelIndex(SpatialIndex):
                 labels.append(point.index)
             if len(labels) == 0:
                 continue
-            pool.apply_async(self.build_single_thread, (1, geohash_key, inputs, labels, use_threshold, threshold, core,
+            pool.apply_async(self.build_single_thread, (1, index, inputs, labels, use_threshold, threshold, core,
                                                         train_step, batch_size, learning_rate, retrain_time_limit,
                                                         mp_dict))
         pool.close()
@@ -121,6 +124,7 @@ class GeoHashModelIndex(SpatialIndex):
         if os.path.exists(self.model_path) is False:
             os.makedirs(self.model_path)
         np.savetxt(self.model_path + 'index_list.csv', self.index_list, delimiter=',', fmt='%d')
+        np.savetxt(self.model_path + 'point_list.csv', self.point_list, delimiter=',', fmt='%f,%f')
         with open(self.model_path + 'gm_index.json', "w") as f:
             json.dump(self, f, cls=MyEncoder, ensure_ascii=False)
 
@@ -133,16 +137,17 @@ class GeoHashModelIndex(SpatialIndex):
             gm_index = json.load(f, cls=MyDecoder)
             self.z_order = gm_index.z_order
             self.train_data_length = gm_index.train_data_length
-            self.brin = gm_index.brin
+            self.zbrin = gm_index.zbrin
             self.gm_dict = gm_index.gm_dict
             self.index_list = np.loadtxt(self.model_path + 'index_list.csv', delimiter=",").tolist()
+            self.point_list = np.loadtxt(self.model_path + 'point_list.csv', dtype=float, delimiter=",").tolist()
             del gm_index
 
     @staticmethod
     def init_by_dict(d: dict):
         return GeoHashModelIndex(z_order=d['z_order'],
                                  train_data_length=d['train_data_length'],
-                                 brin=d['brin'],
+                                 zbrin=d['zbrin'],
                                  gm_dict=d['gm_dict'])
 
     def save_to_dict(self):
@@ -150,7 +155,7 @@ class GeoHashModelIndex(SpatialIndex):
             'name': self.name,
             'z_order': self.z_order,
             'train_data_length': self.train_data_length,
-            'brin': self.brin,
+            'zbrin': self.zbrin,
             'gm_dict': self.gm_dict
         }
 
@@ -158,7 +163,7 @@ class GeoHashModelIndex(SpatialIndex):
         """
         query index by x/y point
         1. compute z from x/y of points
-        2. predict the leaf model by brin
+        2. predict the leaf model by zbrin
         3. predict by leaf model and create index scope [pre - min_err, pre + max_err]
         4. binary search in scope
         :param points: list, [x, y]
@@ -168,12 +173,12 @@ class GeoHashModelIndex(SpatialIndex):
         for point in points:
             # 1. compute z from x/y of points
             z = self.z_order.point_to_z(point[0], point[1])
-            # 2. predicted the leaf model by brin
-            leaf_model_index = self.brin.point_query(z)
-            if leaf_model_index is None:
+            # 2. predicted the leaf model by zbrin
+            leaf_model_index = self.zbrin.point_query(z)
+            leaf_model = self.gm_dict[leaf_model_index]
+            if leaf_model is None:
                 result = None
             else:
-                leaf_model = self.gm_dict[leaf_model_index]
                 # 3. predict by z and create index scope [pre - min_err, pre + max_err]
                 pre, min_err, max_err = leaf_model.predict(z), leaf_model.min_err, leaf_model.max_err
                 pre_init = int(pre)  # int比round快一倍
@@ -184,17 +189,58 @@ class GeoHashModelIndex(SpatialIndex):
             results.append(result)
         return results
 
-    def range_query(self, data: pd.DataFrame):
+    def range_query(self, windows):
         """
         query index by x1/y1/x2/y2 window
-        1. get
-        2. normalize z by z.min and z.max
-        3. predict the leaf model by brin
-        4. predict by leaf model and create index scope [pre - min_err, pre + max_err]
-        5. binary search in scope
-        :param data: pd.DataFrame, [x, y]
-        :return: pd.DataFrame, [pre]
+        1. compute z from window_left and window_right
+        2. predicted the leaf model by zbrin
+        3. find index_left by nn predict
+        4. find index_right by nn predict
+        5. filter all the point of scope[index1, index2] by range(x1/y1/x2/y2).contain(point)
+        :param windows: list, [x1, y1, x2, y2]
+        :return: list, [pres]
         """
+        results = []
+        for window in windows:
+            # 1. compute z of window_left and window_right
+            z_value1 = self.z_order.point_to_z(window[2], window[0])
+            z_value2 = self.z_order.point_to_z(window[3], window[1])
+            # 2. predicted the leaf model by zbrin
+            leaf_model_index1, leaf_model_index2 = self.zbrin.range_query(z_value1, z_value2)
+            # 3. find index_left by nn predict
+            # if model not found, move right
+            while self.gm_dict[leaf_model_index1] is None:
+                leaf_model_index1 += 1
+            leaf_model1 = self.gm_dict[leaf_model_index1]
+            pre1, min_err1, max_err1 = leaf_model1.predict(z_value1), leaf_model1.min_err, leaf_model1.max_err
+            pre1_init = int(pre1)
+            left_bound1 = max(round(pre1 - max_err1), 0)
+            right_bound1 = min(round(pre1 - min_err1), self.train_data_length)
+            index_left = biased_search(self.index_list, self.train_data_length, z_value1, pre1_init, left_bound1,
+                                       right_bound1)
+            index_left = left_bound1 if len(index_left) == 0 else min(index_left)
+            # 4. find index_right by nn predict
+            # if model not found, move left
+            leaf_model2 = self.gm_dict[leaf_model_index2]
+            while self.gm_dict[leaf_model_index2] is None:
+                leaf_model_index2 -= 1
+            leaf_model2 = self.gm_dict[leaf_model_index2]
+            pre2, min_err2, max_err2 = leaf_model2.predict(z_value2), leaf_model2.min_err, leaf_model2.max_err
+            pre2_init = int(pre2)
+            left_bound2 = max(round(pre2 - max_err2), 0)
+            right_bound2 = min(round(pre2 - min_err2), self.train_data_length)
+            index_right = biased_search(self.index_list, self.train_data_length, z_value2, pre2_init, left_bound2,
+                                        right_bound2)
+            index_right = right_bound2 if len(index_right) == 0 else max(index_right)
+            # 5. filter all the point of scope[index1, index2] by range(x1/y1/x2/y2).contain(point)
+            tmp_results = []
+            region = Region(window[0], window[1], window[2], window[3])
+            for index in range(index_left, index_right + 1):
+                point = self.point_list[index]
+                if region.contain_and_border(point[0], point[1]):
+                    tmp_results.append(index)
+            results.append(tmp_results)
+        return results
 
 
 class MyEncoder(json.JSONEncoder):
@@ -215,14 +261,8 @@ class MyEncoder(json.JSONEncoder):
             return obj.save_to_dict()
         elif isinstance(obj, AbstractNN):
             return obj.__dict__
-        elif isinstance(obj, BRIN):
-            return obj.__dict__
-        elif isinstance(obj, MetaPage):
-            return obj.__dict__
-        elif isinstance(obj, RevMapPage):
-            return obj.__dict__
-        elif isinstance(obj, RegularPage):
-            return obj.__dict__
+        elif isinstance(obj, ZBRIN):
+            return obj.save_to_dict()
         else:
             return super(MyEncoder, self).default(obj)
 
@@ -243,20 +283,9 @@ class MyDecoder(json.JSONDecoder):
             t = ZOrder.init_by_dict(d)
         elif d.__contains__("name") and d["name"] == "GeoHash Model Index":
             t = GeoHashModelIndex.init_by_dict(d)
-        elif len(d.keys()) == 3 and d.__contains__("version") \
-                and d.__contains__("pages_per_range") and d.__contains__("last_revmap_page"):
-            t = MetaPage.init_by_dict(d)
-        elif len(d.keys()) == 2 and d.__contains__("id") and d.__contains__("pages"):
-            t = RevMapPage.init_by_dict(d)
-        elif len(d.keys()) == 8 and d.__contains__("id") and d.__contains__("itemoffsets") and d.__contains__(
-                "blknums") and d.__contains__("attnums") and d.__contains__("allnulls") and d.__contains__(
-            "hasnulls") and d.__contains__("placeholders") and d.__contains__("values"):
-            t = RegularPage.init_by_dict(d)
-        elif len(d.keys()) == 7 and d.__contains__("version") and d.__contains__("pages_per_range") \
-                and d.__contains__("revmap_page_maxitems") and d.__contains__(
-            "regular_page_maxitems") and d.__contains__("meta_page") and d.__contains__(
-            "revmap_pages") and d.__contains__("regular_pages"):
-            t = BRIN.init_by_dict(d)
+        elif len(d.keys()) == 5 and d.__contains__("version") and d.__contains__("size") and d.__contains__(
+                "blknums") and d.__contains__("minreg") and d.__contains__("values"):
+            t = ZBRIN.init_by_dict(d)
         else:
             t = d
         return t
@@ -293,11 +322,24 @@ if __name__ == '__main__':
         index.save()
     path = '../../data/trip_data_1_point_query.csv'
     point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
-    point_query_list = point_query_df.drop("count", axis=1).values.tolist()
+    # point_query_list = point_query_df.drop("count", axis=1).values.tolist()
+    # start_time = time.time()
+    # profile = line_profiler.LineProfiler(index.point_query)
+    # profile.enable()
+    # results = index.point_query(point_query_list)
+    # profile.disable()
+    # profile.print_stats()
+    # end_time = time.time()
+    # search_time = (end_time - start_time) / len(point_query_list)
+    # print("Point query time ", search_time)
+    # np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    path = '../../data/trip_data_1_range_query.csv'
+    range_query_df = pd.read_csv(path, usecols=[1, 2, 3, 4, 5])
+    range_query_list = range_query_df.drop("count", axis=1).values.tolist()
     start_time = time.time()
-    results = index.point_query(point_query_list)
+    results = index.range_query(range_query_list)
     end_time = time.time()
-    search_time = (end_time - start_time) / len(point_query_list)
-    print("Point query time ", search_time)
-    np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    search_time = (end_time - start_time) / len(range_query_list)
+    print("Range query time ", search_time)
+    np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     print("*************end %s************" % index_name)

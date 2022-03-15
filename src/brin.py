@@ -22,58 +22,6 @@ class BRIN:
     def build(self):
         return None
 
-    def point_query(self, point):
-        """
-        query index by z point
-        1. get the value in regular_pages.values which contains x
-        2. get the geohash of leaf model from blknums by value
-        :param point: z
-        :return: geohash
-        """
-        for regular_page in self.regular_pages:
-            for i in range(len(regular_page.itemoffsets)):
-                if point < regular_page.values[i]:
-                    return regular_page.blknums[i - 1]
-
-    def build_by_quad_tree(self, quad_tree):
-        """
-        不限制pages_per_range，per range的pages大小=四叉树该节点的数据数量
-        :param quad_tree:
-        :return:
-        """
-        split_data = quad_tree.geohash_items_map
-        z_list = [split_data[item]["first_z"] for item in split_data]
-        blknum_list = split_data.keys
-        index_len = len(blknum_list)
-        page_len = int(index_len / self.regular_page_maxitems)
-        revmap_page_list = []
-        for i in range(page_len + 1):
-            left_index = i * self.regular_page_maxitems
-            right_index = (i + 1) * self.regular_page_maxitems
-            if right_index > index_len:
-                right_index = index_len
-            if left_index > index_len:
-                break
-            revmap_page_list.extend(
-                [{"regular_page_id": i, "regular_page_item": j} for j in range(left_index, right_index)])
-            self.regular_pages.append(RegularPage(id=i,
-                                                  itemoffsets=list(range(left_index, right_index)),
-                                                  blknums=blknum_list[left_index: right_index],
-                                                  values=z_list[left_index: right_index]))
-        revmap_page_len = len(revmap_page_list)
-        page_len = int(revmap_page_len / self.revmap_page_maxitems)
-        for i in range(page_len + 1):
-            left_index = i * self.revmap_page_maxitems
-            right_index = (i + 1) * self.revmap_page_maxitems
-            if right_index > index_len:
-                right_index = index_len
-            if left_index > index_len:
-                break
-            self.revmap_pages.append(RevMapPage(id=i, pages=revmap_page_list[left_index: right_index]))
-        self.meta_page = MetaPage(version=self.version,
-                                  pages_per_range=self.pages_per_range,
-                                  last_revmap_page=len(self.revmap_pages))
-
 
 class MetaPage:
     def __init__(self, version, pages_per_range, last_revmap_page):

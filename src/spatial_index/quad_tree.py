@@ -5,9 +5,8 @@ import time
 
 import numpy as np
 import pandas as pd
-from memory_profiler import profile
 
-sys.path.append('D:/Code/Paper/st-learned-index')
+sys.path.append('/home/zju/wlj/st-learned-index')
 from src.index import Index
 from src.spatial_index.common_utils import Region, Point
 
@@ -54,7 +53,7 @@ class QuadTree(Index):
         self.data_precision = data_precision
         self.max_depth = region.get_bits_by_region_and_precision(precision=data_precision) - 1
         self.root_node = QuadTreeNode(region=region)
-        self.geohash_items_map = {}
+        self.leaf_nodes = []
 
     def insert(self, point, node=None):
         """
@@ -217,11 +216,10 @@ class QuadTree(Index):
         if parent_geohash is None:
             parent_geohash = ""
         if node.is_leaf == 1:
-            if len(node.items) > 0:
-                self.geohash_items_map[parent_geohash] = {
-                    "first_z": z_order.point_to_z(node.region.left, node.region.bottom),
-                    "items": node.items
-                }
+            self.leaf_nodes.append({
+                "first_z": z_order.point_to_z(node.region.left, node.region.bottom),
+                "items": node.items
+            })
             return
         else:
             self.geohash(z_order, node.LB, parent_geohash + "00")
@@ -329,7 +327,6 @@ class QuadTree(Index):
             results.append([itr[1] for itr in point_heap])
         return results
 
-@profile(precision=8)
     def knn_query(self, knns):
         """
         query index by x1/y1/n knn
@@ -394,6 +391,7 @@ class QuadTree(Index):
         """
 
 
+# @profile(precision=8)
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     # load data

@@ -253,7 +253,7 @@ class ZOrder:
         lng_zoom, lat_zoom = self.unpack(z)
         lng = lng_zoom * self.region_width / self.max_num + self.region.left
         lat = lat_zoom * self.region_height / self.max_num + self.region.bottom
-        return Point(round(lng, self.data_precision), round(lat, self.data_precision))
+        return round(lng, self.data_precision), round(lat, self.data_precision)
 
 
 class Geohash:
@@ -584,9 +584,3 @@ def biased_search(nums, num_length, x, pre, left, right):
         mid = (left + right) // 2
     return result
 
-
-if __name__ == '__main__':
-    # geohash = Geohash()
-    # print(geohash.encode(-5.6, 42.6, precision=25))
-    # print(geohash.decode('0110111111110000010000010'))
-    # geohash.compare_with_python_geohash()
