@@ -41,9 +41,13 @@ def filter_row_from_csv(input_path, output_path, lines_limit, range_limit=None):
             count += 1
 
 
+def get_region(input_path):
+    df = pandas.read_csv(input_path)
+    print("Region: %f, %f, %f, %f" % (df.y.min(), df.y.max(), df.x.min(), df.x.max()))
+
+
 def sample_from_csv(input_path, output_path, lines_limit, range_limit=None):
-    df = pandas.read_csv(input_path, usecols=[10, 11])
-    df = df.rename(columns={"pickup_longitude": "x", "pickup_latitude": "y"})
+    df = pandas.read_csv(input_path)
     df["contain"] = df.apply(
         lambda x: range_limit.contain(Point(float(x["x"]), float(x["y"]))), axis=1)
     df = df[df["contain"]]
@@ -69,6 +73,7 @@ def create_point_from_csv(input_path, output_path, point_limit):
     df_sample.sort_values(by=["count"], ascending=True, inplace=True)
     df_sample.reset_index(drop=True, inplace=True)
     df_sample.to_csv(output_path)
+
 
 def print_window_from_csv_to_log(input_path, output_path, window_limit, thread_pool_size):
     df = pandas.read_csv(input_path)
@@ -151,15 +156,19 @@ if __name__ == '__main__':
     # output_path = "../../data/trip_data_1_filter.csv"
     # 1. 生成数据
     # filter_row_from_csv(input_path, output_path, None, Region(40, 42, -75, -73))
+    # 输出数据spatial scope
+    # 40.016666, 41.933331, -74.990433, -73.000938
+    input_path = "../../data/trip_data_1_filter.csv"
+    get_region(input_path)
     # 2. 生成100000的数据
-    # input_path = "../../data/trip_data_1.csv"
+    # input_path = "../../data/trip_data_1_filter.csv"
     # output_path_100000_sample = '../../data/trip_data_1_100000.csv'
     # sample_from_csv(input_path, output_path_100000_sample, 100000, Region(40, 42, -75, -73))
     # 3. 生成point检索范围
-    output_path_100000_sample = '../../data/trip_data_1_100000.csv'
-    output_path_point_query_csv = '../../data/trip_data_1_point_query.csv'
-    point_limit = 10000
-    create_point_from_csv(output_path_100000_sample, output_path_point_query_csv, point_limit)
+    # output_path_100000_sample = '../../data/trip_data_1_100000.csv'
+    # output_path_point_query_csv = '../../data/trip_data_1_point_query.csv'
+    # point_limit = 10000
+    # create_point_from_csv(output_path_100000_sample, output_path_point_query_csv, point_limit)
     # 4. 生成range检索范围
     # output_path_100000_sample = '../../data/trip_data_1_100000.csv'
     # output_path_range_query_csv = '../../data/trip_data_1_range_query.csv'
