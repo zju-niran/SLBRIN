@@ -62,22 +62,7 @@ class ZBRIN:
                 return i - 1, self.indexes[i - 1]
         return None
 
-    def range_query(self, point1, point2):
-        """
-        range index by z1/z2 point
-        :param point1: z
-        :param point2: z
-        :return: index1, index2
-        """
-        for i in range(self.size):
-            if point1 < self.values[i]:
-                break
-        for j in range(i - 1, self.size):
-            if point2 < self.values[j]:
-                return i - 1, j - 1
-        return None, None
-
-    def range_query2(self, point1, point2, window):
+    def range_query(self, point1, point2, window):
         """
         range index by z1/z2 point
         1. 使用point_query查找point1和point2所在block的index

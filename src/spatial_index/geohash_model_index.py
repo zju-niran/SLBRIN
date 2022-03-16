@@ -5,7 +5,6 @@ import os
 import sys
 import time
 
-import line_profiler
 import numpy as np
 import pandas as pd
 
@@ -18,12 +17,10 @@ from src.rmi_keras import TrainedNN, AbstractNN
 
 
 class GeoHashModelIndex(SpatialIndex):
-    def __init__(self, model_path=None, z_order=None, train_data_length=None, zbrin=None, gm_dict=None,
-                 index_list=None, point_list=None):
+    def __init__(self, model_path=None, z_order=None, zbrin=None, gm_dict=None, index_list=None, point_list=None):
         super(GeoHashModelIndex, self).__init__("GeoHash Model Index")
         self.model_path = model_path
         self.z_order = z_order
-        self.train_data_length = train_data_length
         self.zbrin = zbrin
         self.gm_dict = gm_dict
         self.index_list = index_list
@@ -40,7 +37,6 @@ class GeoHashModelIndex(SpatialIndex):
         data["z"] = data.apply(lambda t: self.z_order.point_to_z(t.x, t.y), 1)
         data.sort_values(by=["z"], ascending=True, inplace=True)
         data.reset_index(drop=True, inplace=True)
-        self.train_data_length = len(data) - 1
         self.index_list = data.z.tolist()
         self.point_list = data[["x", "y"]].values.tolist()
 
@@ -74,11 +70,11 @@ class GeoHashModelIndex(SpatialIndex):
             points = split_data[index]["items"]
             inputs = []
             labels = []
+            if len(points) == 0:
+                continue
             for point in points:
                 inputs.append(point.z)
                 labels.append(point.index)
-            if len(labels) == 0:
-                continue
             pool.apply_async(self.build_single_thread, (1, index, inputs, labels, use_threshold, threshold, core,
                                                         train_step, batch_size, learning_rate, retrain_time_limit,
                                                         mp_dict))
@@ -136,7 +132,6 @@ class GeoHashModelIndex(SpatialIndex):
         with open(self.model_path + 'gm_index.json', "r") as f:
             gm_index = json.load(f, cls=MyDecoder)
             self.z_order = gm_index.z_order
-            self.train_data_length = gm_index.train_data_length
             self.zbrin = gm_index.zbrin
             self.gm_dict = gm_index.gm_dict
             self.index_list = np.loadtxt(self.model_path + 'index_list.csv', delimiter=",").tolist()
@@ -146,7 +141,6 @@ class GeoHashModelIndex(SpatialIndex):
     @staticmethod
     def init_by_dict(d: dict):
         return GeoHashModelIndex(z_order=d['z_order'],
-                                 train_data_length=d['train_data_length'],
                                  zbrin=d['zbrin'],
                                  gm_dict=d['gm_dict'])
 
@@ -154,7 +148,6 @@ class GeoHashModelIndex(SpatialIndex):
         return {
             'name': self.name,
             'z_order': self.z_order,
-            'train_data_length': self.train_data_length,
             'zbrin': self.zbrin,
             'gm_dict': self.gm_dict
         }
@@ -174,69 +167,22 @@ class GeoHashModelIndex(SpatialIndex):
             # 1. compute z from x/y of points
             z = self.z_order.point_to_z(point[0], point[1])
             # 2. predicted the leaf model by zbrin
-            leaf_model_index = self.zbrin.point_query(z)
-            leaf_model = self.gm_dict[leaf_model_index]
-            if leaf_model is None:
+            lm_index, lm_indexes = self.zbrin.point_query(z)
+            lm = self.gm_dict[lm_index]
+            if lm is None:
                 result = None
             else:
                 # 3. predict by z and create index scope [pre - min_err, pre + max_err]
-                pre, min_err, max_err = leaf_model.predict(z), leaf_model.min_err, leaf_model.max_err
+                pre, min_err, max_err = lm.predict(z), lm.min_err, lm.max_err
                 pre_init = int(pre)  # int比round快一倍
-                left_bound = max(round(pre - max_err), 0)
-                right_bound = min(round(pre - min_err), self.train_data_length)
+                left_bound = max(round(pre - max_err), lm_indexes[0])
+                right_bound = min(round(pre - min_err), lm_indexes[1])
                 # 4. binary search in scope
-                result = biased_search(self.index_list, self.train_data_length, z, pre_init, left_bound, right_bound)
+                result = biased_search(self.index_list, z, pre_init, left_bound, right_bound)
             results.append(result)
         return results
 
     def range_query(self, windows):
-        """
-        query index by x1/y1/x2/y2 window
-        1. compute z from window_left and window_right
-        2. predicted the leaf model by zbrin
-        3. find index_left by nn predict
-        4. find index_right by nn predict
-        5. filter all the point of scope[index1, index2] by range(x1/y1/x2/y2).contain(point)
-        :param windows: list, [x1, y1, x2, y2]
-        :return: list, [pres]
-        """
-        results = []
-        for window in windows:
-            region = Region(window[0], window[1], window[2], window[3])
-            # 1. compute z of window_left and window_right
-            z_value1 = self.z_order.point_to_z(window[2], window[0])
-            z_value2 = self.z_order.point_to_z(window[3], window[1])
-            # 2. predicted the leaf model by zbrin
-            leaf_model_index1, leaf_model_index2 = self.zbrin.range_query(z_value1, z_value2)
-            # 3. find index_left by nn predict
-            # if model not found, move right
-            while self.gm_dict[leaf_model_index1] is None:
-                leaf_model_index1 += 1
-            leaf_model1 = self.gm_dict[leaf_model_index1]
-            pre1, min_err1, max_err1 = leaf_model1.predict(z_value1), leaf_model1.min_err, leaf_model1.max_err
-            pre1_init = int(pre1)
-            left_bound1 = max(round(pre1 - max_err1), 0)
-            right_bound1 = min(round(pre1 - min_err1), self.train_data_length)
-            index_left = biased_search(self.index_list, z_value1, pre1_init, left_bound1, right_bound1)
-            index_left = left_bound1 if len(index_left) == 0 else min(index_left)
-            # 4. find index_right by nn predict
-            # if model not found, move left
-            while self.gm_dict[leaf_model_index2] is None:
-                leaf_model_index2 -= 1
-            leaf_model2 = self.gm_dict[leaf_model_index2]
-            pre2, min_err2, max_err2 = leaf_model2.predict(z_value2), leaf_model2.min_err, leaf_model2.max_err
-            pre2_init = int(pre2)
-            left_bound2 = max(round(pre2 - max_err2), 0)
-            right_bound2 = min(round(pre2 - min_err2), self.train_data_length)
-            index_right = biased_search(self.index_list, z_value2, pre2_init, left_bound2, right_bound2)
-            index_right = right_bound2 if len(index_right) == 0 else max(index_right)
-            # 5. filter all the point of scope[index1, index2] by range(x1/y1/x2/y2).contain(point)
-            tmp_results = [index for index in range(index_left, index_right + 1)
-                           if region.contain_and_border_by_list(self.point_list[index])]
-            results.append(tmp_results)
-        return results
-
-    def range_query2(self, windows):
         """
         query index by x1/y1/x2/y2 window
         1. compute z from window_left and window_right
@@ -259,7 +205,7 @@ class GeoHashModelIndex(SpatialIndex):
             z_value2 = self.z_order.point_to_z(window[3], window[1])
             # 2. get block1 and block2 by zbrin,
             # and validate the relation in spatial between query window and blocks[block1, block2]
-            lm_info_list = self.zbrin.range_query2(z_value1, z_value2, region)
+            lm_info_list = self.zbrin.range_query(z_value1, z_value2, region)
             tmp_results = []
             # 3. for different relation, use different method to handle the points
             for lm_info in lm_info_list:
@@ -393,12 +339,6 @@ if __name__ == '__main__':
     path = '../../data/trip_data_1_range_query.csv'
     range_query_df = pd.read_csv(path, usecols=[1, 2, 3, 4, 5])
     range_query_list = range_query_df.drop("count", axis=1).values.tolist()
-    start_time = time.time()
-    results2 = index.range_query2(range_query_list)
-    end_time = time.time()
-    search_time = (end_time - start_time) / len(range_query_list)
-    print("Range query time ", search_time)
-    np.savetxt(model_path + 'range_query_result2.csv', np.array(results2, dtype=object), delimiter=',', fmt='%s')
     start_time = time.time()
     results = index.range_query(range_query_list)
     end_time = time.time()
