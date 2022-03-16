@@ -9,8 +9,22 @@ from src.spatial_index.geohash_model_index import GeoHashModelIndex
 
 
 @profile(precision=8)
-def load_model_size(model_path):
-    index = GeoHashModelIndex(model_path=model_path)
+def load_model_size():
+    n_list = [2500, 5000, 10000, 20000, 40000]
+    model_paths = ["model/gm_index/n_" + str(n) + "/" for n in n_list]
+    index = GeoHashModelIndex(model_path=model_path[0])
+    index.load()
+    index = None
+    index = GeoHashModelIndex(model_path=model_path[1])
+    index.load()
+    index = None
+    index = GeoHashModelIndex(model_path=model_path[2])
+    index.load()
+    index = None
+    index = GeoHashModelIndex(model_path=model_path[3])
+    index.load()
+    index = None
+    index = GeoHashModelIndex(model_path=model_path[4])
     index.load()
     index = None
 
@@ -64,6 +78,7 @@ if __name__ == '__main__':
         end_time = time.time()
         search_time = (end_time - start_time) / len(point_query_list)
         print("Point query time ", search_time)
+    load_model_size()
     # 3.2 构建精度高的
     for n in n_list:
         model_path = "model/gm_index/n_" + str(n) + "_precision/"
