@@ -216,8 +216,7 @@ class GeoHashModelIndex(SpatialIndex):
             pre1_init = int(pre1)
             left_bound1 = max(round(pre1 - max_err1), 0)
             right_bound1 = min(round(pre1 - min_err1), self.train_data_length)
-            index_left = biased_search(self.index_list, self.train_data_length, z_value1, pre1_init, left_bound1,
-                                       right_bound1)
+            index_left = biased_search(self.index_list, z_value1, pre1_init, left_bound1, right_bound1)
             index_left = left_bound1 if len(index_left) == 0 else min(index_left)
             # 4. find index_right by nn predict
             # if model not found, move left
@@ -229,8 +228,7 @@ class GeoHashModelIndex(SpatialIndex):
             pre2_init = int(pre2)
             left_bound2 = max(round(pre2 - max_err2), 0)
             right_bound2 = min(round(pre2 - min_err2), self.train_data_length)
-            index_right = biased_search(self.index_list, self.train_data_length, z_value2, pre2_init, left_bound2,
-                                        right_bound2)
+            index_right = biased_search(self.index_list, z_value2, pre2_init, left_bound2, right_bound2)
             index_right = right_bound2 if len(index_right) == 0 else max(index_right)
             # 5. filter all the point of scope[index1, index2] by range(x1/y1/x2/y2).contain(point)
             tmp_results = []

@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.append('/home/zju/wlj/st-learned-index')
-from src.spatial_index.common_utils import Region, Point, biased_search, ZOrder
+from src.spatial_index.common_utils import Region, biased_search, ZOrder
 from src.spatial_index.spatial_index import SpatialIndex
 from src.rmi_keras import TrainedNN, AbstractNN
 
@@ -208,7 +208,7 @@ class ZMIndex(SpatialIndex):
             left_bound = max(round(pre - max_err), 0)
             right_bound = min(round(pre - min_err), self.train_data_length)
             # 3. binary search in scope
-            result = biased_search(self.index_list, self.train_data_length, z_value, pre_init, left_bound, right_bound)
+            result = biased_search(self.index_list, z_value, pre_init, left_bound, right_bound)
             results.append(result)
         return results
 
@@ -233,8 +233,7 @@ class ZMIndex(SpatialIndex):
             pre1_init = int(pre1)
             left_bound1 = max(round(pre1 - max_err1), 0)
             right_bound1 = min(round(pre1 - min_err1), self.train_data_length)
-            index_left = biased_search(self.index_list, self.train_data_length, z_value1, pre1_init, left_bound1,
-                                       right_bound1)
+            index_left = biased_search(self.index_list, z_value1, pre1_init, left_bound1, right_bound1)
             index_left = left_bound1 if len(index_left) == 0 else min(index_left)
             # 3. find index_right by point query
             # if point not found, index_right = pre - max_err
@@ -242,8 +241,7 @@ class ZMIndex(SpatialIndex):
             pre2_init = int(pre2)
             left_bound2 = max(round(pre2 - max_err2), 0)
             right_bound2 = min(round(pre2 - min_err2), self.train_data_length)
-            index_right = biased_search(self.index_list, self.train_data_length, z_value2, pre2_init, left_bound2,
-                                        right_bound2)
+            index_right = biased_search(self.index_list, z_value2, pre2_init, left_bound2, right_bound2)
             index_right = right_bound2 if len(index_right) == 0 else max(index_right)
             # 4. filter all the point of scope[index1, index2] by range(x1/y1/x2/y2).contain(point)
             tmp_results = []

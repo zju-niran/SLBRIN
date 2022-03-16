@@ -545,7 +545,7 @@ def nparray_diff_normalize_reverse_num(num1, num2, min_v, max_v):
     return (num1 - num2) * (max_v - min_v)
 
 
-def binary_search(nums, num_length, x, left, right):
+def binary_search(nums, x, left, right):
     """
     binary search x in nums[left, right]
     """
@@ -555,11 +555,11 @@ def binary_search(nums, num_length, x, left, right):
         if nums[mid] == x:
             result.append(mid)
             mid_left = mid - 1
-            while mid_left >= 0 and nums[mid_left] == x:
+            while mid_left >= left and nums[mid_left] == x:
                 result.append(mid_left)
                 mid_left -= 1
             mid_right = mid + 1
-            while mid_right < num_length and nums[mid_right] == x:
+            while mid_right <= right and nums[mid_right] == x:
                 result.append(mid_right)
                 mid_right += 1
             return result
@@ -570,7 +570,7 @@ def binary_search(nums, num_length, x, left, right):
     return result
 
 
-def biased_search(nums, num_length, x, pre, left, right):
+def biased_search(nums, x, pre, left, right):
     """
     binary search x in nums[left, right], but the first mid is pre
     如果pre不在[left, right]里，会变慢
@@ -581,11 +581,11 @@ def biased_search(nums, num_length, x, pre, left, right):
         if nums[mid] == x:
             result.append(mid)
             mid_left = mid - 1
-            while mid_left >= 0 and nums[mid_left] == x:
+            while mid_left >= left and nums[mid_left] == x:
                 result.append(mid_left)
                 mid_left -= 1
             mid_right = mid + 1
-            while mid_right <= num_length and nums[mid_right] == x:
+            while mid_right <= right and nums[mid_right] == x:
                 result.append(mid_right)
                 mid_right += 1
             return result
