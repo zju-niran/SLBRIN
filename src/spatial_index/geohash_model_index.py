@@ -202,6 +202,7 @@ class GeoHashModelIndex(SpatialIndex):
         """
         results = []
         for window in windows:
+            region = Region(window[0], window[1], window[2], window[3])
             # 1. compute z of window_left and window_right
             z_value1 = self.z_order.point_to_z(window[2], window[0])
             z_value2 = self.z_order.point_to_z(window[3], window[1])
@@ -220,7 +221,6 @@ class GeoHashModelIndex(SpatialIndex):
             index_left = left_bound1 if len(index_left) == 0 else min(index_left)
             # 4. find index_right by nn predict
             # if model not found, move left
-            leaf_model2 = self.gm_dict[leaf_model_index2]
             while self.gm_dict[leaf_model_index2] is None:
                 leaf_model_index2 -= 1
             leaf_model2 = self.gm_dict[leaf_model_index2]
@@ -231,12 +231,75 @@ class GeoHashModelIndex(SpatialIndex):
             index_right = biased_search(self.index_list, z_value2, pre2_init, left_bound2, right_bound2)
             index_right = right_bound2 if len(index_right) == 0 else max(index_right)
             # 5. filter all the point of scope[index1, index2] by range(x1/y1/x2/y2).contain(point)
-            tmp_results = []
+            tmp_results = [index for index in range(index_left, index_right + 1)
+                           if region.contain_and_border_by_list(self.point_list[index])]
+            results.append(tmp_results)
+        return results
+
+    def range_query2(self, windows):
+        """
+        query index by x1/y1/x2/y2 window
+        1. compute z from window_left and window_right
+        2. get block1 and block2 by zbrin,
+        and validate the relation in spatial between query window and blocks[block1, block2]
+        3. for different relation, use different method to handle the points
+        3.1 if window contain the block, add all the items into results
+        3.2 if window intersect or within the block
+        3.2.1 get the min_z/max_z of intersect part
+        3.2.2 get the min_index/max_index by nn predict and biased search
+        3.2.3 filter all the point of scope[min_index/max_index] by range.contain(point)
+        :param windows: list, [x1, y1, x2, y2]
+        :return: list, [pres]
+        """
+        results = []
+        for window in windows:
             region = Region(window[0], window[1], window[2], window[3])
-            for index in range(index_left, index_right + 1):
-                point = self.point_list[index]
-                if region.contain_and_border(point[0], point[1]):
-                    tmp_results.append(index)
+            # 1. compute z of window_left and window_right
+            z_value1 = self.z_order.point_to_z(window[2], window[0])
+            z_value2 = self.z_order.point_to_z(window[3], window[1])
+            # 2. get block1 and block2 by zbrin,
+            # and validate the relation in spatial between query window and blocks[block1, block2]
+            lm_info_list = self.zbrin.range_query2(z_value1, z_value2, region)
+            tmp_results = []
+            # 3. for different relation, use different method to handle the points
+            for lm_info in lm_info_list:
+                # 0 2 1 3的顺序是按照频率降序
+                if lm_info[0][0] == 0:  # no relation
+                    continue
+                else:
+                    if lm_info[2][0] is None:  # block is None
+                        continue
+                    # 3.1 if window contain the block, add all the items into results
+                    if lm_info[0][0] == 2:  # block contain window
+                        tmp_results.extend(list(range(lm_info[2][0], lm_info[2][1] + 1)))
+                    # 3.2 if window intersect or within the block
+                    else:
+                        # 3.2.1 get the min_z/max_z of intersect part
+                        lm = self.gm_dict[lm_info[1]]
+                        if lm_info[0][0] == 1:  # intersect
+                            z_value1 = self.z_order.point_to_z(lm_info[0][1].left, lm_info[0][1].bottom)
+                            z_value2 = self.z_order.point_to_z(lm_info[0][1].right, lm_info[0][1].up)
+                        # 3.2.2 get the min_index/max_index by nn predict and biased search
+                        pre1 = lm.predict(z_value1)
+                        pre2 = lm.predict(z_value2)
+                        min_err = lm.min_err
+                        max_err = lm.max_err
+                        left_bound1 = max(round(pre1 - max_err), lm_info[2][0])
+                        right_bound1 = min(round(pre1 - min_err), lm_info[2][1])
+                        index_left = biased_search(self.index_list, z_value1, int(pre1), left_bound1, right_bound1)
+                        if z_value1 == z_value2:
+                            if len(index_left) > 0:
+                                tmp_results.extend(index_left)
+                        else:
+                            index_left = left_bound1 if len(index_left) == 0 else min(index_left)
+                            left_bound2 = max(round(pre2 - max_err), lm_info[2][0])
+                            right_bound2 = min(round(pre2 - min_err), lm_info[2][1])
+                            index_right = biased_search(self.index_list, z_value2, int(pre2), left_bound2, right_bound2)
+                            index_right = right_bound2 if len(index_right) == 0 else max(index_right)
+                            # 3.2.3 filter all the point of scope[min_index/max_index] by range.contain(point)
+                            tmp_results.extend([index for index in range(index_left, index_right + 1)
+                                                if region.contain_and_border_by_list(self.point_list[index])])
+
             results.append(tmp_results)
         return results
 
@@ -281,8 +344,8 @@ class MyDecoder(json.JSONDecoder):
             t = ZOrder.init_by_dict(d)
         elif d.__contains__("name") and d["name"] == "GeoHash Model Index":
             t = GeoHashModelIndex.init_by_dict(d)
-        elif len(d.keys()) == 5 and d.__contains__("version") and d.__contains__("size") and d.__contains__(
-                "blknums") and d.__contains__("minreg") and d.__contains__("values"):
+        elif len(d.keys()) == 6 and d.__contains__("version") and d.__contains__("size") and d.__contains__(
+                "blkregs") and d.__contains__("blknums") and d.__contains__("values") and d.__contains__("indexes"):
             t = ZBRIN.init_by_dict(d)
         else:
             t = d
@@ -320,20 +383,22 @@ if __name__ == '__main__':
         index.save()
     path = '../../data/trip_data_1_point_query.csv'
     point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
-    # point_query_list = point_query_df.drop("count", axis=1).values.tolist()
-    # start_time = time.time()
-    # profile = line_profiler.LineProfiler(index.point_query)
-    # profile.enable()
-    # results = index.point_query(point_query_list)
-    # profile.disable()
-    # profile.print_stats()
-    # end_time = time.time()
-    # search_time = (end_time - start_time) / len(point_query_list)
-    # print("Point query time ", search_time)
-    # np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    point_query_list = point_query_df.drop("count", axis=1).values.tolist()
+    start_time = time.time()
+    results = index.point_query(point_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(point_query_list)
+    print("Point query time ", search_time)
+    np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     path = '../../data/trip_data_1_range_query.csv'
     range_query_df = pd.read_csv(path, usecols=[1, 2, 3, 4, 5])
     range_query_list = range_query_df.drop("count", axis=1).values.tolist()
+    start_time = time.time()
+    results2 = index.range_query2(range_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(range_query_list)
+    print("Range query time ", search_time)
+    np.savetxt(model_path + 'range_query_result2.csv', np.array(results2, dtype=object), delimiter=',', fmt='%s')
     start_time = time.time()
     results = index.range_query(range_query_list)
     end_time = time.time()

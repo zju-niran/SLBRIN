@@ -1,4 +1,4 @@
-from src.spatial_index.common_utils import ZOrder, Region
+from src.spatial_index.common_utils import ZOrder, Region, get_min_max
 
 """
 对brin进行改进，来适应z的索引
@@ -11,28 +11,31 @@ from src.spatial_index.common_utils import ZOrder, Region
 
 
 class ZBRIN:
-    def __init__(self, version=None, size=None, minreg=None, blknums=None, values=None):
+    def __init__(self, version=None, size=None, blkregs=None, blknums=None, values=None, indexes=None):
         self.version = version
         self.size = size
-        self.minreg = minreg
+        self.blkregs = blkregs
         self.blknums = blknums
         self.values = values
+        self.indexes = indexes
 
     @staticmethod
     def init_by_dict(d: dict):
         return ZBRIN(version=d['version'],
                      size=d['size'],
-                     minreg=d['minreg'],
+                     blkregs=d['blkregs'],
                      blknums=d['blknums'],
-                     values=d['values'])
+                     values=d['values'],
+                     indexes=d['indexes'])
 
     def save_to_dict(self):
         return {
             'version': self.version,
             'size': self.size,
-            'minreg': self.minreg,
+            'blkregs': self.blkregs,
             'blknums': self.blknums,
-            'values': self.values
+            'values': self.values,
+            'indexes': self.indexes
         }
 
     def build(self, quad_tree):
@@ -43,9 +46,10 @@ class ZBRIN:
         """
         split_data = quad_tree.leaf_nodes
         self.size = len(split_data)
-        self.minreg = min([item["region_width"] for item in split_data])
+        self.blkregs = [item["region"] for item in split_data]
         self.blknums = [len(item["items"]) for item in split_data]
         self.values = [item["first_z"] for item in split_data]
+        self.indexes = [get_min_max([point.index for point in item["items"]]) for item in split_data]
 
     def point_query(self, point):
         """
@@ -55,7 +59,7 @@ class ZBRIN:
         """
         for i in range(self.size):
             if point < self.values[i]:
-                return i - 1
+                return i - 1, self.indexes[i - 1]
         return None
 
     def range_query(self, point1, point2):
@@ -72,6 +76,24 @@ class ZBRIN:
             if point2 < self.values[j]:
                 return i - 1, j - 1
         return None, None
+
+    def range_query2(self, point1, point2, window):
+        """
+        range index by z1/z2 point
+        1. 使用point_query查找point1和point2所在block的index
+        2. 判断window是否包含这些block之前的region相交或包含
+        3. 返回index1, index2, [[index, intersect/contain]]
+        """
+        for i in range(self.size):
+            if point1 < self.values[i]:
+                break
+        for j in range(i - 1, self.size):
+            if point2 < self.values[j]:
+                break
+        if i == j:
+            return [((3, None), i - 1, self.indexes[i - 1])]
+        else:
+            return [(window.intersect(self.blkregs[k]), k, self.indexes[k]) for k in range(i - 1, j)]
 
     def range_query_old(self, point1, point2):
         """
@@ -92,7 +114,6 @@ class ZBRIN:
             if point2 < self.values[j]:
                 z2_next = self.values[j]
                 break
-        # TODO: 由于z和point是多对一的关系，所以z的point不一定位于左下角，因此z-1的point也不一定在右上角
         window_left, window_bottom = z_order.z_to_min_point(z1)
         window_right, window_top = z_order.z_to_min_point(z2_next - 1)
         child_z_block_list = []

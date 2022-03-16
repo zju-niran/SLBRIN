@@ -70,12 +70,44 @@ class Region:
         else:
             return False
 
+    def intersect(self, other):
+        """
+        a和b相交：两个矩形中心点的xy距离 <= 两个矩形xy边长之和
+        a包含b：两个矩形中心点的xy距离 <= 两个矩形xy边长之差(a-b)
+        # b包含a：两个矩形中心点的xy距离 <= 两个矩形xy边长之差(b-a)
+        :param other:
+        :return: 1=intersect, 2=self contain other, 3=other contain self
+        """
+        center_distance_x = abs(self.left + self.right - other.left - other.right)
+        edge_sum_x = self.right - self.left + other.right - other.left
+        if center_distance_x <= edge_sum_x:
+            center_distance_y = abs(self.bottom + self.up - other.bottom - other.up)
+            edge_sum_y = self.up - self.bottom + other.up - other.bottom
+            if center_distance_y <= edge_sum_y:
+                edge_divide_x = self.right - self.left - other.right + other.left
+                if center_distance_x <= edge_divide_x:
+                    edge_divide_y = self.up - self.bottom - other.up + other.bottom
+                    if center_distance_y <= edge_divide_y:
+                        return 2, None
+                # 这里进不来，调用这个方法的地方用if i = j判断过了
+                # edge_divide_x2 = other.right - other.left - self.right + self.left
+                # if center_distance_x <= edge_divide_x2:
+                #     edge_divide_y2 = other.up - other.bottom - self.up + self.bottom
+                #     if center_distance_y <= edge_divide_y2:
+                #         return 3, None
+                return 1, Region(max(self.bottom, other.bottom), min(self.up, other.up), max(self.left, other.left),
+                                 min(self.right, other.right))
+        return 0, None
+
     def contain(self, point):
         return self.bottom == point.lat or self.left == point.lng or (
                 self.up > point.lat > self.bottom and self.right > point.lng > self.left)
 
     def contain_and_border_by_point(self, point):
         return self.up >= point.lat >= self.bottom and self.right >= point.lng >= self.left
+
+    def contain_and_border_by_list(self, lt):
+        return self.up >= lt[1] >= self.bottom and self.right >= lt[0] >= self.left
 
     def contain_and_border(self, lng, lat):
         return self.up >= lat >= self.bottom and self.right >= lng >= self.left
@@ -259,6 +291,8 @@ class ZOrder:
         计算z order的point
         1. 使用morton-py.unpack(int)
         2. 反归一化
+        注意：使用round后，z转化的point不一定=计算z的原始point，因为保留有效位数的point和z是多对一的
+        如果要一对一，则point_to_z的入口point和z_to_point的出口point都不要用round
         :param z:
         :return:
         """
@@ -596,3 +630,15 @@ def biased_search(nums, x, pre, left, right):
         mid = (left + right) // 2
     return result
 
+
+def get_min_max(lt):
+    if len(lt) == 0:
+        return None, None
+    min_v = float("inf")
+    max_v = float("-inf")
+    for i in lt:
+        if i > max_v:
+            max_v = i
+        if i < min_v:
+            min_v = i
+    return min_v, max_v

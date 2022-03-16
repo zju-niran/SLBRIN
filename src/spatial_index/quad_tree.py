@@ -218,7 +218,8 @@ class QuadTree(Index):
         if node.is_leaf == 1:
             self.leaf_nodes.append({
                 "first_z": z_order.point_to_z(node.region.left, node.region.bottom),
-                "items": node.items
+                "items": node.items,
+                "region": node.region
             })
             return
         else:

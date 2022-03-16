@@ -224,6 +224,7 @@ class ZMIndex(SpatialIndex):
         """
         results = []
         for window in windows:
+            region = Region(window[0], window[1], window[2], window[3])
             # 1. compute z of window_left and window_right
             z_value1 = self.z_order.point_to_z(window[2], window[0])
             z_value2 = self.z_order.point_to_z(window[3], window[1])
@@ -244,12 +245,8 @@ class ZMIndex(SpatialIndex):
             index_right = biased_search(self.index_list, z_value2, pre2_init, left_bound2, right_bound2)
             index_right = right_bound2 if len(index_right) == 0 else max(index_right)
             # 4. filter all the point of scope[index1, index2] by range(x1/y1/x2/y2).contain(point)
-            tmp_results = []
-            region = Region(window[0], window[1], window[2], window[3])
-            for index in range(index_left, index_right + 1):
-                point = self.point_list[index]
-                if region.contain_and_border(point[0], point[1]):
-                    tmp_results.append(index)
+            tmp_results = [index for index in range(index_left, index_right + 1)
+                           if region.contain_and_border_by_list(self.point_list[index])]
             results.append(tmp_results)
         return results
 
