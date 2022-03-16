@@ -93,8 +93,10 @@ class TrainedNN:
         self.train_step_nums = train_step_num
         self.batch_size = batch_size
         self.learning_rate = learning_rate
-        self.train_x, self.train_x_min, self.train_x_max = nparray_normalize(np.array(train_x))
-        self.train_y, self.train_y_min, self.train_y_max = nparray_normalize(np.array(train_y))
+        # 当只有一个输入输出时，整数的index作为y_true会导致score中y_true-y_pred出现类型错误：
+        # TypeError: Input 'y' of 'Sub' Op has type float32 that does not match type int32 of argument 'x'.
+        self.train_x, self.train_x_min, self.train_x_max = nparray_normalize(np.array(train_x).astype("float"))
+        self.train_y, self.train_y_min, self.train_y_max = nparray_normalize(np.array(train_y).astype("float"))
         self.use_threshold = use_threshold
         self.threshold = threshold
         self.model = None
