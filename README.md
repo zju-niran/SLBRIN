@@ -98,3 +98,12 @@ tensorboard --logdir=D:\Code\Paper\st-learned-index\src\tb_model_save_dir --host
 kill -9 `ps -ef | grep wlj | grep -v grep | awk '{print $2}'`
 查看文件数量：可以看出跑了多少个模型
 ls -l /home/zju/wlj/st-learned-index/src/spatial_index/model/gm_index_2022-02-26/models_png |grep "^-"|wc -l 
+
+
+profile = line_profiler.LineProfiler(Region.intersect)
+profile.enable()
+start_time = time.time()
+results2 = index.range_query2(range_query_list)
+end_time = time.time()
+profile.disable()
+profile.print_stats()

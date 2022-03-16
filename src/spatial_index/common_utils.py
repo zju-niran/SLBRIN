@@ -1,6 +1,4 @@
-import csv
 import math
-import random
 import time
 from collections import deque
 from itertools import chain
@@ -424,50 +422,6 @@ class Geohash:
         bbox_dict = geohash.bbox(hashcode)  # 边界经纬度，返回四至坐标
         nergnbors_list = geohash.neighbors(hashcode)  # 8个近邻编码
         b = geohash.expand(hashcode)  # 拓展编码 = 8个近邻编码和自己
-
-
-def create_data(path):
-    with open(path, 'w', newline='') as csv_file:
-        writer = csv.writer(csv_file)
-        index = 0
-        for i in range(100000):
-            lng = random.uniform(-180, 180)
-            lat = random.uniform(-90, 90)
-            index += 1
-            writer.writerow([index, lng, lat])
-
-
-def read_data_and_search(path, index, lng_col, lat_col, z_col, index_col):
-    index_name = index.name
-    data = pd.read_csv(path, header=None)
-    train_set_point = []
-    test_ratio = 0.5  # 测试集占总数据集的比例
-    if lng_col and lat_col:
-        for i in range(int(data.shape[0])):
-            train_set_point.append(Point(data.iloc[i, lng_col], data.iloc[i, lat_col], None, data.iloc[i, index_col]))
-    elif z_col:
-        for i in range(int(data.shape[0])):
-            train_set_point.append(Point(None, None, data.iloc[i, z_col], data.iloc[i, index_col]))
-    test_set_point = train_set_point[:int(len(train_set_point) * test_ratio)]
-
-    print("*************start %s************" % index_name)
-    print("Start Build")
-    start_time = time.time()
-    index.build(train_set_point)
-    end_time = time.time()
-    build_time = end_time - start_time
-    print("Build %s time " % index_name, build_time)
-    err = 0
-    print("Calculate error")
-    start_time = time.time()
-    for ind in range(len(test_set_point)):
-        err += index.predict(test_set_point[ind])
-    end_time = time.time()
-    search_time = (end_time - start_time) / len(test_set_point)
-    print("Search time ", search_time)
-    mean_error = err * 1.0 / len(test_set_point)
-    print("mean error = ", mean_error)
-    print("*************end %s************" % index_name)
 
 
 # python sys.getsizeof无法对自定义类统计内存，提出以下方法
