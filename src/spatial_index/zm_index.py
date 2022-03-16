@@ -311,7 +311,7 @@ if __name__ == '__main__':
         start_time = time.time()
         index.build(data=train_set_xy, data_precision=6, region=Region(40, 42, -75, -73),
                     use_thresholds=[False, False],
-                    thresholds=[30, 20],
+                    thresholds=[30, 200],
                     stages=[1, 100],
                     cores=[[1, 128, 1], [1, 128, 1]],
                     train_steps=[500, 500],
