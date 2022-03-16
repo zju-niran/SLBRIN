@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 import time
@@ -78,17 +79,24 @@ def main():
     model_path = "model/rtree_1451w/"
     index = RTree(model_path=model_path)
     index_name = index.name
+    logging.basicConfig(filename=os.path.join(model_path, "log.file"),
+                        level=logging.INFO,
+                        format="%(asctime)s - %(levelname)s - %(message)s",
+                        datefmt="%m/%d/%Y %H:%M:%S %p")
     load_index_from_json = False
     if load_index_from_json:
         index.load()
     else:
         print("*************start %s************" % index_name)
+        logging.info("*************start %s************" % index_name)
         print("Start Build")
+        logging.info("Start Build")
         start_time = time.time()
         index.build(train_set_xy)
         end_time = time.time()
         build_time = end_time - start_time
-        print("Build %s time " % index_name, build_time)
+        print("Build time %s" % build_time)
+        logging.info("Build time %s" %  build_time)
         index.save()
     path = '../../data/trip_data_1_point_query.csv'
     point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
@@ -97,7 +105,8 @@ def main():
     results = index.point_query(point_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(point_query_list)
-    print("Point query time ", search_time)
+    print("Point query time %s" % search_time)
+    logging.info("Point query time %s" % search_time)
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     path = '../../data/trip_data_1_range_query.csv'
     range_query_df = pd.read_csv(path, usecols=[1, 2, 3, 4, 5])
@@ -106,7 +115,8 @@ def main():
     results = index.range_query(range_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(range_query_list)
-    print("Range query time ", search_time)
+    print("Range query time %s" % search_time)
+    logging.info("Range query time %s" % search_time)
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     path = '../../data/trip_data_1_knn_query.csv'
     knn_query_df = pd.read_csv(path, usecols=[1, 2, 3], dtype={"n": int})
@@ -115,9 +125,11 @@ def main():
     results = index.knn_query(knn_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(knn_query_list)
-    print("KNN query time ", search_time)
+    print("KNN query time %s" % search_time)
+    logging.info("KNN query time %s" % search_time)
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     print("*************end %s************" % index_name)
+    logging.info("*************end %s************" % index_name)
 
 
 if __name__ == '__main__':

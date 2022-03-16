@@ -36,7 +36,7 @@ def filter_row_from_csv(input_path, output_path, lines_limit, range_limit=None):
                 if range_limit and range_limit.contain(Point(float(pickup_lng), float(pickup_lat))) is False:
                     continue
                 else:
-                    target_row = [count, pickup_lng, pickup_lat]
+                    target_row = [count - 1, pickup_lng, pickup_lat]
                     writer.writerow(target_row)
             count += 1
 
@@ -152,14 +152,14 @@ if __name__ == '__main__':
     # 数据来源：从http://www.andresmh.com/nyctaxitrips/下载trip_data.7z，拿到其中的一月份数据csv
     # 数据总记录数：14776616，region内14507253
     # csv文件size：2459600863字节=2.29GB
-    # input_path = "../../data/trip_data_1.csv"
-    # output_path = "../../data/trip_data_1_filter.csv"
+    input_path = "../../data/trip_data_1.csv"
+    output_path = "../../data/trip_data_1_filter.csv"
     # 1. 生成数据
-    # filter_row_from_csv(input_path, output_path, None, Region(40, 42, -75, -73))
+    filter_row_from_csv(input_path, output_path, None, Region(40, 42, -75, -73))
     # 输出数据spatial scope
     # 40.016666, 41.933331, -74.990433, -73.000938
-    input_path = "../../data/trip_data_1_filter.csv"
-    get_region(input_path)
+    # input_path = "../../data/trip_data_1_filter.csv"
+    # get_region(input_path)
     # 2. 生成100000的数据
     # input_path = "../../data/trip_data_1_filter.csv"
     # output_path_100000_sample = '../../data/trip_data_1_100000.csv'
