@@ -1,9 +1,9 @@
 import heapq
+import logging
 import os
 import sys
 import time
 
-import numpy as np
 import pandas as pd
 
 sys.path.append('/home/zju/wlj/st-learned-index')
@@ -246,6 +246,10 @@ class QuadTree(Index):
         """
         return [self.search(Point(point[0], point[1])) for point in points]
 
+    def test_point_query(self, points):
+        for point in points:
+            result = self.search(Point(point[0], point[1]))
+
     def range_search(self, region, node=None, result: list = []):
         node = self.root_node if node is None else node
         if node.region == region:
@@ -288,6 +292,11 @@ class QuadTree(Index):
             self.range_search(region=Region(window[0], window[1], window[2], window[3]), node=None, result=result)
             results.append(result)
         return results
+
+    def test_range_query(self, windows):
+        for window in windows:
+            result = []
+            self.range_search(region=Region(window[0], window[1], window[2], window[3]), node=None, result=result)
 
     def knn_query_old(self, knns):
         """
@@ -377,6 +386,45 @@ class QuadTree(Index):
             results.append([itr[1] for itr in point_heap])
         return results
 
+    def test_knn_query(self, knns):
+        for knn in knns:
+            point = Point(knn[0], knn[1])
+            n = knn[2]
+            stack = [self.root_node]
+            nearest_distance = (float('-inf'), None)
+            point_heap = []
+            point_node = self.search_node(point)
+            for item in point_node.items:
+                if len(point_heap) < n:
+                    heapq.heappush(point_heap, (-point.distance_pow(item), item.index))
+                    nearest_distance = heapq.nsmallest(1, point_heap)[0]
+                    continue
+                point_distance = point.distance_pow(item)
+                if point_distance < -nearest_distance[0]:
+                    heapq.heappop(point_heap)
+                    heapq.heappush(point_heap, (-point_distance, item.index))
+                    nearest_distance = heapq.nsmallest(1, point_heap)[0]
+            while len(stack):
+                cur = stack.pop(-1)
+                # 跳过point所在节点的判断
+                if cur == point_node:
+                    continue
+                if cur.region.within_distance_pow(point, -nearest_distance[0]):
+                    if cur.is_leaf:
+                        for item in cur.items:
+                            if len(point_heap) < n:
+                                heapq.heappush(point_heap, (-point.distance_pow(item), item.index))
+                                nearest_distance = heapq.nsmallest(1, point_heap)[0]
+                                continue
+                            point_distance = point.distance_pow(item)
+                            if point_distance < -nearest_distance[0]:
+                                heapq.heappop(point_heap)
+                                heapq.heappush(point_heap, (-point_distance, item.index))
+                                nearest_distance = heapq.nsmallest(1, point_heap)[0]
+                    elif not cur.is_leaf:
+                        stack.extend([cur.LB, cur.RB, cur.LU, cur.RU])
+            result = [itr[1] for itr in point_heap]
+
     def save(self):
         """
         save rtree into json file
@@ -402,50 +450,46 @@ def main():
     model_path = "model/quadtree_1451w/"
     index = QuadTree(model_path=model_path, region=Region(40, 42, -75, -73), max_num=1000, data_precision=6)
     index_name = index.name
+    logging.basicConfig(filename=os.path.join(model_path, "log.file"),
+                        level=logging.INFO,
+                        format="%(asctime)s - %(levelname)s - %(message)s",
+                        datefmt="%m/%d/%Y %H:%M:%S %p")
     load_index_from_json = False
     if load_index_from_json:
         index.load()
     else:
-        print("*************start %s************" % index_name)
-        print("Start Build")
+        logging.info("*************start %s************" % index_name)
         start_time = time.time()
         index.build(train_set_xy)
         end_time = time.time()
         build_time = end_time - start_time
-        print("Build %s time " % index_name, build_time)
+        logging.info("Build time %s" % build_time)
         index.save()
     path = '../../data/trip_data_1_point_query.csv'
     point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
     point_query_list = point_query_df.drop("count", axis=1).values.tolist()
     start_time = time.time()
-    results = index.point_query(point_query_list)
+    index.test_point_query(point_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(point_query_list)
-    print("Point query time ", search_time)
-    np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    logging.info("Point query time %s" % search_time)
     path = '../../data/trip_data_1_range_query.csv'
     range_query_df = pd.read_csv(path, usecols=[1, 2, 3, 4, 5])
     range_query_list = range_query_df.drop("count", axis=1).values.tolist()
-    # profile = line_profiler.LineProfiler(index.range_search)
-    # profile.enable()
     start_time = time.time()
-    results = index.range_query(range_query_list)
+    index.test_range_query(range_query_list)
     end_time = time.time()
-    # profile.disable()
-    # profile.print_stats()
     search_time = (end_time - start_time) / len(range_query_list)
-    print("Range query time ", search_time)
-    np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    logging.info("Range query time %s" % search_time)
     path = '../../data/trip_data_1_knn_query.csv'
     knn_query_df = pd.read_csv(path, usecols=[1, 2, 3], dtype={"n": int})
     knn_query_list = [[value[0], value[1], int(value[2])] for value in knn_query_df.values]
     start_time = time.time()
-    results = index.knn_query(knn_query_list)
+    index.test_knn_query(knn_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(knn_query_list)
-    print("KNN query time ", search_time)
-    np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    print("*************end %s************" % index_name)
+    logging.info("KNN query time %s" % search_time)
+    logging.info("*************end %s************" % index_name)
 
 
 if __name__ == '__main__':
