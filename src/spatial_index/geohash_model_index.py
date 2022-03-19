@@ -152,35 +152,29 @@ class GeoHashModelIndex(SpatialIndex):
             'gm_dict': self.gm_dict
         }
 
-    def point_query(self, points):
+    def point_query_single(self, point):
         """
         query index by x/y point
         1. compute z from x/y of points
         2. predict the leaf model by zbrin
         3. predict by leaf model and create index scope [pre - min_err, pre + max_err]
         4. binary search in scope
-        :param points: list, [x, y]
-        :return: list, [pre]
         """
-        results = []
-        for point in points:
-            # 1. compute z from x/y of points
-            z = self.z_order.point_to_z(point[0], point[1])
-            # 2. predicted the leaf model by zbrin
-            lm_index, lm_indexes = self.zbrin.point_query(z)
-            lm = self.gm_dict[lm_index]
-            if lm is None:
-                result = None
-            else:
-                # 3. predict by z and create index scope [pre - min_err, pre + max_err]
-                pre, min_err, max_err = lm.predict(z), lm.min_err, lm.max_err
-                pre_init = int(pre)  # int比round快一倍
-                left_bound = max(round(pre - max_err), lm_indexes[0])
-                right_bound = min(round(pre - min_err), lm_indexes[1])
-                # 4. binary search in scope
-                result = biased_search(self.index_list, z, pre_init, left_bound, right_bound)
-            results.append(result)
-        return results
+        # 1. compute z from x/y of points
+        z = self.z_order.point_to_z(point[0], point[1])
+        # 2. predicted the leaf model by zbrin
+        lm_index, lm_indexes = self.zbrin.point_query(z)
+        lm = self.gm_dict[lm_index]
+        if lm is None:
+            return None
+        else:
+            # 3. predict by z and create index scope [pre - min_err, pre + max_err]
+            pre, min_err, max_err = lm.predict(z), lm.min_err, lm.max_err
+            pre_init = int(pre)  # int比round快一倍
+            left_bound = max(round(pre - max_err), lm_indexes[0])
+            right_bound = min(round(pre - min_err), lm_indexes[1])
+            # 4. binary search in scope
+            return biased_search(self.index_list, z, pre_init, left_bound, right_bound)
 
     def range_query(self, windows):
         """
@@ -298,7 +292,8 @@ class MyDecoder(json.JSONDecoder):
         return t
 
 
-if __name__ == '__main__':
+# @profile(precision=8)
+def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     # load data
     path = '../../data/trip_data_1_filter.csv'
@@ -346,3 +341,7 @@ if __name__ == '__main__':
     print("Range query time ", search_time)
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     print("*************end %s************" % index_name)
+
+
+if __name__ == '__main__':
+    main()

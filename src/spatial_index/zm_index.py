@@ -189,66 +189,54 @@ class ZMIndex(SpatialIndex):
             'rmi': self.rmi
         }
 
-    def point_query(self, points):
+    def point_query_single(self, point):
         """
         query index by x/y point
         1. compute z from x/y of points
         2. predict by z and create index scope [pre - min_err, pre + max_err]
         3. binary search in scope
-        :param points: list, [x, y]
-        :return: list, [pre]
         """
-        results = []
-        for point in points:
-            # 1. compute z from x/y of points
-            z_value = self.z_order.point_to_z(point[0], point[1])
-            # 2. predict by z and create index scope [pre - min_err, pre + max_err]
-            pre, min_err, max_err = self.predict(z_value)
-            pre_init = int(pre)  # int比round快一倍
-            left_bound = max(round(pre - max_err), 0)
-            right_bound = min(round(pre - min_err), self.train_data_length)
-            # 3. binary search in scope
-            result = biased_search(self.index_list, z_value, pre_init, left_bound, right_bound)
-            results.append(result)
-        return results
+        # 1. compute z from x/y of point
+        z_value = self.z_order.point_to_z(point[0], point[1])
+        # 2. predict by z and create index scope [pre - min_err, pre + max_err]
+        pre, min_err, max_err = self.predict(z_value)
+        pre_init = int(pre)  # int比round快一倍
+        left_bound = max(round(pre - max_err), 0)
+        right_bound = min(round(pre - min_err), self.train_data_length)
+        # 3. binary search in scope
+        return biased_search(self.index_list, z_value, pre_init, left_bound, right_bound)
 
-    def range_query(self, windows):
+    def range_query_single(self, window):
         """
         query index by x1/y1/x2/y2 window
         1. compute z from window_left and window_right
         2. find index_left by point query
         3. find index_right by point query
         4. filter all the points of scope[index_left, index_right] by range(x1/y1/x2/y2).contain(point)
-        :param windows: list, [x1, y1, x2, y2]
-        :return: list, [pres]
         """
-        results = []
-        for window in windows:
-            region = Region(window[0], window[1], window[2], window[3])
-            # 1. compute z of window_left and window_right
-            z_value1 = self.z_order.point_to_z(window[2], window[0])
-            z_value2 = self.z_order.point_to_z(window[3], window[1])
-            # 2. find index_left by point query
-            # if point not found, index_left = pre - min_err
-            pre1, min_err1, max_err1 = self.predict(z_value1)
-            pre1_init = int(pre1)
-            left_bound1 = max(round(pre1 - max_err1), 0)
-            right_bound1 = min(round(pre1 - min_err1), self.train_data_length)
-            index_left = biased_search(self.index_list, z_value1, pre1_init, left_bound1, right_bound1)
-            index_left = left_bound1 if len(index_left) == 0 else min(index_left)
-            # 3. find index_right by point query
-            # if point not found, index_right = pre - max_err
-            pre2, min_err2, max_err2 = self.predict(z_value2)
-            pre2_init = int(pre2)
-            left_bound2 = max(round(pre2 - max_err2), 0)
-            right_bound2 = min(round(pre2 - min_err2), self.train_data_length)
-            index_right = biased_search(self.index_list, z_value2, pre2_init, left_bound2, right_bound2)
-            index_right = right_bound2 if len(index_right) == 0 else max(index_right)
-            # 4. filter all the point of scope[index1, index2] by range(x1/y1/x2/y2).contain(point)
-            tmp_results = [index for index in range(index_left, index_right + 1)
-                           if region.contain_and_border_by_list(self.point_list[index])]
-            results.append(tmp_results)
-        return results
+        region = Region(window[0], window[1], window[2], window[3])
+        # 1. compute z of window_left and window_right
+        z_value1 = self.z_order.point_to_z(window[2], window[0])
+        z_value2 = self.z_order.point_to_z(window[3], window[1])
+        # 2. find index_left by point query
+        # if point not found, index_left = pre - min_err
+        pre1, min_err1, max_err1 = self.predict(z_value1)
+        pre1_init = int(pre1)
+        left_bound1 = max(round(pre1 - max_err1), 0)
+        right_bound1 = min(round(pre1 - min_err1), self.train_data_length)
+        index_left = biased_search(self.index_list, z_value1, pre1_init, left_bound1, right_bound1)
+        index_left = left_bound1 if len(index_left) == 0 else min(index_left)
+        # 3. find index_right by point query
+        # if point not found, index_right = pre - max_err
+        pre2, min_err2, max_err2 = self.predict(z_value2)
+        pre2_init = int(pre2)
+        left_bound2 = max(round(pre2 - max_err2), 0)
+        right_bound2 = min(round(pre2 - min_err2), self.train_data_length)
+        index_right = biased_search(self.index_list, z_value2, pre2_init, left_bound2, right_bound2)
+        index_right = right_bound2 if len(index_right) == 0 else max(index_right)
+        # 4. filter all the point of scope[index1, index2] by range(x1/y1/x2/y2).contain(point)
+        return [index for index in range(index_left, index_right + 1)
+                if region.contain_and_border_by_list(self.point_list[index])]
 
 
 class MyEncoder(json.JSONEncoder):

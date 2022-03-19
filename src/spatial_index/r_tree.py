@@ -7,11 +7,11 @@ import pandas as pd
 from rtree import index
 
 sys.path.append('/home/zju/wlj/st-learned-index')
-from src.index import Index
+from src.spatial_index.spatial_index import SpatialIndex
 from src.spatial_index.common_utils import Point
 
 
-class RTree(Index):
+class RTree(SpatialIndex):
     def __init__(self, model_path=None):
         super(RTree, self).__init__("RTree")
         self.model_path = model_path
@@ -28,43 +28,25 @@ class RTree(Index):
         for index, point in data.iterrows():
             self.insert(Point(point.x, point.y, index=index))
 
-    def point_query(self, points):
+    def point_query_single(self, point):
         """
         query index by x/y point
         1. search by x/y
         2. for duplicate point: only return the first one
-        :param points: list, [x, y]
-        :return: list, [pre]
         """
-        return [list(self.index.intersection((point[0], point[1]))) for point in points]
+        return list(self.index.intersection((point[0], point[1])))
 
-    def range_query(self, windows):
+    def range_query_single(self, window):
         """
         query index by x1/y1/x2/y2 window
-        :param windows: list, [x1, y1, x2, y2]
-        :return: list, [pres]
         """
-        return [list(self.index.intersection((window[2], window[0], window[3], window[1]))) for window in windows]
+        return list(self.index.intersection((window[2], window[0], window[3], window[1])))
 
-    def knn_query(self, knns):
+    def knn_query_single(self, knn):
         """
         query index by x1/y1/n knn
-        :param knns: list, [x1, y1, n]
-        :return: list, [pres]
         """
-        return [list(self.index.nearest((knn[0], knn[1]), knn[2])) for knn in knns]
-
-    def test_point_query(self, points):
-        for point in points:
-            result = list(self.index.intersection((point[0], point[1])))
-
-    def test_range_query(self, windows):
-        for window in windows:
-            result = list(self.index.intersection((window[2], window[0], window[3], window[1])))
-
-    def test_knn_query(self, knns):
-        for knn in knns:
-            result = list(self.index.nearest((knn[0], knn[1]), knn[2]))
+        return list(self.index.nearest((knn[0], knn[1]), knn[2]))
 
     def save(self):
         """
@@ -84,10 +66,10 @@ class RTree(Index):
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     # load data
-    path = '../../data/trip_data_1_filter.csv'
+    path = '../../data/trip_data_1_100000.csv'
     train_set_xy = pd.read_csv(path)
     # create index
-    model_path = "model/rtree_1451w/"
+    model_path = "model/rtree_10w/"
     index = RTree(model_path=model_path)
     index_name = index.name
     logging.basicConfig(filename=os.path.join(model_path, "log.file"),

@@ -7,7 +7,7 @@ import time
 import pandas as pd
 
 sys.path.append('/home/zju/wlj/st-learned-index')
-from src.index import Index
+from src.spatial_index.spatial_index import SpatialIndex
 from src.spatial_index.common_utils import Region, Point
 
 MAX_ELE_NUM = 100
@@ -39,7 +39,7 @@ class QuadTreeNode:
             self.RU.get_all_items(result)
 
 
-class QuadTree(Index):
+class QuadTree(SpatialIndex):
     def __init__(self, model_path=None, region=Region(-90, 90, -180, 180), max_num=MAX_ELE_NUM, data_precision=6):
         """
         初始化非满四叉树，超过阈值就分裂
@@ -219,7 +219,8 @@ class QuadTree(Index):
             self.leaf_nodes.append({
                 "first_z": z_order.point_to_z(node.region.left, node.region.bottom),
                 "items": node.items,
-                "region": node.region
+                "region": node.region,
+                "geohash": parent_geohash
             })
             return
         else:
@@ -236,19 +237,13 @@ class QuadTree(Index):
             for index, point in data.iterrows():
                 self.insert(Point(point.x, point.y, point.z, index))
 
-    def point_query(self, points):
+    def point_query_single(self, point):
         """
         query index by x/y point
         1. search by x/y
         2. for duplicate point: only return the first one
-        :param points: list, [x, y]
-        :return: list, [pre]
         """
-        return [self.search(Point(point[0], point[1])) for point in points]
-
-    def test_point_query(self, points):
-        for point in points:
-            result = self.search(Point(point[0], point[1]))
+        return self.search(Point(point[0], point[1]))
 
     def range_search(self, region, node=None, result: list = []):
         node = self.root_node if node is None else node
@@ -280,25 +275,15 @@ class QuadTree(Index):
                                          max(node.RU.region.left, region.left), region.right),
                                   node.RU, result)
 
-    def range_query(self, windows):
+    def range_query_single(self, window):
         """
         query index by x1/y1/x2/y2 window
-        :param windows: list, [x1, y1, x2, y2]
-        :return: list, [pres]
         """
-        results = []
-        for window in windows:
-            result = []
-            self.range_search(region=Region(window[0], window[1], window[2], window[3]), node=None, result=result)
-            results.append(result)
-        return results
+        result = []
+        self.range_search(region=Region(window[0], window[1], window[2], window[3]), node=None, result=result)
+        return result
 
-    def test_range_query(self, windows):
-        for window in windows:
-            result = []
-            self.range_search(region=Region(window[0], window[1], window[2], window[3]), node=None, result=result)
-
-    def knn_query_old(self, knns):
+    def knn_query_single_old(self, knn):
         """
         query index by x1/y1/n knn
         代码参考：https://github.com/diana12333/QuadtreeNN
@@ -308,122 +293,73 @@ class QuadTree(Index):
         2.1.1.如果node is_leaf，则遍历items，用距离够的item更新point_heap，同时更新nearest_distance
         2.1.2.如果node not_leaf，则把child放入stack
         3.返回result里的所有index
-        :param knns: list, [x1, y1, n]
-        :return: list, [pres]
         """
-        results = []
-        for knn in knns:
-            point = Point(knn[0], knn[1])
-            n = knn[2]
-            stack = [self.root_node]
-            nearest_distance = (float('-inf'), None)
-            point_heap = []
-            while len(stack):
-                cur = stack.pop(-1)
-                if cur.region.within_distance_pow(point, -nearest_distance[0]):
-                    if cur.is_leaf:
-                        for item in cur.items:
-                            if len(point_heap) < n:
-                                heapq.heappush(point_heap, (-point.distance_pow(item), item.index))
-                                nearest_distance = heapq.nsmallest(1, point_heap)[0]
-                                continue
-                            point_distance = point.distance_pow(item)
-                            if point_distance < -nearest_distance[0]:
-                                heapq.heappop(point_heap)
-                                heapq.heappush(point_heap, (-point_distance, item.index))
-                                nearest_distance = heapq.nsmallest(1, point_heap)[0]
-                    else:
-                        stack.extend([cur.LB, cur.RB, cur.LU, cur.RU])
-            results.append([itr[1] for itr in point_heap])
-        return results
+        point = Point(knn[0], knn[1])
+        n = knn[2]
+        stack = [self.root_node]
+        nearest_distance = (float('-inf'), None)
+        point_heap = []
+        while len(stack):
+            cur = stack.pop(-1)
+            if cur.region.within_distance_pow(point, -nearest_distance[0]):
+                if cur.is_leaf:
+                    for item in cur.items:
+                        if len(point_heap) < n:
+                            heapq.heappush(point_heap, (-point.distance_pow(item), item.index))
+                            nearest_distance = heapq.nsmallest(1, point_heap)[0]
+                            continue
+                        point_distance = point.distance_pow(item)
+                        if point_distance < -nearest_distance[0]:
+                            heapq.heappop(point_heap)
+                            heapq.heappush(point_heap, (-point_distance, item.index))
+                            nearest_distance = heapq.nsmallest(1, point_heap)[0]
+                else:
+                    stack.extend([cur.LB, cur.RB, cur.LU, cur.RU])
+        return [itr[1] for itr in point_heap]
 
-    def knn_query(self, knns):
+    def knn_query_single(self, knn):
         """
         query index by x1/y1/n knn
         1.先找到point所在的节点，初始化nearest_distance和point_heap
         2.后续操作和knn_query_old一致，但是由于nearest_distance被初始化，后续遍历可以减少大量节点的距离判断
         检索时间从0.099225优化到0.006712
-        :param knns: list, [x1, y1, n]
-        :return: list, [pres]
         """
-        results = []
-        for knn in knns:
-            point = Point(knn[0], knn[1])
-            n = knn[2]
-            stack = [self.root_node]
-            nearest_distance = (float('-inf'), None)
-            point_heap = []
-            point_node = self.search_node(point)
-            for item in point_node.items:
-                if len(point_heap) < n:
-                    heapq.heappush(point_heap, (-point.distance_pow(item), item.index))
-                    nearest_distance = heapq.nsmallest(1, point_heap)[0]
-                    continue
-                point_distance = point.distance_pow(item)
-                if point_distance < -nearest_distance[0]:
-                    heapq.heappop(point_heap)
-                    heapq.heappush(point_heap, (-point_distance, item.index))
-                    nearest_distance = heapq.nsmallest(1, point_heap)[0]
-            while len(stack):
-                cur = stack.pop(-1)
-                # 跳过point所在节点的判断
-                if cur == point_node:
-                    continue
-                if cur.region.within_distance_pow(point, -nearest_distance[0]):
-                    if cur.is_leaf:
-                        for item in cur.items:
-                            if len(point_heap) < n:
-                                heapq.heappush(point_heap, (-point.distance_pow(item), item.index))
-                                nearest_distance = heapq.nsmallest(1, point_heap)[0]
-                                continue
-                            point_distance = point.distance_pow(item)
-                            if point_distance < -nearest_distance[0]:
-                                heapq.heappop(point_heap)
-                                heapq.heappush(point_heap, (-point_distance, item.index))
-                                nearest_distance = heapq.nsmallest(1, point_heap)[0]
-                    elif not cur.is_leaf:
-                        stack.extend([cur.LB, cur.RB, cur.LU, cur.RU])
-            results.append([itr[1] for itr in point_heap])
-        return results
-
-    def test_knn_query(self, knns):
-        for knn in knns:
-            point = Point(knn[0], knn[1])
-            n = knn[2]
-            stack = [self.root_node]
-            nearest_distance = (float('-inf'), None)
-            point_heap = []
-            point_node = self.search_node(point)
-            for item in point_node.items:
-                if len(point_heap) < n:
-                    heapq.heappush(point_heap, (-point.distance_pow(item), item.index))
-                    nearest_distance = heapq.nsmallest(1, point_heap)[0]
-                    continue
-                point_distance = point.distance_pow(item)
-                if point_distance < -nearest_distance[0]:
-                    heapq.heappop(point_heap)
-                    heapq.heappush(point_heap, (-point_distance, item.index))
-                    nearest_distance = heapq.nsmallest(1, point_heap)[0]
-            while len(stack):
-                cur = stack.pop(-1)
-                # 跳过point所在节点的判断
-                if cur == point_node:
-                    continue
-                if cur.region.within_distance_pow(point, -nearest_distance[0]):
-                    if cur.is_leaf:
-                        for item in cur.items:
-                            if len(point_heap) < n:
-                                heapq.heappush(point_heap, (-point.distance_pow(item), item.index))
-                                nearest_distance = heapq.nsmallest(1, point_heap)[0]
-                                continue
-                            point_distance = point.distance_pow(item)
-                            if point_distance < -nearest_distance[0]:
-                                heapq.heappop(point_heap)
-                                heapq.heappush(point_heap, (-point_distance, item.index))
-                                nearest_distance = heapq.nsmallest(1, point_heap)[0]
-                    elif not cur.is_leaf:
-                        stack.extend([cur.LB, cur.RB, cur.LU, cur.RU])
-            result = [itr[1] for itr in point_heap]
+        point = Point(knn[0], knn[1])
+        n = knn[2]
+        stack = [self.root_node]
+        nearest_distance = (float('-inf'), None)
+        point_heap = []
+        point_node = self.search_node(point)
+        for item in point_node.items:
+            if len(point_heap) < n:
+                heapq.heappush(point_heap, (-point.distance_pow(item), item.index))
+                nearest_distance = heapq.nsmallest(1, point_heap)[0]
+                continue
+            point_distance = point.distance_pow(item)
+            if point_distance < -nearest_distance[0]:
+                heapq.heappop(point_heap)
+                heapq.heappush(point_heap, (-point_distance, item.index))
+                nearest_distance = heapq.nsmallest(1, point_heap)[0]
+        while len(stack):
+            cur = stack.pop(-1)
+            # 跳过point所在节点的判断
+            if cur == point_node:
+                continue
+            if cur.region.within_distance_pow(point, -nearest_distance[0]):
+                if cur.is_leaf:
+                    for item in cur.items:
+                        if len(point_heap) < n:
+                            heapq.heappush(point_heap, (-point.distance_pow(item), item.index))
+                            nearest_distance = heapq.nsmallest(1, point_heap)[0]
+                            continue
+                        point_distance = point.distance_pow(item)
+                        if point_distance < -nearest_distance[0]:
+                            heapq.heappop(point_heap)
+                            heapq.heappush(point_heap, (-point_distance, item.index))
+                            nearest_distance = heapq.nsmallest(1, point_heap)[0]
+                elif not cur.is_leaf:
+                    stack.extend([cur.LB, cur.RB, cur.LU, cur.RU])
+        return [itr[1] for itr in point_heap]
 
     def save(self):
         """
