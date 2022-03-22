@@ -1,4 +1,5 @@
-from src.spatial_index.common_utils import ZOrder, Region, get_min_max
+from src.spatial_index.common_utils import get_min_max, binary_search_less_max
+from src.spatial_index.geohash_utils import geohash_to_int, ranges_by_int, groupby_and_max
 
 """
 对brin进行改进，来适应z的索引
@@ -11,13 +12,17 @@ from src.spatial_index.common_utils import ZOrder, Region, get_min_max
 
 
 class ZBRIN:
-    def __init__(self, version=None, size=None, blkregs=None, blknums=None, values=None, indexes=None):
+    def __init__(self, version=None, size=None, blkregs=None, blknums=None, values=None, indexes=None,
+                 geohashs=None, lengths=None, max_length=None):
         self.version = version
         self.size = size
         self.blkregs = blkregs
         self.blknums = blknums
         self.values = values
         self.indexes = indexes
+        self.geohashs = geohashs
+        self.lengths = lengths
+        self.max_length = max_length
 
     @staticmethod
     def init_by_dict(d: dict):
@@ -26,7 +31,10 @@ class ZBRIN:
                      blkregs=d['blkregs'],
                      blknums=d['blknums'],
                      values=d['values'],
-                     indexes=d['indexes'])
+                     indexes=d['indexes'],
+                     geohashs=d['geohashs'],
+                     lengths=d['lengths'],
+                     max_length=d['max_length'])
 
     def save_to_dict(self):
         return {
@@ -35,7 +43,10 @@ class ZBRIN:
             'blkregs': self.blkregs,
             'blknums': self.blknums,
             'values': self.values,
-            'indexes': self.indexes
+            'indexes': self.indexes,
+            'geohashs': self.geohashs,
+            'lengths': self.lengths,
+            'max_length': self.max_length
         }
 
     def build(self, quad_tree):
@@ -50,6 +61,9 @@ class ZBRIN:
         self.blknums = [len(item["items"]) for item in split_data]
         self.values = [item["first_z"] for item in split_data]
         self.indexes = [get_min_max([point.index for point in item["items"]]) for item in split_data]
+        self.lengths = [len(item["geohash"]) for item in split_data]
+        self.max_length = max(self.lengths)
+        self.geohashs = [geohash_to_int(item["geohash"], self.max_length) for item in split_data]
 
     def point_query(self, point):
         """
@@ -57,64 +71,60 @@ class ZBRIN:
         :param point: z
         :return: index
         """
-        for i in range(self.size):
-            if point < self.values[i]:
-                return i - 1, self.indexes[i - 1]
-        return None
+        # for i in range(self.size):
+        #     if point < self.values[i]:
+        #         break
+        # 优化: 8mil=>0.6mil
+        index = binary_search_less_max(self.values, point, 0, self.size)
+        return index, self.indexes[index]
 
-    def range_query(self, point1, point2, window):
+    def range_query_old(self, point1, point2, window):
         """
         range index by z1/z2 point
         1. 使用point_query查找point1和point2所在block的index
         2. 判断window是否包含这些block之前的region相交或包含
         3. 返回index1, index2, [[index, intersect/contain]]
+        TODO: intersect函数还可以改进，改为能判断window对于region的上下左右关系
         """
-        for i in range(self.size):
-            if point1 < self.values[i]:
-                break
-        for j in range(i - 1, self.size):
-            if point2 < self.values[j]:
-                break
+        # for i in range(self.size):
+        #     if point1 < self.values[i]:
+        #         break
+        # for j in range(i - 1, self.size):
+        #     if point2 < self.values[j]:
+        #         break
+        # 优化：15mil->1.2mil
+        i = binary_search_less_max(self.values, point1, 0, self.size - 1)
+        j = binary_search_less_max(self.values, point2, i, self.size - 1)
         if i == j:
-            return [((3, None), i - 1, self.indexes[i - 1])]
+            return [((3, None), i, self.indexes[i])]
         else:
-            return [(window.intersect(self.blkregs[k]), k, self.indexes[k]) for k in range(i - 1, j)]
+            return [(window.intersect(self.blkregs[k]), k, self.indexes[k]) for k in range(i, j - 1)]
 
-    def range_query_old(self, point1, point2):
+    def range_query(self, point1, point2):
         """
-        range index by z1/z2 point
-        1. get the value1/value2 in regular_page.values which contains z1/z2
-        2. get the geohash of leaf model from blknums by value1/value2
-        :param point1: z
-        :param point2: z
-        :return: geohash1, geohash2
+        range index by geohash_int1/geohash_int2 point
+        1. 通过geohash_int1/geohash_int2找到window对应的所有origin_geohash和对应window的position
+        2. 通过前缀匹配过滤origin_geohash来找到target_geohash
+        3. 根据target_geohash分组，并且取最大position
         """
-        result = []
-        z_order = ZOrder(data_precision=6, region=Region(40, 42, -75, -73))
-        for i in range(self.size):
-            if point1 < self.values[i]:
-                z1 = self.values[i - 1]
-                break
-        for j in range(i - 1, self.size):
-            if point2 < self.values[j]:
-                z2_next = self.values[j]
-                break
-        window_left, window_bottom = z_order.z_to_min_point(z1)
-        window_right, window_top = z_order.z_to_min_point(z2_next - 1)
-        child_z_block_list = []
-        while window_bottom < window_top:
-            tmp_window_top = window_bottom + self.minreg
-            while window_left < window_right:
-                tmp_window_right = window_left + self.minreg
-                child_z_block_list.append([z_order.point_to_z(window_left, window_bottom),
-                                           z_order.point_to_z(tmp_window_right, tmp_window_top)])
-                window_left = tmp_window_right
-            window_bottom = tmp_window_top
-
-        tmp_result = []
-        for child_z_block in child_z_block_list:
-            for k in range(i - 1, j):
-                if child_z_block[1] < self.values[k]:
-                    tmp_result.append([k - 1, child_z_block])
-        tmp_dict = dict(tmp_result)
-        return tmp_dict
+        # 1. get origin geohash and position in the range(geohash_int1, geohash_int2)
+        origin_geohash_list = ranges_by_int(point1, point2, self.max_length)
+        # 2. get target geohash by prefix match
+        size1 = len(origin_geohash_list)
+        # 优化: 先用二分找到第一个，107mil->102mil，全部用二分需要348mil
+        # i, j = 0, 0
+        i, j = 1, binary_search_less_max(self.geohashs, origin_geohash_list[0][0], 0, self.size)
+        origin_geohash_list[0][0] = j
+        while i < size1:
+            if self.geohashs[j] > origin_geohash_list[i][0]:
+                origin_geohash_list[i][0] = j - 1
+                i += 1
+            else:
+                j += 1
+        # 3. group target geohash and max(position)
+        return groupby_and_max(origin_geohash_list)
+        # 前缀匹配太慢：时间复杂度=O(len(window对应的geohash个数)*(j-i))
+        # return [k
+        #         for tmp_geohash in geohash_list
+        #         for k in range(i - 1, j)
+        #         if compare(self.geohashs[k], tmp_geohash)]

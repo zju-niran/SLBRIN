@@ -176,7 +176,7 @@ class GeoHashModelIndex(SpatialIndex):
             # 4. binary search in scope
             return biased_search(self.index_list, z, pre_init, left_bound, right_bound)
 
-    def range_query(self, windows):
+    def range_query_single_old(self, window):
         """
         query index by x1/y1/x2/y2 window
         1. compute z from window_left and window_right
@@ -188,60 +188,177 @@ class GeoHashModelIndex(SpatialIndex):
         3.2.1 get the min_z/max_z of intersect part
         3.2.2 get the min_index/max_index by nn predict and biased search
         3.2.3 filter all the point of scope[min_index/max_index] by range.contain(point)
-        :param windows: list, [x1, y1, x2, y2]
-        :return: list, [pres]
+        主要耗时间：两次z的predict和最后的精确过滤，0.1, 0.1 , 0.6
         """
-        results = []
-        for window in windows:
-            region = Region(window[0], window[1], window[2], window[3])
-            # 1. compute z of window_left and window_right
-            z_value1 = self.z_order.point_to_z(window[2], window[0])
-            z_value2 = self.z_order.point_to_z(window[3], window[1])
-            # 2. get block1 and block2 by zbrin,
-            # and validate the relation in spatial between query window and blocks[block1, block2]
-            lm_info_list = self.zbrin.range_query(z_value1, z_value2, region)
-            tmp_results = []
-            # 3. for different relation, use different method to handle the points
-            for lm_info in lm_info_list:
-                # 0 2 1 3的顺序是按照频率降序
-                if lm_info[0][0] == 0:  # no relation
+        region = Region(window[0], window[1], window[2], window[3])
+        # 1. compute z of window_left and window_right
+        z_value1 = self.z_order.point_to_z(window[2], window[0])
+        z_value2 = self.z_order.point_to_z(window[3], window[1])
+        # 2. get block1 and block2 by zbrin,
+        # and validate the relation in spatial between query window and blocks[block1, block2]
+        lm_info_list = self.zbrin.range_query_old(z_value1, z_value2, region)
+        result = []
+        # 3. for different relation, use different method to handle the points
+        for lm_info in lm_info_list:
+            # 0 2 1 3的顺序是按照频率降序
+            if lm_info[0][0] == 0:  # no relation
+                continue
+            else:
+                if lm_info[2][0] is None:  # block is None
                     continue
+                # 3.1 if window contain the block, add all the items into results
+                if lm_info[0][0] == 2:  # window contain block
+                    result.extend(list(range(lm_info[2][0], lm_info[2][1] + 1)))
+                # 3.2 if window intersect or within the block
                 else:
-                    if lm_info[2][0] is None:  # block is None
-                        continue
-                    # 3.1 if window contain the block, add all the items into results
-                    if lm_info[0][0] == 2:  # block contain window
-                        tmp_results.extend(list(range(lm_info[2][0], lm_info[2][1] + 1)))
-                    # 3.2 if window intersect or within the block
+                    # 3.2.1 get the min_z/max_z of intersect part
+                    lm = self.gm_dict[lm_info[1]]
+                    if lm_info[0][0] == 1:  # intersect
+                        z_value1 = self.z_order.point_to_z(lm_info[0][1].left, lm_info[0][1].bottom)
+                        z_value2 = self.z_order.point_to_z(lm_info[0][1].right, lm_info[0][1].up)
+                    # 3.2.2 get the min_index/max_index by nn predict and biased search
+                    pre1 = lm.predict(z_value1)
+                    pre2 = lm.predict(z_value2)
+                    min_err = lm.min_err
+                    max_err = lm.max_err
+                    left_bound1 = max(round(pre1 - max_err), lm_info[2][0])
+                    right_bound1 = min(round(pre1 - min_err), lm_info[2][1])
+                    index_left = biased_search(self.index_list, z_value1, int(pre1), left_bound1, right_bound1)
+                    if z_value1 == z_value2:
+                        if len(index_left) > 0:
+                            result.extend(index_left)
                     else:
-                        # 3.2.1 get the min_z/max_z of intersect part
-                        lm = self.gm_dict[lm_info[1]]
-                        if lm_info[0][0] == 1:  # intersect
-                            z_value1 = self.z_order.point_to_z(lm_info[0][1].left, lm_info[0][1].bottom)
-                            z_value2 = self.z_order.point_to_z(lm_info[0][1].right, lm_info[0][1].up)
-                        # 3.2.2 get the min_index/max_index by nn predict and biased search
-                        pre1 = lm.predict(z_value1)
-                        pre2 = lm.predict(z_value2)
-                        min_err = lm.min_err
-                        max_err = lm.max_err
-                        left_bound1 = max(round(pre1 - max_err), lm_info[2][0])
-                        right_bound1 = min(round(pre1 - min_err), lm_info[2][1])
-                        index_left = biased_search(self.index_list, z_value1, int(pre1), left_bound1, right_bound1)
-                        if z_value1 == z_value2:
-                            if len(index_left) > 0:
-                                tmp_results.extend(index_left)
-                        else:
-                            index_left = left_bound1 if len(index_left) == 0 else min(index_left)
-                            left_bound2 = max(round(pre2 - max_err), lm_info[2][0])
-                            right_bound2 = min(round(pre2 - min_err), lm_info[2][1])
-                            index_right = biased_search(self.index_list, z_value2, int(pre2), left_bound2, right_bound2)
-                            index_right = right_bound2 if len(index_right) == 0 else max(index_right)
-                            # 3.2.3 filter all the point of scope[min_index/max_index] by range.contain(point)
-                            tmp_results.extend([index for index in range(index_left, index_right + 1)
-                                                if region.contain_and_border_by_list(self.point_list[index])])
+                        index_left = left_bound1 if len(index_left) == 0 else min(index_left)
+                        left_bound2 = max(round(pre2 - max_err), lm_info[2][0])
+                        right_bound2 = min(round(pre2 - min_err), lm_info[2][1])
+                        index_right = biased_search(self.index_list, z_value2, int(pre2), left_bound2, right_bound2)
+                        index_right = right_bound2 if len(index_right) == 0 else max(index_right)
+                        # 3.2.3 filter all the point of scope[min_index/max_index] by range.contain(point)
+                        result.extend([index for index in range(index_left, index_right + 1)
+                                       if region.contain_and_border_by_list(self.point_list[index])])
 
-            results.append(tmp_results)
-        return results
+        return result
+
+    def range_query_old(self, windows):
+        return [self.range_query_single_old(window) for window in windows]
+
+    def range_query_single(self, window):
+        """
+        query index by x1/y1/x2/y2 window
+        1. compute z from window_left and window_right
+        2. get all relative blocks with index and relationship
+        3. get min_z and max_z of every block for different relation
+        4. predict min_index/max_index by nn
+        5. filter all the point of scope[min_index/max_index] by range.contain(point)
+        主要耗时间：zbrin.range_query.ranges_by_int/nn predict/精确过滤: 307mil/145mil/432mil
+        """
+        if window[0] == window[1] and window[2] == window[3]:
+            return self.point_query_single([window[2], window[0]])
+        # 1. compute z of window_left and window_right
+        z_value1 = self.z_order.point_to_z(window[2], window[0])
+        z_value2 = self.z_order.point_to_z(window[3], window[1])
+        # 2. get all relative blocks with index and relationship
+        geohash_int1 = z_value1 >> self.z_order.bits * 2 - self.zbrin.max_length
+        geohash_int2 = z_value2 >> self.z_order.bits * 2 - self.zbrin.max_length
+        blk_index_list = self.zbrin.range_query(geohash_int1, geohash_int2)
+        result = []
+        # 3. get min_z and max_z of every block for different relation
+        position_func_list = [lambda index: (None, None, None),
+                              lambda index: (  # right
+                                  None,
+                                  self.z_order.point_to_z(window[3], self.zbrin.blkregs[index].up),
+                                  lambda x: window[3] >= x[0]),
+                              lambda index: (  # left
+                                  self.z_order.point_to_z(window[2], self.zbrin.blkregs[index].bottom),
+                                  None,
+                                  lambda x: window[2] <= x[0]),
+                              lambda index: (  # left-right
+                                  self.z_order.point_to_z(window[2], self.zbrin.blkregs[index].bottom),
+                                  self.z_order.point_to_z(window[3], self.zbrin.blkregs[index].up),
+                                  lambda x: window[2] <= x[0] <= window[3]),
+                              lambda index: (  # up
+                                  None,
+                                  self.z_order.point_to_z(self.zbrin.blkregs[blk_index].right, window[1]),
+                                  lambda x: window[1] >= x[1]),
+                              lambda index: (  # up-right
+                                  None,
+                                  z_value2,
+                                  lambda x: window[3] >= x[0] and window[1] >= x[1]),
+                              lambda index: (  # up-left
+                                  self.z_order.point_to_z(window[2], self.zbrin.blkregs[blk_index].bottom),
+                                  self.z_order.point_to_z(self.zbrin.blkregs[blk_index].right, window[1]),
+                                  lambda x: window[2] <= x[0] and window[1] >= x[1]),
+                              lambda index: (  # up-left-right
+                                  self.z_order.point_to_z(window[2], self.zbrin.blkregs[blk_index].bottom),
+                                  z_value2,
+                                  lambda x: window[2] <= x[0] <= window[3] and window[1] >= x[1]),
+                              lambda index: (  # bottom
+                                  self.z_order.point_to_z(self.zbrin.blkregs[blk_index].left, window[0]),
+                                  None,
+                                  lambda x: window[0] <= x[1]),
+                              lambda index: (  # bottom-right
+                                  self.z_order.point_to_z(self.zbrin.blkregs[blk_index].left, window[0]),
+                                  self.z_order.point_to_z(window[3], self.zbrin.blkregs[blk_index].up),
+                                  lambda x: window[3] >= x[0] and window[0] <= x[1]),
+                              lambda index: (  # bottom-left
+                                  z_value1,
+                                  None,
+                                  lambda x: window[2] <= x[0] and window[0] <= x[1]),
+                              lambda index: (  # bottom-left-right
+                                  z_value1,
+                                  self.z_order.point_to_z(window[3], self.zbrin.blkregs[blk_index].up),
+                                  lambda x: window[2] <= x[0] <= window[3] and window[0] <= x[1]),
+                              lambda index: (  # bottom-up
+                                  self.z_order.point_to_z(self.zbrin.blkregs[blk_index].left, window[0]),
+                                  self.z_order.point_to_z(self.zbrin.blkregs[blk_index].right, window[1]),
+                                  lambda x: window[0] <= x[1] <= window[1]),
+                              lambda index: (  # bottom-up-right
+                                  self.z_order.point_to_z(self.zbrin.blkregs[blk_index].left, window[0]),
+                                  z_value2,
+                                  lambda x: window[3] >= x[0] and window[0] <= x[1] <= window[1]),
+                              lambda index: (  # bottom-up-left
+                                  z_value1,
+                                  self.z_order.point_to_z(self.zbrin.blkregs[blk_index].right, window[1]),
+                                  lambda x: window[2] <= x[0] and window[0] <= x[1] <= window[1]),
+                              lambda index: (  # bottom-up-left-right
+                                  z_value1,
+                                  z_value2,
+                                  lambda x: window[2] <= x[0] <= window[3] and window[0] <= x[1] <= window[1])]
+        for blk_index in blk_index_list:
+            if self.zbrin.blknums[blk_index] == 0:  # block is None
+                continue
+            position = blk_index_list[blk_index]
+            indexes = self.zbrin.indexes[blk_index]
+            if position == 0:  # window contain block
+                result.extend(list(range(indexes[0], indexes[1] + 1)))
+            else:
+                # if-elif-else->lambda, 30->4
+                z_value_new1, z_value_new2, compare_func = position_func_list[position](blk_index)
+                lm = self.gm_dict[blk_index]
+                min_err = lm.min_err
+                max_err = lm.max_err
+                # 4 predict min_index/max_index by nn
+                if z_value_new1 is not None:
+                    pre1 = lm.predict(z_value_new1)
+                    left_bound1 = max(round(pre1 - max_err), indexes[0])
+                    right_bound1 = min(round(pre1 - min_err), indexes[1])
+                    index_left = biased_search(self.index_list, z_value_new1, int(pre1), left_bound1, right_bound1)
+                    index_left = left_bound1 if len(index_left) == 0 else min(index_left)
+                else:
+                    index_left = indexes[0]
+                if z_value_new2 is not None:
+                    pre2 = lm.predict(z_value_new2)
+                    left_bound2 = max(round(pre2 - max_err), indexes[0])
+                    right_bound2 = min(round(pre2 - min_err), indexes[1])
+                    index_right = biased_search(self.index_list, z_value_new2, int(pre2), left_bound2, right_bound2)
+                    index_right = right_bound2 if len(index_right) == 0 else max(index_right)
+                else:
+                    index_right = indexes[1]
+                # 5 filter all the point of scope[min_index/max_index] by range.contain(point)
+                # 优化: region.contain->compare_func不同位置的点做不同的判断: 638->474mil
+                result.extend([index for index in range(index_left, index_right + 1)
+                               if compare_func(self.point_list[index])])
+        return result
 
 
 class MyEncoder(json.JSONEncoder):
@@ -284,8 +401,9 @@ class MyDecoder(json.JSONDecoder):
             t = ZOrder.init_by_dict(d)
         elif d.__contains__("name") and d["name"] == "GeoHash Model Index":
             t = GeoHashModelIndex.init_by_dict(d)
-        elif len(d.keys()) == 6 and d.__contains__("version") and d.__contains__("size") and d.__contains__(
-                "blkregs") and d.__contains__("blknums") and d.__contains__("values") and d.__contains__("indexes"):
+        elif len(d.keys()) == 9 and d.__contains__("version") and d.__contains__("size") and d.__contains__(
+                "blkregs") and d.__contains__("blknums") and d.__contains__("values") and d.__contains__(
+            "geohashs") and d.__contains__("lengths") and d.__contains__("max_length"):
             t = ZBRIN.init_by_dict(d)
         else:
             t = d
