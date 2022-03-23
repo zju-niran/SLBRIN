@@ -40,12 +40,12 @@ def load_model_size():
 3.2 构建精度高的
 """
 if __name__ == '__main__':
+    os.chdir(os.path.dirname(os.path.realpath(__file__)))
     logging.basicConfig(filename=os.path.join("model/gm_index/log.file"),
                         level=logging.INFO,
                         format="%(asctime)s - %(levelname)s - %(message)s",
                         datefmt="%m/%d/%Y %H:%M:%S %p")
     # 1. 读取数据
-    os.chdir(os.path.dirname(os.path.realpath(__file__)))
     # path = '../../data/trip_data_1_100000.csv'
     path = '../../data/trip_data_1_filter.csv'
     train_set_xy = pd.read_csv(path)
@@ -67,7 +67,8 @@ if __name__ == '__main__':
                     batch_size=1024,
                     learning_rate=0.01,
                     retrain_time_limit=20,
-                    thread_pool_size=1)
+                    thread_pool_size=1,
+                    record=False)
         end_time = time.time()
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)
@@ -101,7 +102,8 @@ if __name__ == '__main__':
                     batch_size=1024,
                     learning_rate=0.01,
                     retrain_time_limit=20,
-                    thread_pool_size=6)
+                    thread_pool_size=6,
+                    record=True)
         end_time = time.time()
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)

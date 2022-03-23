@@ -241,17 +241,18 @@ class TrainedNN:
         return 0.1 * range_loss + mse_loss
 
     def get_err(self):
-        pres = self.model.predict(self.train_x).flatten()
+        pres = self.model(self.train_x).numpy().flatten()
         errs_normalize_reverse = nparray_diff_normalize_reverse_arr(pres, self.train_y, self.train_y_min,
                                                                     self.train_y_max)
         return errs_normalize_reverse.min(), errs_normalize_reverse.max()
 
     def predict(self):
-        pres = self.model.predict(self.train_x).flatten()
+        # model.predict会报错：6 out of the last 8 calls to <function Model.make_predict_function.<locals>.predict_function
+        pres = self.model(self.train_x).numpy().flatten()
         return nparray_normalize_reverse_arr(pres, self.train_y_min, self.train_y_max)
 
     def plot(self):
-        pres = self.model.predict(self.train_x).flatten()
+        pres = self.model(self.train_x).numpy().flatten()
         plt.plot(self.train_x, self.train_y, 'y--', label="true")
         plt.plot(self.train_x, pres, 'm--', label="predict")
         plt.legend()

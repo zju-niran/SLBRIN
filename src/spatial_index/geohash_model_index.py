@@ -14,6 +14,7 @@ from src.spatial_index.quad_tree import QuadTree
 from src.spatial_index.common_utils import ZOrder, Region, biased_search
 from src.spatial_index.spatial_index import SpatialIndex
 from src.rmi_keras import TrainedNN, AbstractNN
+from src.rmi_keras_simple import TrainedNN as TrainedNN_Simple
 
 
 class GeoHashModelIndex(SpatialIndex):
@@ -41,7 +42,7 @@ class GeoHashModelIndex(SpatialIndex):
         self.point_list = data[["x", "y"]].values.tolist()
 
     def build(self, data: pd.DataFrame, max_num, data_precision, region, use_threshold, threshold, core, train_step,
-              batch_size, learning_rate, retrain_time_limit, thread_pool_size):
+              batch_size, learning_rate, retrain_time_limit, thread_pool_size, record):
         """
         build index
         1. init train z->index data from x/y data
@@ -77,28 +78,32 @@ class GeoHashModelIndex(SpatialIndex):
                 labels.append(point.index)
             pool.apply_async(self.build_single_thread, (1, index, inputs, labels, use_threshold, threshold, core,
                                                         train_step, batch_size, learning_rate, retrain_time_limit,
-                                                        mp_dict))
+                                                        record, mp_dict))
         pool.close()
         pool.join()
         for (key, value) in mp_dict.items():
             self.gm_dict[key] = value
 
     def build_single_thread(self, curr_stage, current_stage_step, inputs, labels, use_threshold, threshold,
-                            core, train_step, batch_size, learning_rate, retrain_time_limit, tmp_dict=None):
+                            core, train_step, batch_size, learning_rate, retrain_time_limit, record, tmp_dict=None):
         # train model
         i = curr_stage
         j = current_stage_step
-        model_index = str(i) + "_" + str(j)
-        tmp_index = TrainedNN(self.model_path, model_index, inputs, labels,
-                              use_threshold,
-                              threshold,
-                              core,
-                              train_step,
-                              batch_size,
-                              learning_rate,
-                              retrain_time_limit)
-        tmp_index.train()
-        tmp_index.plot()
+        if record is False:
+            print("Current model index: %s" % j)
+            tmp_index = TrainedNN_Simple(inputs, labels, core, train_step, batch_size, learning_rate)
+            tmp_index.train()
+        else:
+            model_index = str(i) + "_" + str(j)
+            tmp_index = TrainedNN(self.model_path, model_index, inputs, labels,
+                                  use_threshold,
+                                  threshold,
+                                  core,
+                                  train_step,
+                                  batch_size,
+                                  learning_rate,
+                                  retrain_time_limit)
+            tmp_index.train()
         # get parameters in model (weight matrix and bias matrix)
         abstract_index = AbstractNN(tmp_index.get_weights(),
                                     core,
@@ -435,7 +440,8 @@ def main():
                     batch_size=1024,
                     learning_rate=0.01,
                     retrain_time_limit=20,
-                    thread_pool_size=1)
+                    thread_pool_size=1,
+                    record=True)
         end_time = time.time()
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)
