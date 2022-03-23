@@ -11,7 +11,7 @@ import pandas as pd
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.zbrin import ZBRIN
 from src.spatial_index.quad_tree import QuadTree
-from src.spatial_index.common_utils import ZOrder, Region, biased_search
+from src.spatial_index.common_utils import ZOrder, Region, biased_search, Point, biased_search_almost
 from src.spatial_index.spatial_index import SpatialIndex
 from src.rmi_keras import TrainedNN, AbstractNN
 from src.rmi_keras_simple import TrainedNN as TrainedNN_Simple
@@ -194,6 +194,7 @@ class GeoHashModelIndex(SpatialIndex):
         3.2.2 get the min_index/max_index by nn predict and biased search
         3.2.3 filter all the point of scope[min_index/max_index] by range.contain(point)
         主要耗时间：两次z的predict和最后的精确过滤，0.1, 0.1 , 0.6
+        # TODO: 由于build zbrin的时候region移动了，导致这里的查询不准确了
         """
         region = Region(window[0], window[1], window[2], window[3])
         # 1. compute z of window_left and window_right
@@ -347,16 +348,17 @@ class GeoHashModelIndex(SpatialIndex):
                     pre1 = lm.predict(z_value_new1)
                     left_bound1 = max(round(pre1 - max_err), indexes[0])
                     right_bound1 = min(round(pre1 - min_err), indexes[1])
-                    index_left = biased_search(self.index_list, z_value_new1, int(pre1), left_bound1, right_bound1)
-                    index_left = left_bound1 if len(index_left) == 0 else min(index_left)
+                    index_left = min(biased_search_almost(self.index_list, z_value_new1, int(pre1), left_bound1,
+                                                          right_bound1))
                 else:
                     index_left = indexes[0]
                 if z_value_new2 is not None:
                     pre2 = lm.predict(z_value_new2)
                     left_bound2 = max(round(pre2 - max_err), indexes[0])
                     right_bound2 = min(round(pre2 - min_err), indexes[1])
-                    index_right = biased_search(self.index_list, z_value_new2, int(pre2), left_bound2, right_bound2)
-                    index_right = right_bound2 if len(index_right) == 0 else max(index_right)
+                    index_right = max(biased_search_almost(self.index_list, z_value_new2, int(pre2), left_bound2,
+                                                           right_bound2))
+
                 else:
                     index_right = indexes[1]
                 # 5 filter all the point of scope[min_index/max_index] by range.contain(point)

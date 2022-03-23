@@ -216,6 +216,9 @@ class QuadTree(SpatialIndex):
         if parent_geohash is None:
             parent_geohash = ""
         if node.is_leaf == 1:
+            # 所有region右上角往左下角移一点，这样region交点的z仍能在region内，但是右上角需要始终大于所有其内点
+            # 因此移动距离 = 数据精度 - 1
+            node.region.up_right_less(pow(10, -self.data_precision - 1))
             self.leaf_nodes.append({
                 "first_z": z_order.point_to_z(node.region.left, node.region.bottom),
                 "items": node.items,

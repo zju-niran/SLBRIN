@@ -189,6 +189,9 @@ class Region:
         limit = min(self.up - self.bottom, self.right - self.left)
         return math.ceil(math.log(limit / math.pow(10, -precision), 2))
 
+    def up_right_less(self, i):
+        self.up -= i
+        self.right -= i
 
 class ZOrder:
     def __init__(self, data_precision, region):
@@ -409,6 +412,7 @@ def binary_search_less_max(nums, x, left, right):
     """
     二分查找比x小的最大值
     """
+    # TODO：优化，不要这么多判断，最后取left或者right即可
     while left <= right:
         mid = (left + right) // 2
         if nums[mid] == x:
@@ -447,6 +451,32 @@ def binary_search(nums, x, left, right):
         else:
             right = mid - 1
     return result
+
+
+def biased_search_almost(nums, x, pre, left, right):
+    """
+    二分查找，找不到则返回最接近的
+    """
+    mid = pre
+    result = []
+    while left <= right:
+        if nums[mid] == x:
+            result.append(mid)
+            mid_left = mid - 1
+            while mid_left >= left and nums[mid_left] == x:
+                result.append(mid_left)
+                mid_left -= 1
+            mid_right = mid + 1
+            while mid_right <= right and nums[mid_right] == x:
+                result.append(mid_right)
+                mid_right += 1
+            return result
+        elif nums[mid] < x:
+            left = mid + 1
+        else:
+            right = mid - 1
+        mid = (left + right) // 2
+    return [right] if nums[left] - x > x - nums[right] else [left]
 
 
 def biased_search(nums, x, pre, left, right):
