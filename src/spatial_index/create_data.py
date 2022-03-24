@@ -133,6 +133,40 @@ def create_knn_from_csv(input_path, output_path, knn_point_limit, knn_n_limit):
     result.to_csv(output_path)
 
 
+def check_knn():
+    index_list = pd.read_csv(r'D:\Code\Paper\st-learned-index\src\spatial_index\model\gm_index_10w\point_list.csv',
+                             float_precision='round_trip', header=None)
+    data_list = pd.read_csv(r'D:\Code\Paper\st-learned-index\data\trip_data_1_100000.csv', float_precision='round_trip')
+    gm_result_list = r'D:\Code\Paper\st-learned-index\src\spatial_index\model\gm_index_10w\knn_query_result.csv'
+    r_result_list = r'D:\Code\Paper\st-learned-index\src\spatial_index\model\rtree_10w\knn_query_result.csv'
+    with open(gm_result_list) as f1, open(r_result_list) as f2:
+        count = 0
+        list1 = []
+        list2 = []
+        for line1 in f1.readlines():
+            l = []
+            line1 = line1[1:-2]
+            indexes = line1.split(", ")
+            for index1 in indexes:
+                index1 = int(index1)
+                row = index_list.iloc[index1]
+                l.append([row[0], row[1]])
+            list1.append(l)
+        for line2 in f2.readlines():
+            l = []
+            line2 = line2[1:-2]
+            indexes = line2.split(", ")
+            for index2 in indexes:
+                index2 = int(index2)
+                row = data_list.iloc[index2]
+                l.append([row[1], row[2]])
+            list2.append(l)
+    for i in range(len(list1)):
+        for j in range(len(list1[i])):
+            if list1[i][j] not in list2[i]:
+                print("gm: %s, r: %s" % (list1[i], list2[i]))
+
+
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     headers = ['medallion',
@@ -152,10 +186,10 @@ if __name__ == '__main__':
     # 数据来源：从http://www.andresmh.com/nyctaxitrips/下载trip_data.7z，拿到其中的一月份数据csv
     # 数据总记录数：14776616，region内14507253
     # csv文件size：2459600863字节=2.29GB
-    input_path = "../../data/trip_data_1.csv"
-    output_path = "../../data/trip_data_1_filter.csv"
+    # input_path = "../../data/trip_data_1.csv"
+    # output_path = "../../data/trip_data_1_filter.csv"
     # 1. 生成数据
-    filter_row_from_csv(input_path, output_path, None, Region(40, 42, -75, -73))
+    # filter_row_from_csv(input_path, output_path, None, Region(40, 42, -75, -73))
     # 输出数据spatial scope
     # 40.016666, 41.933331, -74.990433, -73.000938
     # input_path = "../../data/trip_data_1_filter.csv"
@@ -182,3 +216,6 @@ if __name__ == '__main__':
     # knn_point_limit = 1000
     # knn_n_limit = 10
     # create_knn_from_csv(output_path_100000_sample, output_path_knn_query_csv, knn_point_limit, knn_n_limit)
+
+    # 确定knn找到的数据对不对
+    check_knn()

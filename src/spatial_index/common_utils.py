@@ -40,7 +40,8 @@ class Point:
         :param other:
         :return: distance
         """
-        return math.sqrt((self.lng - other.lng) ** 2 + (self.lat - other.lat) ** 2)
+        # 优化: math.sqrt->**0.5
+        return ((self.lng - other.lng) ** 2 + (self.lat - other.lat) ** 2) ** 0.5
 
     def distance_pow(self, other):
         """
@@ -49,6 +50,10 @@ class Point:
         :return: distance ** 2
         """
         return (self.lng - other.lng) ** 2 + (self.lat - other.lat) ** 2
+
+    @staticmethod
+    def distance_pow_point_list(point1: list, point2: list):
+        return (point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2
 
 
 class Region:
@@ -111,21 +116,21 @@ class Region:
             if point.lat >= self.up:
                 return point.distance(Point(self.right, self.up)) <= distance
             elif self.bottom < point.lat < self.up:
-                return Point(point.lng, 0).distance(Point(self.right, 0)) <= distance
+                return point.lng - self.right <= distance
             else:
                 return point.distance(Point(self.right, self.bottom)) <= distance
         elif self.left < point.lng < self.right:
             if point.lat <= self.bottom:
-                return Point(0, point.lat).distance(Point(0, self.bottom)) <= distance
+                return self.bottom - point.lat <= distance
             elif self.bottom < point.lat < self.up:
                 return True
             else:
-                return Point(0, point.lat).distance(Point(0, self.up)) <= distance
+                return point.lat - self.up <= distance
         else:
             if point.lat <= self.bottom:
                 return point.distance(Point(self.left, self.bottom)) <= distance
             elif self.bottom < point.lat < self.up:
-                return Point(point.lng, 0).distance(Point(self.left, 0)) <= distance
+                return self.left - point.lng <= distance
             else:
                 return point.distance(Point(self.left, self.up)) < distance
 
@@ -134,21 +139,21 @@ class Region:
             if point.lat >= self.up:
                 return point.distance_pow(Point(self.right, self.up)) <= distance_pow
             elif self.bottom < point.lat < self.up:
-                return Point(point.lng, 0).distance_pow(Point(self.right, 0)) <= distance_pow
+                return (point.lng - self.right) ** 2 <= distance_pow
             else:
                 return point.distance_pow(Point(self.right, self.bottom)) <= distance_pow
         elif self.left < point.lng < self.right:
             if point.lat <= self.bottom:
-                return Point(0, point.lat).distance_pow(Point(0, self.bottom)) <= distance_pow
+                return (self.bottom - point.lat) ** 2 <= distance_pow
             elif self.bottom < point.lat < self.up:
                 return True
             else:
-                return Point(0, point.lat).distance_pow(Point(0, self.up)) <= distance_pow
+                return (point.lat - self.up) ** 2 <= distance_pow
         else:
             if point.lat <= self.bottom:
                 return point.distance_pow(Point(self.left, self.bottom)) <= distance_pow
             elif self.bottom < point.lat < self.up:
-                return Point(point.lng, 0).distance_pow(Point(self.left, 0)) <= distance_pow
+                return (self.left - point.lng) ** 2 <= distance_pow
             else:
                 return point.distance_pow(Point(self.left, self.up)) < distance_pow
 
@@ -189,9 +194,38 @@ class Region:
         limit = min(self.up - self.bottom, self.right - self.left)
         return math.ceil(math.log(limit / math.pow(10, -precision), 2))
 
+    def get_min_distance_pow_by_point_list(self, point: list):
+        """
+        计算点到region的距离，如果点在region内，则距离为点离最近边的距离的负数
+        :param point:
+        :return:
+        """
+        if point[0] >= self.right:
+            if point[1] >= self.up:
+                return Point.distance_pow_point_list([self.right, self.up], point)
+            elif self.bottom < point[1] < self.up:
+                return (point[0] - self.right) ** 2
+            else:
+                return Point.distance_pow_point_list([self.right, self.bottom], point)
+        elif self.left < point[0] < self.right:
+            if point[1] <= self.bottom:
+                return (self.bottom - point[1]) ** 2
+            elif self.bottom < point[1] < self.up:
+                return max(self.bottom - point[1], point[1] - self.up, self.left - point[0], point[0] - self.right)
+            else:
+                return (point[1] - self.up) ** 2
+        else:
+            if point[1] <= self.bottom:
+                return Point.distance_pow_point_list([self.left, self.bottom], point)
+            elif self.bottom < point[1] < self.up:
+                return (self.left - point[0]) ** 2
+            else:
+                return Point.distance_pow_point_list([self.left, self.up], point)
+
     def up_right_less(self, i):
         self.up -= i
         self.right -= i
+
 
 class ZOrder:
     def __init__(self, data_precision, region):

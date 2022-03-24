@@ -17,10 +17,27 @@ def encode(lng: float, lat: float, precision: int = 60) -> str:
 def neighbors(geohash: str) -> list:
     lng_int = int(geohash[1::2], 2)
     lat_int = int(geohash[0::2], 2)
-    hash_len = len(geohash)
-    return [merge_bits(i, j, hash_len, hash_len // 2)
+    length = len(geohash)
+    bits_result = [''] * length
+    return [merge_bits_result(bits_result, i, j, length // 2)
             for j in [lat_int - 1, lat_int, lat_int + 1]
             for i in [lng_int - 1, lng_int, lng_int + 1]]
+
+
+def neighbors_by_int(geohash_int: int, length: int) -> list:
+    """
+    获取指定geohash_int的八个neighbors
+    :param geohash_int:
+    :param length:
+    :return:
+    """
+    geohash = bin(geohash_int)[2:]
+    lng_int = int(geohash[1::2], 2)
+    lat_int = int(geohash[0::2], 2)
+    bits_result = [''] * length
+    return sorted([merge_bits_result(bits_result, i, j, length // 2)
+                   for j in [lat_int - 1, lat_int, lat_int + 1]
+                   for i in [lng_int - 1, lng_int, lng_int + 1]])
 
 
 def geohash_to_int(geohash: str, length: int) -> int:

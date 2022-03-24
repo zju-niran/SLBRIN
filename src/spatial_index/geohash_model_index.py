@@ -5,6 +5,7 @@ import os
 import sys
 import time
 
+import line_profiler
 import numpy as np
 import pandas as pd
 
@@ -165,21 +166,22 @@ class GeoHashModelIndex(SpatialIndex):
         3. predict by leaf model and create index scope [pre - min_err, pre + max_err]
         4. binary search in scope
         """
-        # 1. compute z from x/y of points
+        # 1. compute z from x/y of point
         z = self.z_order.point_to_z(point[0], point[1])
         # 2. predicted the leaf model by zbrin
-        lm_index, lm_indexes = self.zbrin.point_query(z)
+        lm_index = self.zbrin.point_query(z)
+        lm_indexes = self.zbrin.indexes[lm_index]
         lm = self.gm_dict[lm_index]
         if lm is None:
             return None
         else:
             # 3. predict by z and create index scope [pre - min_err, pre + max_err]
             pre, min_err, max_err = lm.predict(z), lm.min_err, lm.max_err
-            pre_init = int(pre)  # int比round快一倍
             left_bound = max(round(pre - max_err), lm_indexes[0])
             right_bound = min(round(pre - min_err), lm_indexes[1])
             # 4. binary search in scope
-            return biased_search(self.index_list, z, pre_init, left_bound, right_bound)
+            # 优化: round->int:2->1
+            return biased_search(self.index_list, z, int(pre), left_bound, right_bound)
 
     def range_query_single_old(self, window):
         """
@@ -256,7 +258,7 @@ class GeoHashModelIndex(SpatialIndex):
         3. get min_z and max_z of every block for different relation
         4. predict min_index/max_index by nn
         5. filter all the point of scope[min_index/max_index] by range.contain(point)
-        主要耗时间：zbrin.range_query.ranges_by_int/nn predict/精确过滤: 307mil/145mil/432mil
+        主要耗时间：zbrin.range_query.ranges_by_int/nn predict/精确过滤: 307mil/145mil/359mil
         """
         if window[0] == window[1] and window[2] == window[3]:
             return self.point_query_single([window[2], window[0]])
@@ -284,27 +286,27 @@ class GeoHashModelIndex(SpatialIndex):
                                   lambda x: window[2] <= x[0] <= window[3]),
                               lambda index: (  # up
                                   None,
-                                  self.z_order.point_to_z(self.zbrin.blkregs[blk_index].right, window[1]),
+                                  self.z_order.point_to_z(self.zbrin.blkregs[index].right, window[1]),
                                   lambda x: window[1] >= x[1]),
                               lambda index: (  # up-right
                                   None,
                                   z_value2,
                                   lambda x: window[3] >= x[0] and window[1] >= x[1]),
                               lambda index: (  # up-left
-                                  self.z_order.point_to_z(window[2], self.zbrin.blkregs[blk_index].bottom),
-                                  self.z_order.point_to_z(self.zbrin.blkregs[blk_index].right, window[1]),
+                                  self.z_order.point_to_z(window[2], self.zbrin.blkregs[index].bottom),
+                                  self.z_order.point_to_z(self.zbrin.blkregs[index].right, window[1]),
                                   lambda x: window[2] <= x[0] and window[1] >= x[1]),
                               lambda index: (  # up-left-right
-                                  self.z_order.point_to_z(window[2], self.zbrin.blkregs[blk_index].bottom),
+                                  self.z_order.point_to_z(window[2], self.zbrin.blkregs[index].bottom),
                                   z_value2,
                                   lambda x: window[2] <= x[0] <= window[3] and window[1] >= x[1]),
                               lambda index: (  # bottom
-                                  self.z_order.point_to_z(self.zbrin.blkregs[blk_index].left, window[0]),
+                                  self.z_order.point_to_z(self.zbrin.blkregs[index].left, window[0]),
                                   None,
                                   lambda x: window[0] <= x[1]),
                               lambda index: (  # bottom-right
-                                  self.z_order.point_to_z(self.zbrin.blkregs[blk_index].left, window[0]),
-                                  self.z_order.point_to_z(window[3], self.zbrin.blkregs[blk_index].up),
+                                  self.z_order.point_to_z(self.zbrin.blkregs[index].left, window[0]),
+                                  self.z_order.point_to_z(window[3], self.zbrin.blkregs[index].up),
                                   lambda x: window[3] >= x[0] and window[0] <= x[1]),
                               lambda index: (  # bottom-left
                                   z_value1,
@@ -312,19 +314,19 @@ class GeoHashModelIndex(SpatialIndex):
                                   lambda x: window[2] <= x[0] and window[0] <= x[1]),
                               lambda index: (  # bottom-left-right
                                   z_value1,
-                                  self.z_order.point_to_z(window[3], self.zbrin.blkregs[blk_index].up),
+                                  self.z_order.point_to_z(window[3], self.zbrin.blkregs[index].up),
                                   lambda x: window[2] <= x[0] <= window[3] and window[0] <= x[1]),
                               lambda index: (  # bottom-up
-                                  self.z_order.point_to_z(self.zbrin.blkregs[blk_index].left, window[0]),
-                                  self.z_order.point_to_z(self.zbrin.blkregs[blk_index].right, window[1]),
+                                  self.z_order.point_to_z(self.zbrin.blkregs[index].left, window[0]),
+                                  self.z_order.point_to_z(self.zbrin.blkregs[index].right, window[1]),
                                   lambda x: window[0] <= x[1] <= window[1]),
                               lambda index: (  # bottom-up-right
-                                  self.z_order.point_to_z(self.zbrin.blkregs[blk_index].left, window[0]),
+                                  self.z_order.point_to_z(self.zbrin.blkregs[index].left, window[0]),
                                   z_value2,
                                   lambda x: window[3] >= x[0] and window[0] <= x[1] <= window[1]),
                               lambda index: (  # bottom-up-left
                                   z_value1,
-                                  self.z_order.point_to_z(self.zbrin.blkregs[blk_index].right, window[1]),
+                                  self.z_order.point_to_z(self.zbrin.blkregs[index].right, window[1]),
                                   lambda x: window[2] <= x[0] and window[0] <= x[1] <= window[1]),
                               lambda index: (  # bottom-up-left-right
                                   z_value1,
@@ -366,6 +368,123 @@ class GeoHashModelIndex(SpatialIndex):
                 result.extend([index for index in range(index_left, index_right + 1)
                                if compare_func(self.point_list[index])])
         return result
+
+    def knn_query_single(self, knn):
+        """
+        query index by x1/y1/n knn
+        1. get the nearest index of query point
+        2. get the nn points to create range query window
+        3 filter point by distance
+        """
+        n = knn[2]
+        # 1. get the nearest index of query point
+        qp_z = self.z_order.point_to_z(knn[0], knn[1])
+        qp_blk = self.zbrin.point_query(qp_z)
+        qp_model = self.gm_dict[qp_blk]
+        qp_model_indexes = self.zbrin.indexes[qp_blk]
+        # if model is None, qp_index = the max index of the prefix blk
+        if qp_model is None:
+            while qp_model is None and qp_blk >= 0:
+                qp_blk -= 1
+            if qp_blk == -1:
+                query_point_index = 0
+            else:
+                query_point_index = self.zbrin.indexes[qp_blk][1]
+        # if model is not None, qp_index = point_query(z)
+        else:
+            pre, min_err, max_err = qp_model.predict(qp_z), qp_model.min_err, qp_model.max_err
+            left_bound = max(round(pre - max_err), qp_model_indexes[0])
+            right_bound = min(round(pre - min_err), qp_model_indexes[1])
+            query_point_index = biased_search_almost(self.index_list, qp_z, int(pre), left_bound, right_bound)[0]
+        # 2. get the nn points to create range query window
+        tp_list = [[Point.distance_pow_point_list(knn, self.point_list[i]), i]
+                   for i in range(query_point_index - n, query_point_index + n + 1)]
+        tp_list = sorted(tp_list)[:n]
+        max_dist = tp_list[-1][0]
+        if max_dist == 0:
+            return [tp[1] for tp in tp_list]
+        max_dist_pow = max_dist ** 0.5
+        window = [knn[1] - max_dist_pow, knn[1] + max_dist_pow, knn[0] - max_dist_pow, knn[0] + max_dist_pow]
+        z_value1 = self.z_order.point_to_z(window[2], window[0])
+        z_value2 = self.z_order.point_to_z(window[3], window[1])
+        geohash_int1 = z_value1 >> self.z_order.bits * 2 - self.zbrin.max_length
+        geohash_int2 = z_value2 >> self.z_order.bits * 2 - self.zbrin.max_length
+        tp_window_blkes = self.zbrin.knn_query(geohash_int1, geohash_int2, knn)
+        position_func_list = [lambda index: (None, None),  # window contain block
+                              lambda index: (  # right
+                                  None,
+                                  self.z_order.point_to_z(window[3], self.zbrin.blkregs[index].up)),
+                              lambda index: (  # left
+                                  self.z_order.point_to_z(window[2], self.zbrin.blkregs[index].bottom),
+                                  None),
+                              None,  # left-right
+                              lambda index: (  # up
+                                  None,
+                                  self.z_order.point_to_z(self.zbrin.blkregs[index].right, window[1])),
+                              lambda index: (  # up-right
+                                  None,
+                                  z_value2),
+                              lambda index: (  # up-left
+                                  self.z_order.point_to_z(window[2], self.zbrin.blkregs[index].bottom),
+                                  self.z_order.point_to_z(self.zbrin.blkregs[index].right, window[1])),
+                              lambda index: (None, None),  # up-left-right
+                              lambda index: (  # bottom
+                                  self.z_order.point_to_z(self.zbrin.blkregs[index].left, window[0]),
+                                  None),
+                              lambda index: (  # bottom-right
+                                  self.z_order.point_to_z(self.zbrin.blkregs[index].left, window[0]),
+                                  self.z_order.point_to_z(window[3], self.zbrin.blkregs[index].up)),
+                              lambda index: (  # bottom-left
+                                  z_value1,
+                                  None),
+                              lambda index: (  # bottom-left-right
+                                  z_value1,
+                                  self.z_order.point_to_z(window[3], self.zbrin.blkregs[index].up)),
+                              None,
+                              lambda index: (  # bottom-up-right
+                                  self.z_order.point_to_z(self.zbrin.blkregs[index].left, window[0]),
+                                  z_value2),
+                              lambda index: (  # bottom-up-left
+                                  z_value1,
+                                  self.z_order.point_to_z(self.zbrin.blkregs[index].right, window[1])),
+                              lambda index: (  # bottom-up-left-right
+                                  z_value1,
+                                  z_value2)]
+        tp_list = []
+        for tp_window_blk in tp_window_blkes:
+            if tp_window_blk[2] > max_dist:
+                break
+            tp_window_blk_index = tp_window_blk[0]
+            if self.zbrin.blknums[tp_window_blk_index] == 0:  # block is None
+                continue
+            indexes = self.zbrin.indexes[tp_window_blk_index]
+            z_value_new1, z_value_new2 = position_func_list[tp_window_blk[1]](tp_window_blk_index)
+            lm = self.gm_dict[tp_window_blk_index]
+            min_err = lm.min_err
+            max_err = lm.max_err
+            if z_value_new1 is not None:
+                pre1 = lm.predict(z_value_new1)
+                left_bound1 = max(round(pre1 - max_err), indexes[0])
+                right_bound1 = min(round(pre1 - min_err), indexes[1])
+                index_left = min(biased_search_almost(self.index_list, z_value_new1, int(pre1), left_bound1,
+                                                      right_bound1))
+            else:
+                index_left = indexes[0]
+            if z_value_new2 is not None:
+                pre2 = lm.predict(z_value_new2)
+                left_bound2 = max(round(pre2 - max_err), indexes[0])
+                right_bound2 = min(round(pre2 - min_err), indexes[1])
+                index_right = max(biased_search_almost(self.index_list, z_value_new2, int(pre2), left_bound2,
+                                                       right_bound2))
+
+            else:
+                index_right = indexes[1]
+            # 3 filter point by distance
+            tp_list.extend([[Point.distance_pow_point_list(knn, self.point_list[i]), i]
+                            for i in range(index_left, index_right + 1)])
+            tp_list = sorted(tp_list)[:n]
+            max_dist = tp_list[-1][0]
+        return [tp[1] for tp in tp_list]
 
 
 class MyEncoder(json.JSONEncoder):
@@ -466,7 +585,19 @@ def main():
     search_time = (end_time - start_time) / len(range_query_list)
     print("Range query time ", search_time)
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    print("*************end %s************" % index_name)
+    path = '../../data/trip_data_1_knn_query.csv'
+    knn_query_df = pd.read_csv(path, usecols=[1, 2, 3], dtype={"n": int})
+    knn_query_list = [[value[0], value[1], int(value[2])] for value in knn_query_df.values]
+    profile = line_profiler.LineProfiler(index.knn_query_single)
+    profile.enable()
+    start_time = time.time()
+    results = index.knn_query(knn_query_list)
+    end_time = time.time()
+    profile.disable()
+    profile.print_stats()
+    search_time = (end_time - start_time) / len(knn_query_list)
+    print("KNN query time ", search_time)
+    np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
 
 
 if __name__ == '__main__':

@@ -66,10 +66,10 @@ class RTree(SpatialIndex):
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     # load data
-    path = '../../data/trip_data_1_100000.csv'
+    path = '../../data/trip_data_1_filter.csv'
     train_set_xy = pd.read_csv(path)
     # create index
-    model_path = "model/rtree_10w/"
+    model_path = "model/rtree_1451w/"
     index = RTree(model_path=model_path)
     index_name = index.name
     logging.basicConfig(filename=os.path.join(model_path, "log.file"),

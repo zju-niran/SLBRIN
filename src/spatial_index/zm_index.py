@@ -191,7 +191,7 @@ class ZMIndex(SpatialIndex):
     def point_query_single(self, point):
         """
         query index by x/y point
-        1. compute z from x/y of points
+        1. compute z from x/y of point
         2. predict by z and create index scope [pre - min_err, pre + max_err]
         3. binary search in scope
         """
@@ -199,11 +199,10 @@ class ZMIndex(SpatialIndex):
         z_value = self.z_order.point_to_z(point[0], point[1])
         # 2. predict by z and create index scope [pre - min_err, pre + max_err]
         pre, min_err, max_err = self.predict(z_value)
-        pre_init = int(pre)  # int比round快一倍
         left_bound = max(round(pre - max_err), 0)
         right_bound = min(round(pre - min_err), self.train_data_length)
         # 3. binary search in scope
-        return biased_search(self.index_list, z_value, pre_init, left_bound, right_bound)
+        return biased_search(self.index_list, z_value, int(pre), left_bound, right_bound)
 
     def range_query_single(self, window):
         """

@@ -67,7 +67,7 @@ class ZBRIN:
 
     def point_query(self, point):
         """
-        query index by z point
+        根据z找到所在的blk的index
         :param point: z
         :return: index
         """
@@ -75,12 +75,11 @@ class ZBRIN:
         #     if point < self.values[i]:
         #         break
         # 优化: 8mil=>0.6mil
-        index = binary_search_less_max(self.values, point, 0, self.size)
-        return index, self.indexes[index]
+        return binary_search_less_max(self.values, point, 0, self.size)
 
     def range_query_old(self, point1, point2, window):
         """
-        range index by z1/z2 point
+        根据z1/z2找到之间所有blk的index以及blk和window的相交关系
         1. 使用point_query查找point1和point2所在block的index
         2. 判断window是否包含这些block之前的region相交或包含
         3. 返回index1, index2, [[index, intersect/contain]]
@@ -102,7 +101,7 @@ class ZBRIN:
 
     def range_query(self, point1, point2):
         """
-        range index by geohash_int1/geohash_int2 point
+        根据geohash_int1/geohash_int2找到之间所有blk的index以及和window的位置关系
         1. 通过geohash_int1/geohash_int2找到window对应的所有origin_geohash和对应window的position
         2. 通过前缀匹配过滤origin_geohash来找到target_geohash
         3. 根据target_geohash分组，并且取最大position
@@ -128,3 +127,33 @@ class ZBRIN:
         #         for tmp_geohash in geohash_list
         #         for k in range(i - 1, j)
         #         if compare(self.geohashs[k], tmp_geohash)]
+
+    def knn_query(self, point1, point2, point3):
+        """
+        根据geohash_int1/geohash_int2找到之间所有blk的index以及和window的位置关系，并基于和point距离排序
+        1. 通过geohash_int1/geohash_int2找到window对应的所有origin_geohash和对应window的position
+        2. 通过前缀匹配过滤origin_geohash来找到target_geohash
+        3. 根据target_geohash分组，并且取最大position
+        """
+        # 1. get origin geohash and position in the range(geohash_int1, geohash_int2)
+        origin_geohash_list = ranges_by_int(point1, point2, self.max_length)
+        # 2. get target geohash by prefix match
+        size1 = len(origin_geohash_list)
+        # 优化: 先用二分找到第一个，107mil->102mil，全部用二分需要348mil
+        # i, j = 0, 0
+        i, j = 1, binary_search_less_max(self.geohashs, origin_geohash_list[0][0], 0, self.size)
+        origin_geohash_list[0][0] = j
+        while i < size1:
+            if self.geohashs[j] > origin_geohash_list[i][0]:
+                origin_geohash_list[i][0] = j - 1
+                i += 1
+            else:
+                j += 1
+        # 3. group target geohash and max(position)
+        target_geohash_list = groupby_and_max(origin_geohash_list)
+        # 4. compute distance from point and sort by distance
+        target_geohash_list = [[target_geohash,
+                                target_geohash_list[target_geohash],
+                                self.blkregs[target_geohash].get_min_distance_pow_by_point_list(point3)]
+                               for target_geohash in target_geohash_list]
+        return sorted(target_geohash_list, key=lambda x: x[2])
