@@ -446,20 +446,15 @@ def binary_search_less_max(nums, x, left, right):
     """
     二分查找比x小的最大值
     """
-    # TODO：优化，不要这么多判断，最后取left或者right即可
     while left <= right:
         mid = (left + right) // 2
         if nums[mid] == x:
             return mid
         elif nums[mid] < x:
-            if nums[mid + 1] > x:
-                return mid
             left = mid + 1
         else:
-            if nums[mid - 1] <= x:
-                return mid - 1
             right = mid - 1
-    return None
+    return right
 
 
 def binary_search(nums, x, left, right):
@@ -489,10 +484,12 @@ def binary_search(nums, x, left, right):
 
 def biased_search_almost(nums, x, pre, left, right):
     """
-    二分查找，找不到则返回最接近的
+    二分查找，找不到则返回最接近的，值不超过[left, right]
     """
     mid = pre
     result = []
+    left_store = left
+    right_store = right
     while left <= right:
         if nums[mid] == x:
             result.append(mid)
@@ -510,6 +507,10 @@ def biased_search_almost(nums, x, pre, left, right):
         else:
             right = mid - 1
         mid = (left + right) // 2
+    if right < left_store:
+        return [left_store]
+    if left > right_store:
+        return [right_store]
     return [right] if nums[left] - x > x - nums[right] else [left]
 
 

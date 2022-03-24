@@ -140,7 +140,6 @@ def check_knn():
     gm_result_list = r'D:\Code\Paper\st-learned-index\src\spatial_index\model\gm_index_10w\knn_query_result.csv'
     r_result_list = r'D:\Code\Paper\st-learned-index\src\spatial_index\model\rtree_10w\knn_query_result.csv'
     with open(gm_result_list) as f1, open(r_result_list) as f2:
-        count = 0
         list1 = []
         list2 = []
         for line1 in f1.readlines():
