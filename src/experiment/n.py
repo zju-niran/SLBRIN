@@ -13,7 +13,7 @@ from src.spatial_index.geohash_model_index import GeoHashModelIndex
 
 @profile(precision=8)
 def load_model_size():
-    n_list = [2500, 5000, 10000, 20000, 40000]
+    n_list = [40000, 20000, 10000, 5000, 2500]
     model_paths = ["model/gm_index/n_" + str(n) + "/" for n in n_list]
     index = GeoHashModelIndex(model_path=model_path[0])
     index.load()
@@ -50,7 +50,7 @@ if __name__ == '__main__':
     path = '../../data/trip_data_1_filter.csv'
     train_set_xy = pd.read_csv(path)
     # 2. 设置实验参数
-    n_list = [2500, 5000, 10000, 20000, 40000]
+    n_list = [40000, 20000, 10000, 5000, 2500]
     # 3. 开始实验
     # 3.1 快速构建精度低的
     for n in n_list:
@@ -67,7 +67,7 @@ if __name__ == '__main__':
                     batch_size=1024,
                     learning_rate=0.01,
                     retrain_time_limit=20,
-                    thread_pool_size=1,
+                    thread_pool_size=6,
                     record=False)
         end_time = time.time()
         build_time = end_time - start_time

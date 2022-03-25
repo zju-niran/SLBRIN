@@ -5,7 +5,7 @@ import os
 import sys
 import time
 
-import line_profiler
+import logging
 import numpy as np
 import pandas as pd
 
@@ -92,11 +92,15 @@ class GeoHashModelIndex(SpatialIndex):
         i = curr_stage
         j = current_stage_step
         if record is False:
+            logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
+                                level=logging.INFO,
+                                format="%(asctime)s - %(levelname)s - %(message)s",
+                                datefmt="%m/%d/%Y %H:%M:%S %p")
             start_time = time.time()
             tmp_index = TrainedNN_Simple(inputs, labels, core, train_step, batch_size, learning_rate)
             tmp_index.train()
             end_time = time.time()
-            print("Model index: %s, Train time: %s" % (j, end_time - start_time))
+            logging.info("Model index: %s, Train time: %s" % (j, end_time - start_time))
         else:
             model_index = str(i) + "_" + str(j)
             tmp_index = TrainedNN(self.model_path, model_index, inputs, labels,
