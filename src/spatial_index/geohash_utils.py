@@ -1,159 +1,162 @@
 import time
 from math import log10
 
-import line_profiler
 import pandas as pd
 
-from src.spatial_index.common_utils import Point
+from src.spatial_index.common_utils import Point, Region
 
 
-def encode(lng: float, lat: float, precision: int = 60) -> str:
-    length = precision // 2
-    lat = int((1 << length) * (lat + 90) / 180)
-    lng = int((1 << length) * (lng + 180) / 360)
-    return merge_bits(lng, lat, precision, length)
+class Geohash:
+    def __init__(self, sum_bits=0, region=Region(-90, 90, -180, 180), data_precision=0):
+        self.name = "Geohash"
+        self.dimensions = 2
+        self.sum_bits = sum_bits
+        self.dim_bits = sum_bits // 2
+        self.max_num = 1 << self.dim_bits
+        self.geohash_template = [''] * sum_bits
+        self.data_precision = data_precision
+        self.region = region
+        self.region_width = region.right - region.left
+        self.region_height = region.up - region.bottom
 
+    @staticmethod
+    def init_by_precision(data_precision, region):
+        sum_bits = region.get_bits_by_region_and_precision(data_precision) * 2
+        return Geohash(sum_bits, region, data_precision)
 
-def neighbors(geohash: str) -> list:
-    lng_int = int(geohash[1::2], 2)
-    lat_int = int(geohash[0::2], 2)
-    length = len(geohash)
-    bits_result = [''] * length
-    return [merge_bits_result(bits_result, i, j, length // 2)
-            for j in [lat_int - 1, lat_int, lat_int + 1]
-            for i in [lng_int - 1, lng_int, lng_int + 1]]
+    def save_to_dict(self):
+        return {
+            'name': self.name,
+            'sum_bits': self.sum_bits,
+            'data_precision': self.data_precision,
+            'region': self.region
+        }
 
+    @staticmethod
+    def init_by_dict(d: dict):
+        if d['data_precision'] == 0:
+            return Geohash(sum_bits=d['sum_bits'], region=d['region'])
+        else:
+            return Geohash.init_by_precision(data_precision=d['data_precision'], region=d['region'])
 
-def neighbors_by_int(geohash_int: int, length: int) -> list:
-    """
-    获取指定geohash_int的八个neighbors
-    :param geohash_int:
-    :param length:
-    :return:
-    """
-    geohash = bin(geohash_int)[2:]
-    lng_int = int(geohash[1::2], 2)
-    lat_int = int(geohash[0::2], 2)
-    bits_result = [''] * length
-    return sorted([merge_bits_result(bits_result, i, j, length // 2)
-                   for j in [lat_int - 1, lat_int, lat_int + 1]
-                   for i in [lng_int - 1, lng_int, lng_int + 1]])
+    def point_to_z(self, lng, lat):
+        """
+        计算point的geohash_int(z)
+        1. 经纬度都先根据region归一化到0-1，然后缩放到0-2^self.dim_bits
+        2. 使用merge_bits把整数的经纬度合并，并转为int，merge的时候是先lat后int，因此顺序是左下、右下、左上、右上
+        优化:zorder.pack->int(merge_bits):6->1
+        """
+        lng_zoom = round((lng - self.region.left) * self.max_num / self.region_width)
+        lat_zoom = round((lat - self.region.bottom) * self.max_num / self.region_height)
+        return int(self.merge_bits(lng_zoom, lat_zoom), 2)
 
+    def z_to_point(self, z):
+        """
+        计算geohash_int(z)的point
+        1. 使用split_bits分开geohash_int为整数的经纬度
+        2. 反归一化经纬度，并且round到指定精度
+        注意：使用round后，z转化的point不一定=计算z的原始point，因为保留有效位数的point和z是多对一的
+        如果要一对一，则point_to_z的入口point和z_to_point的出口point都不要用round
+        """
+        lng_zoom, lat_zoom = self.split_bits(z)
+        lng = lng_zoom * self.region_width / self.max_num + self.region.left
+        lat = lat_zoom * self.region_height / self.max_num + self.region.bottom
+        return round(lng, self.data_precision), round(lat, self.data_precision)
 
-def geohash_to_int(geohash: str, length: int) -> int:
-    return int(geohash.ljust(length, '0'), 2)
+    def merge_bits(self, int1, int2):
+        result = self.geohash_template
+        result[1::2] = bin(int1)[2:].rjust(self.dim_bits, '0')
+        result[0::2] = bin(int2)[2:].rjust(self.dim_bits, '0')
+        return ''.join(result)
 
+    def merge_bits_by_length(self, result, int1, int2, length):
+        result[1::2] = bin(int1)[2:].rjust(length, '0')
+        result[0::2] = bin(int2)[2:].rjust(length, '0')
+        return ''.join(result)
 
-def int_to_geohash(geohash_int: int, length: int) -> str:
-    return bin(geohash_int)[2:].rjust(length, '0')
+    def split_bits(self, z):
+        geohash = bin(z)[2:].rjust(self.sum_bits, '0')
+        return int(geohash[1::2], 2), int(geohash[0::2], 2)
 
+    def point_to_geohash(self, lng: float, lat: float) -> str:
+        lng_zoom = int((lng - self.region.left) * self.max_num / self.region_width)
+        lat_zoom = int((lat - self.region.bottom) * self.max_num / self.region_height)
+        return self.merge_bits(lng_zoom, lat_zoom)
 
-def ranges(geohash1: str, geohash2: str) -> list:
-    hash_len1 = len(geohash1)
-    hash_len2 = len(geohash2)
-    if hash_len1 >= hash_len2:
+    def neighbors(self, geohash: str, ) -> list:
+        lng_int = int(geohash[1::2], 2)
+        lat_int = int(geohash[0::2], 2)
+        length = len(geohash)
+        bits_result = [''] * length
+        return [self.merge_bits_by_length(bits_result, i, j, length // 2)
+                for j in [lat_int - 1, lat_int, lat_int + 1]
+                for i in [lng_int - 1, lng_int, lng_int + 1]]
+
+    def geohash_to_int(self, geohash: str) -> int:
+        return int(geohash.ljust(self.sum_bits, '0'), 2)
+
+    def int_to_geohash(self, geohash_int: int) -> str:
+        return bin(geohash_int)[2:].rjust(self.sum_bits, '0')
+
+    def ranges_by_int(self, geohash_int1: int, geohash_int2: int) -> (list, int, int):
+        geohash1 = self.int_to_geohash(geohash_int1)
+        geohash2 = self.int_to_geohash(geohash_int2)
         lng_int1 = int(geohash1[1::2], 2)
         lat_int1 = int(geohash1[0::2], 2)
-        geohash2 = geohash2.ljust(hash_len1, "0")
         lng_int2 = int(geohash2[1::2], 2)
         lat_int2 = int(geohash2[0::2], 2)
-        return [merge_bits(i, j, hash_len1, hash_len1 // 2)
-                for j in range(lat_int1, lat_int2 + 1)
-                for i in range(lng_int1, lng_int2 + 1)]
-    else:
-        lng_int2 = int(geohash2[1::2], 2)
-        lat_int2 = int(geohash2[0::2], 2)
-        geohash1 = geohash1.ljust(hash_len2, "0")
-        lng_int1 = int(geohash1[1::2], 2)
-        lat_int1 = int(geohash1[0::2], 2)
-        return [merge_bits(i, j, hash_len2, hash_len2 // 2)
-                for j in range(lat_int1, lat_int2 + 1)
-                for i in range(lng_int1, lng_int2 + 1)]
+        lng_length = lng_int2 + 1 - lng_int1
+        lat_length = lat_int2 + 1 - lat_int1
+        result = [[int(self.merge_bits(i, j), 2), 0]
+                  for j in range(lat_int1, lat_int2 + 1)
+                  for i in range(lng_int1, lng_int2 + 1)]
+        # 优化：只计算边界点的grid_num，77mil=>6.7mil
+        for j in range(lat_length):
+            result[j * lng_length][1] += 2
+            result[j * lng_length + lng_length - 1][1] += 1
+        for i in range(lng_length):
+            result[i][1] += 8
+            result[-i - 1][1] += 4
+        return sorted(result)
+        # return sorted([[int(merge_bits_result(bits_result, i, j, child_length), 2),
+        #                 grid_num(i, j, lat_int2, lat_int1, lng_int2, lng_int1)]
+        #                for j in range(lat_int1, lat_int2 + 1)
+        #                for i in range(lng_int1, lng_int2 + 1)])
 
+    @staticmethod
+    def groupby_and_max(geohash_list: list) -> dict:
+        result = {}
+        for i in geohash_list:
+            # 优化: 4.55mil->2.93mil
+            result[i[0]] = result.get(i[0], 0) | i[1]
+            # if i[0] not in result.keys():
+            #     result[i[0]] = i[1]
+            # else:
+            #     result[i[0]] |= i[1]
+        return result
 
-def ranges_by_int(geohash_int1: int, geohash_int2: int, length: int) -> (list, int, int):
-    child_length = length // 2
-    geohash1 = int_to_geohash(geohash_int1, length)
-    geohash2 = int_to_geohash(geohash_int2, length)
-    lng_int1 = int(geohash1[1::2], 2)
-    lat_int1 = int(geohash1[0::2], 2)
-    lng_int2 = int(geohash2[1::2], 2)
-    lat_int2 = int(geohash2[0::2], 2)
-    bits_result = [''] * length
-    # TODO 这里很慢，考虑把zorder和geohash合并，这里的一些公共操作移到init里，比如bits_result进而child_length的计算
-    # 那存z最小值到zbrin好像也没必要了，因为判断一个z是否属于这个分区，可以用geohash位运算来判断
-    # 所有z计算都可以换成geohash的方法了
-    # merge_bits:zorder.pack=1:6的时间比
-    # z = ZOrder(6, Region(40, 42, -75, -73))
-    # z1 = z.pack(16777048, 17)
-    # z2 = int(merge_bits(16777048, 17, 50, 25), 2)
-    # print(z1)
-    # print(z2)
-    lng_length = lng_int2 + 1 - lng_int1
-    lat_length = lat_int2 + 1 - lat_int1
-    result = [[int(merge_bits_result(bits_result, i, j, child_length), 2), 0]
-              for j in range(lat_int1, lat_int2 + 1)
-              for i in range(lng_int1, lng_int2 + 1)]
-    # 优化：只计算边界点的grid_num，77mil=>6.7mil
-    for j in range(lat_length):
-        result[j * lng_length][1] += 2
-        result[j * lng_length + lng_length - 1][1] += 1
-    for i in range(lng_length):
-        result[i][1] += 8
-        result[-i - 1][1] += 4
-    return sorted(result)
-    # return sorted([[int(merge_bits_result(bits_result, i, j, child_length), 2),
-    #                 grid_num(i, j, lat_int2, lat_int1, lng_int2, lng_int1)]
-    #                for j in range(lat_int1, lat_int2 + 1)
-    #                for i in range(lng_int1, lng_int2 + 1)])
+    @staticmethod
+    def grid_num(i, j, lat_int2, lat_int1, lng_int2, lng_int1):
+        """
+        lu u ru   0110 0100 0101    6  4  5
+        l    r => 0010 0000 0001 => 2  0  1
+        lb b rb   1010 1000 1001    10 8  9
+        b=1000=8, u=0100=4, l=0010=2, r=0001=1
+        """
+        grid_number = 0
+        if j == lat_int1:
+            grid_number += 8
+        if j == lat_int2:
+            grid_number += 4
+        if i == lng_int1:
+            grid_number += 2
+        if i == lng_int2:
+            grid_number += 1
+        return grid_number
 
-
-def groupby_and_max(geohash_list: list) -> dict:
-    result = {}
-    for i in geohash_list:
-        # 优化: 4.55mil->2.93mil
-        result[i[0]] = result.get(i[0], 0) | i[1]
-        # if i[0] not in result.keys():
-        #     result[i[0]] = i[1]
-        # else:
-        #     result[i[0]] |= i[1]
-    return result
-
-
-def grid_num(i, j, lat_int2, lat_int1, lng_int2, lng_int1):
-    """
-    lu u ru   0110 0100 0101    6  4  5
-    l    r => 0010 0000 0001 => 2  0  1
-    lb b rb   1010 1000 1001    10 8  9
-    b=1000=8, u=0100=4, l=0010=2, r=0001=1
-    """
-    grid_number = 0
-    if j == lat_int1:
-        grid_number += 8
-    if j == lat_int2:
-        grid_number += 4
-    if i == lng_int1:
-        grid_number += 2
-    if i == lng_int2:
-        grid_number += 1
-    return grid_number
-
-
-def compare(geohash1: str, geohash2: str) -> bool:
-    return geohash1.startswith(geohash2) if len(geohash1) >= len(geohash2) else geohash2.startswith(geohash1)
-
-
-def merge_bits(int1, int2, sum_legth, length):
-    result = [''] * sum_legth
-    result[1::2] = int_to_geohash(int1, length)
-    result[0::2] = int_to_geohash(int2, length)
-    return ''.join(result)
-
-
-def merge_bits_result(result, int1, int2, length):
-    result[1::2] = int_to_geohash(int1, length)
-    result[0::2] = int_to_geohash(int2, length)
-    return ''.join(result)
+    @staticmethod
+    def compare(geohash1: str, geohash2: str) -> bool:
+        return geohash1.startswith(geohash2) if len(geohash1) >= len(geohash2) else geohash2.startswith(geohash1)
 
 
 class Geohash2:
@@ -390,8 +393,9 @@ def compare_with_python_geohash():
     print("Python-Geohash C create time ", search_time)
     # my geohash
     start_time = time.time()
+    geohash = Geohash(60)
     for ind in range(len(train_set_point)):
-        hashcode = encode(train_set_point[ind].lng, train_set_point[ind].lat, precision=60)
+        hashcode = geohash.point_to_geohash(train_set_point[ind].lng, train_set_point[ind].lat)
     end_time = time.time()
     print(hashcode)
     search_time = (end_time - start_time) / len(train_set_point)
@@ -442,19 +446,13 @@ def compare_with_python_geohash():
 if __name__ == '__main__':
     import geohash as pygeohash
 
-    profile = line_profiler.LineProfiler(merge_bits)
-    profile.enable()
     print(pygeohash.encode(-88.41707557084398, -165.9706735611812, precision=12))
-    print(encode(-165.9706735611812, -88.41707557084398, precision=60))
+    print(Geohash(60).point_to_geohash(-165.9706735611812, -88.41707557084398))
     print(Geohash2().encode(-165.9706735611812, -88.41707557084398, precision=60))
     print(Geohash2().encode_base32(-165.9706735611812, -88.41707557084398, precision=12))
     print(Geohash3().encode(-165.9706735611812, -88.41707557084398, precision=60))
     print(Geohash4().encode(-165.9706735611812, -88.41707557084398, precision=60))
-    print(neighbors('0011'))
-    print(ranges('00', '1100'))
-    print(ranges('00', '1111'))
+    print(Geohash(60).neighbors('0011'))
     print(Geohash3().neighbors('0011'))
-    profile.disable()
-    profile.print_stats()
     # print(pygeohash.neighbors('023cp0pv4yxb'))
     # compare_with_python_geohash()

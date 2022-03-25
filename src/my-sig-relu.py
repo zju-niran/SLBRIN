@@ -8,7 +8,8 @@ from tensorflow.keras.layers import Dense
 from tensorflow.keras.models import Sequential
 
 # 开启GPU
-from src.spatial_index.common_utils import Region, ZOrder
+from src.spatial_index.common_utils import Region
+from src.spatial_index.geohash_utils import Geohash
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -21,8 +22,8 @@ os.chdir(os.path.dirname(os.path.realpath(__file__)))
 # load data
 path = '../data/trip_data_1_100000.csv'
 data = pd.read_csv(path)
-z_order = ZOrder(data_precision=6, region=Region(40, 42, -75, -73))
-z_values = data.apply(lambda t: z_order.point_to_z(t.x, t.y), 1)
+geohash = Geohash.init_by_precision(data_precision=6, region=Region(40, 42, -75, -73))
+z_values = data.apply(lambda t: geohash.point_to_z(t.x, t.y), 1)
 x_data = z_values.sort_values(ascending=True).values
 y_data = pd.Series(np.arange(0, len(data)) / 100).values
 divisor = 100 * 1.0 / (len(data) / 100)

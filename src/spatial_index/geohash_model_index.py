@@ -11,18 +11,19 @@ import pandas as pd
 
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.zbrin import ZBRIN
+from src.spatial_index.common_utils import Region, biased_search, Point, biased_search_almost
+from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.quad_tree import QuadTree
-from src.spatial_index.common_utils import ZOrder, Region, biased_search, Point, biased_search_almost
 from src.spatial_index.spatial_index import SpatialIndex
 from src.rmi_keras import TrainedNN, AbstractNN
 from src.rmi_keras_simple import TrainedNN as TrainedNN_Simple
 
 
 class GeoHashModelIndex(SpatialIndex):
-    def __init__(self, model_path=None, z_order=None, zbrin=None, gm_dict=None, index_list=None, point_list=None):
+    def __init__(self, model_path=None, geohash=None, zbrin=None, gm_dict=None, index_list=None, point_list=None):
         super(GeoHashModelIndex, self).__init__("GeoHash Model Index")
         self.model_path = model_path
-        self.z_order = z_order
+        self.geohash = geohash
         self.zbrin = zbrin
         self.gm_dict = gm_dict
         self.index_list = index_list
@@ -36,7 +37,7 @@ class GeoHashModelIndex(SpatialIndex):
         :param data: pd.dataframe, [x, y]
         :return: None
         """
-        data["z"] = data.apply(lambda t: self.z_order.point_to_z(t.x, t.y), 1)
+        data["z"] = data.apply(lambda t: self.geohash.point_to_z(t.x, t.y), 1)
         data.sort_values(by=["z"], ascending=True, inplace=True)
         data.reset_index(drop=True, inplace=True)
         self.index_list = data.z.tolist()
@@ -51,17 +52,17 @@ class GeoHashModelIndex(SpatialIndex):
         3. create brin index
         4. create zm-model(stage=1) for every leaf node
         """
-        self.z_order = ZOrder(data_precision=data_precision, region=region)
+        self.geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
         # 1. init train z->index data from x/y data
         self.init_train_data(data)
         # 2. split data by quad tree
         quad_tree = QuadTree(region=region, max_num=max_num, data_precision=data_precision)
         quad_tree.build(data, z=True)
-        quad_tree.geohash(self.z_order)
+        quad_tree.geohash(self.geohash)
         split_data = quad_tree.leaf_nodes
         # 3. create brin index
         self.zbrin = ZBRIN()
-        self.zbrin.build(quad_tree)
+        self.zbrin.build(quad_tree, self.geohash.sum_bits)
         # 4. in every part data, create zm-model
         multiprocessing.set_start_method('spawn')  # 解决CUDA_ERROR_NOT_INITIALIZED报错
         pool = multiprocessing.Pool(processes=thread_pool_size)
@@ -91,9 +92,11 @@ class GeoHashModelIndex(SpatialIndex):
         i = curr_stage
         j = current_stage_step
         if record is False:
-            print("Current model index: %s" % j)
+            start_time = time.time()
             tmp_index = TrainedNN_Simple(inputs, labels, core, train_step, batch_size, learning_rate)
             tmp_index.train()
+            end_time = time.time()
+            print("Model index: %s, Train time: %s" % (j, end_time - start_time))
         else:
             model_index = str(i) + "_" + str(j)
             tmp_index = TrainedNN(self.model_path, model_index, inputs, labels,
@@ -137,7 +140,7 @@ class GeoHashModelIndex(SpatialIndex):
         """
         with open(self.model_path + 'gm_index.json', "r") as f:
             gm_index = json.load(f, cls=MyDecoder)
-            self.z_order = gm_index.z_order
+            self.geohash = gm_index.geohash
             self.zbrin = gm_index.zbrin
             self.gm_dict = gm_index.gm_dict
             self.index_list = np.loadtxt(self.model_path + 'index_list.csv', delimiter=",").tolist()
@@ -146,14 +149,14 @@ class GeoHashModelIndex(SpatialIndex):
 
     @staticmethod
     def init_by_dict(d: dict):
-        return GeoHashModelIndex(z_order=d['z_order'],
+        return GeoHashModelIndex(geohash=d['geohash'],
                                  zbrin=d['zbrin'],
                                  gm_dict=d['gm_dict'])
 
     def save_to_dict(self):
         return {
             'name': self.name,
-            'z_order': self.z_order,
+            'geohash': self.geohash,
             'zbrin': self.zbrin,
             'gm_dict': self.gm_dict
         }
@@ -167,21 +170,21 @@ class GeoHashModelIndex(SpatialIndex):
         4. binary search in scope
         """
         # 1. compute z from x/y of point
-        z = self.z_order.point_to_z(point[0], point[1])
+        z = self.geohash.point_to_z(point[0], point[1])
         # 2. predicted the leaf model by zbrin
         lm_index = self.zbrin.point_query(z)
-        lm_indexes = self.zbrin.indexes[lm_index]
+        lm_indexes = self.zbrin.blkindexes[lm_index]
         lm = self.gm_dict[lm_index]
         if lm is None:
             return None
         else:
             # 3. predict by z and create index scope [pre - min_err, pre + max_err]
             pre, min_err, max_err = lm.predict(z), lm.min_err, lm.max_err
-            left_bound = max(round(pre - max_err), lm_indexes[0])
-            right_bound = min(round(pre - min_err), lm_indexes[1])
             # 4. binary search in scope
             # 优化: round->int:2->1
-            return biased_search(self.index_list, z, int(pre), left_bound, right_bound)
+            return biased_search(self.index_list, z, int(pre),
+                                 max(round(pre - max_err), lm_indexes[0]),
+                                 min(round(pre - min_err), lm_indexes[1]))
 
     def range_query_single_old(self, window):
         """
@@ -200,8 +203,8 @@ class GeoHashModelIndex(SpatialIndex):
         """
         region = Region(window[0], window[1], window[2], window[3])
         # 1. compute z of window_left and window_right
-        z_value1 = self.z_order.point_to_z(window[2], window[0])
-        z_value2 = self.z_order.point_to_z(window[3], window[1])
+        z_value1 = self.geohash.point_to_z(window[2], window[0])
+        z_value2 = self.geohash.point_to_z(window[3], window[1])
         # 2. get block1 and block2 by zbrin,
         # and validate the relation in spatial between query window and blocks[block1, block2]
         lm_info_list = self.zbrin.range_query_old(z_value1, z_value2, region)
@@ -222,8 +225,8 @@ class GeoHashModelIndex(SpatialIndex):
                     # 3.2.1 get the min_z/max_z of intersect part
                     lm = self.gm_dict[lm_info[1]]
                     if lm_info[0][0] == 1:  # intersect
-                        z_value1 = self.z_order.point_to_z(lm_info[0][1].left, lm_info[0][1].bottom)
-                        z_value2 = self.z_order.point_to_z(lm_info[0][1].right, lm_info[0][1].up)
+                        z_value1 = self.geohash.point_to_z(lm_info[0][1].left, lm_info[0][1].bottom)
+                        z_value2 = self.geohash.point_to_z(lm_info[0][1].right, lm_info[0][1].up)
                     # 3.2.2 get the min_index/max_index by nn predict and biased search
                     pre1 = lm.predict(z_value1)
                     pre2 = lm.predict(z_value2)
@@ -263,50 +266,48 @@ class GeoHashModelIndex(SpatialIndex):
         if window[0] == window[1] and window[2] == window[3]:
             return self.point_query_single([window[2], window[0]])
         # 1. compute z of window_left and window_right
-        z_value1 = self.z_order.point_to_z(window[2], window[0])
-        z_value2 = self.z_order.point_to_z(window[3], window[1])
+        z_value1 = self.geohash.point_to_z(window[2], window[0])
+        z_value2 = self.geohash.point_to_z(window[3], window[1])
         # 2. get all relative blocks with index and relationship
-        geohash_int1 = z_value1 >> self.z_order.bits * 2 - self.zbrin.max_length
-        geohash_int2 = z_value2 >> self.z_order.bits * 2 - self.zbrin.max_length
-        blk_index_list = self.zbrin.range_query(geohash_int1, geohash_int2)
+        blk_index_list = self.zbrin.range_query(z_value1, z_value2)
         result = []
         # 3. get min_z and max_z of every block for different relation
         position_func_list = [lambda index: (None, None, None),
                               lambda index: (  # right
                                   None,
-                                  self.z_order.point_to_z(window[3], self.zbrin.blkregs[index].up),
+                                  self.geohash.point_to_z(window[3], self.zbrin.blkregs[index].up),
                                   lambda x: window[3] >= x[0]),
                               lambda index: (  # left
-                                  self.z_order.point_to_z(window[2], self.zbrin.blkregs[index].bottom),
+                                  self.geohash.point_to_z(window[2], self.zbrin.blkregs[index].bottom),
                                   None,
                                   lambda x: window[2] <= x[0]),
                               lambda index: (  # left-right
-                                  self.z_order.point_to_z(window[2], self.zbrin.blkregs[index].bottom),
-                                  self.z_order.point_to_z(window[3], self.zbrin.blkregs[index].up),
+                                  self.geohash.point_to_z(window[2], self.zbrin.blkregs[index].bottom),
+                                  self.geohash.point_to_z(window[3], self.zbrin.blkregs[index].up),
                                   lambda x: window[2] <= x[0] <= window[3]),
                               lambda index: (  # up
                                   None,
-                                  self.z_order.point_to_z(self.zbrin.blkregs[index].right, window[1]),
+                                  self.geohash.point_to_z(self.zbrin.blkregs[index].right, window[1]),
                                   lambda x: window[1] >= x[1]),
                               lambda index: (  # up-right
                                   None,
                                   z_value2,
                                   lambda x: window[3] >= x[0] and window[1] >= x[1]),
                               lambda index: (  # up-left
-                                  self.z_order.point_to_z(window[2], self.zbrin.blkregs[index].bottom),
-                                  self.z_order.point_to_z(self.zbrin.blkregs[index].right, window[1]),
+                                  self.geohash.point_to_z(window[2], self.zbrin.blkregs[index].bottom),
+                                  self.geohash.point_to_z(self.zbrin.blkregs[index].right, window[1]),
                                   lambda x: window[2] <= x[0] and window[1] >= x[1]),
                               lambda index: (  # up-left-right
-                                  self.z_order.point_to_z(window[2], self.zbrin.blkregs[index].bottom),
+                                  self.geohash.point_to_z(window[2], self.zbrin.blkregs[index].bottom),
                                   z_value2,
                                   lambda x: window[2] <= x[0] <= window[3] and window[1] >= x[1]),
                               lambda index: (  # bottom
-                                  self.z_order.point_to_z(self.zbrin.blkregs[index].left, window[0]),
+                                  self.geohash.point_to_z(self.zbrin.blkregs[index].left, window[0]),
                                   None,
                                   lambda x: window[0] <= x[1]),
                               lambda index: (  # bottom-right
-                                  self.z_order.point_to_z(self.zbrin.blkregs[index].left, window[0]),
-                                  self.z_order.point_to_z(window[3], self.zbrin.blkregs[index].up),
+                                  self.geohash.point_to_z(self.zbrin.blkregs[index].left, window[0]),
+                                  self.geohash.point_to_z(window[3], self.zbrin.blkregs[index].up),
                                   lambda x: window[3] >= x[0] and window[0] <= x[1]),
                               lambda index: (  # bottom-left
                                   z_value1,
@@ -314,19 +315,19 @@ class GeoHashModelIndex(SpatialIndex):
                                   lambda x: window[2] <= x[0] and window[0] <= x[1]),
                               lambda index: (  # bottom-left-right
                                   z_value1,
-                                  self.z_order.point_to_z(window[3], self.zbrin.blkregs[index].up),
+                                  self.geohash.point_to_z(window[3], self.zbrin.blkregs[index].up),
                                   lambda x: window[2] <= x[0] <= window[3] and window[0] <= x[1]),
                               lambda index: (  # bottom-up
-                                  self.z_order.point_to_z(self.zbrin.blkregs[index].left, window[0]),
-                                  self.z_order.point_to_z(self.zbrin.blkregs[index].right, window[1]),
+                                  self.geohash.point_to_z(self.zbrin.blkregs[index].left, window[0]),
+                                  self.geohash.point_to_z(self.zbrin.blkregs[index].right, window[1]),
                                   lambda x: window[0] <= x[1] <= window[1]),
                               lambda index: (  # bottom-up-right
-                                  self.z_order.point_to_z(self.zbrin.blkregs[index].left, window[0]),
+                                  self.geohash.point_to_z(self.zbrin.blkregs[index].left, window[0]),
                                   z_value2,
                                   lambda x: window[3] >= x[0] and window[0] <= x[1] <= window[1]),
                               lambda index: (  # bottom-up-left
                                   z_value1,
-                                  self.z_order.point_to_z(self.zbrin.blkregs[index].right, window[1]),
+                                  self.geohash.point_to_z(self.zbrin.blkregs[index].right, window[1]),
                                   lambda x: window[2] <= x[0] and window[0] <= x[1] <= window[1]),
                               lambda index: (  # bottom-up-left-right
                                   z_value1,
@@ -336,7 +337,7 @@ class GeoHashModelIndex(SpatialIndex):
             if self.zbrin.blknums[blk_index] == 0:  # block is None
                 continue
             position = blk_index_list[blk_index]
-            indexes = self.zbrin.indexes[blk_index]
+            indexes = self.zbrin.blkindexes[blk_index]
             if position == 0:  # window contain block
                 result.extend(list(range(indexes[0], indexes[1] + 1)))
             else:
@@ -352,6 +353,7 @@ class GeoHashModelIndex(SpatialIndex):
                     right_bound1 = min(round(pre1 - min_err), indexes[1])
                     index_left = min(biased_search_almost(self.index_list, z_value_new1, int(pre1), left_bound1,
                                                           right_bound1))
+
                 else:
                     index_left = indexes[0]
                 if z_value_new2 is not None:
@@ -375,13 +377,14 @@ class GeoHashModelIndex(SpatialIndex):
         1. get the nearest index of query point
         2. get the nn points to create range query window
         3 filter point by distance
+        主要耗时间：zbrin.knn_query.ranges_by_int/nn predict/精确过滤: 4.7mil/21mil/14.4mil
         """
         n = knn[2]
         # 1. get the nearest index of query point
-        qp_z = self.z_order.point_to_z(knn[0], knn[1])
+        qp_z = self.geohash.point_to_z(knn[0], knn[1])
         qp_blk = self.zbrin.point_query(qp_z)
         qp_model = self.gm_dict[qp_blk]
-        qp_model_indexes = self.zbrin.indexes[qp_blk]
+        qp_model_indexes = self.zbrin.blkindexes[qp_blk]
         # if model is None, qp_index = the max index of the prefix blk
         if qp_model is None:
             while qp_model is None and qp_blk >= 0:
@@ -389,7 +392,7 @@ class GeoHashModelIndex(SpatialIndex):
             if qp_blk == -1:
                 query_point_index = 0
             else:
-                query_point_index = self.zbrin.indexes[qp_blk][1]
+                query_point_index = self.zbrin.blkindexes[qp_blk][1]
         # if model is not None, qp_index = point_query(z)
         else:
             pre, min_err, max_err = qp_model.predict(qp_z), qp_model.min_err, qp_model.max_err
@@ -405,48 +408,46 @@ class GeoHashModelIndex(SpatialIndex):
             return [tp[1] for tp in tp_list]
         max_dist_pow = max_dist ** 0.5
         window = [knn[1] - max_dist_pow, knn[1] + max_dist_pow, knn[0] - max_dist_pow, knn[0] + max_dist_pow]
-        z_value1 = self.z_order.point_to_z(window[2], window[0])
-        z_value2 = self.z_order.point_to_z(window[3], window[1])
-        geohash_int1 = z_value1 >> self.z_order.bits * 2 - self.zbrin.max_length
-        geohash_int2 = z_value2 >> self.z_order.bits * 2 - self.zbrin.max_length
-        tp_window_blkes = self.zbrin.knn_query(geohash_int1, geohash_int2, knn)
+        z_value1 = self.geohash.point_to_z(window[2], window[0])
+        z_value2 = self.geohash.point_to_z(window[3], window[1])
+        tp_window_blkes = self.zbrin.knn_query(z_value1, z_value2, knn)
         position_func_list = [lambda index: (None, None),  # window contain block
                               lambda index: (  # right
                                   None,
-                                  self.z_order.point_to_z(window[3], self.zbrin.blkregs[index].up)),
+                                  self.geohash.point_to_z(window[3], self.zbrin.blkregs[index].up)),
                               lambda index: (  # left
-                                  self.z_order.point_to_z(window[2], self.zbrin.blkregs[index].bottom),
+                                  self.geohash.point_to_z(window[2], self.zbrin.blkregs[index].bottom),
                                   None),
                               None,  # left-right
                               lambda index: (  # up
                                   None,
-                                  self.z_order.point_to_z(self.zbrin.blkregs[index].right, window[1])),
+                                  self.geohash.point_to_z(self.zbrin.blkregs[index].right, window[1])),
                               lambda index: (  # up-right
                                   None,
                                   z_value2),
                               lambda index: (  # up-left
-                                  self.z_order.point_to_z(window[2], self.zbrin.blkregs[index].bottom),
-                                  self.z_order.point_to_z(self.zbrin.blkregs[index].right, window[1])),
+                                  self.geohash.point_to_z(window[2], self.zbrin.blkregs[index].bottom),
+                                  self.geohash.point_to_z(self.zbrin.blkregs[index].right, window[1])),
                               lambda index: (None, None),  # up-left-right
                               lambda index: (  # bottom
-                                  self.z_order.point_to_z(self.zbrin.blkregs[index].left, window[0]),
+                                  self.geohash.point_to_z(self.zbrin.blkregs[index].left, window[0]),
                                   None),
                               lambda index: (  # bottom-right
-                                  self.z_order.point_to_z(self.zbrin.blkregs[index].left, window[0]),
-                                  self.z_order.point_to_z(window[3], self.zbrin.blkregs[index].up)),
+                                  self.geohash.point_to_z(self.zbrin.blkregs[index].left, window[0]),
+                                  self.geohash.point_to_z(window[3], self.zbrin.blkregs[index].up)),
                               lambda index: (  # bottom-left
                                   z_value1,
                                   None),
                               lambda index: (  # bottom-left-right
                                   z_value1,
-                                  self.z_order.point_to_z(window[3], self.zbrin.blkregs[index].up)),
+                                  self.geohash.point_to_z(window[3], self.zbrin.blkregs[index].up)),
                               None,
                               lambda index: (  # bottom-up-right
-                                  self.z_order.point_to_z(self.zbrin.blkregs[index].left, window[0]),
+                                  self.geohash.point_to_z(self.zbrin.blkregs[index].left, window[0]),
                                   z_value2),
                               lambda index: (  # bottom-up-left
                                   z_value1,
-                                  self.z_order.point_to_z(self.zbrin.blkregs[index].right, window[1])),
+                                  self.geohash.point_to_z(self.zbrin.blkregs[index].right, window[1])),
                               lambda index: (  # bottom-up-left-right
                                   z_value1,
                                   z_value2)]
@@ -457,7 +458,7 @@ class GeoHashModelIndex(SpatialIndex):
             tp_window_blk_index = tp_window_blk[0]
             if self.zbrin.blknums[tp_window_blk_index] == 0:  # block is None
                 continue
-            indexes = self.zbrin.indexes[tp_window_blk_index]
+            indexes = self.zbrin.blkindexes[tp_window_blk_index]
             z_value_new1, z_value_new2 = position_func_list[tp_window_blk[1]](tp_window_blk_index)
             lm = self.gm_dict[tp_window_blk_index]
             min_err = lm.min_err
@@ -499,7 +500,7 @@ class MyEncoder(json.JSONEncoder):
             return obj.tolist()
         elif isinstance(obj, Region):
             return obj.__dict__
-        elif isinstance(obj, ZOrder):
+        elif isinstance(obj, Geohash):
             return obj.save_to_dict()
         elif isinstance(obj, GeoHashModelIndex):
             return obj.save_to_dict()
@@ -523,13 +524,11 @@ class MyDecoder(json.JSONDecoder):
         elif len(d.keys()) == 4 and d.__contains__("bottom") and d.__contains__("up") \
                 and d.__contains__("left") and d.__contains__("right"):
             t = Region.init_by_dict(d)
-        elif d.__contains__("name") and d["name"] == "Z Order":
-            t = ZOrder.init_by_dict(d)
+        elif d.__contains__("name") and d["name"] == "Geohash":
+            t = Geohash.init_by_dict(d)
         elif d.__contains__("name") and d["name"] == "GeoHash Model Index":
             t = GeoHashModelIndex.init_by_dict(d)
-        elif len(d.keys()) == 9 and d.__contains__("version") and d.__contains__("size") and d.__contains__(
-                "blkregs") and d.__contains__("blknums") and d.__contains__("values") and d.__contains__(
-            "geohashs") and d.__contains__("lengths") and d.__contains__("max_length"):
+        elif len(d.keys()) == 9 and d.__contains__("version"):
             t = ZBRIN.init_by_dict(d)
         else:
             t = d

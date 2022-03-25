@@ -203,10 +203,10 @@ class QuadTree(SpatialIndex):
             else:
                 return self.search_node(point, node.RU)
 
-    def geohash(self, z_order, node=None, parent_geohash=None):
+    def geohash(self, geohash, node=None, parent_geohash=None):
         """
         get geohash->items by quad tree
-        :param z_order: for iter
+        :param geohash: for iter
         :param node: for iter
         :param parent_geohash: for iter
         :return: save geohash->items in self.geohash_data_map
@@ -220,17 +220,16 @@ class QuadTree(SpatialIndex):
             # 因此移动距离 = 数据精度 - 1
             node.region.up_right_less(pow(10, -self.data_precision - 1))
             self.leaf_nodes.append({
-                "first_z": z_order.point_to_z(node.region.left, node.region.bottom),
                 "items": node.items,
                 "region": node.region,
                 "geohash": parent_geohash
             })
             return
         else:
-            self.geohash(z_order, node.LB, parent_geohash + "00")
-            self.geohash(z_order, node.RB, parent_geohash + "01")
-            self.geohash(z_order, node.LU, parent_geohash + "10")
-            self.geohash(z_order, node.RU, parent_geohash + "11")
+            self.geohash(geohash, node.LB, parent_geohash + "00")
+            self.geohash(geohash, node.RB, parent_geohash + "01")
+            self.geohash(geohash, node.LU, parent_geohash + "10")
+            self.geohash(geohash, node.RU, parent_geohash + "11")
 
     def build(self, data: pd.DataFrame, z=False):
         if z is False:

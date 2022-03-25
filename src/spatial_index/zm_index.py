@@ -9,17 +9,18 @@ import numpy as np
 import pandas as pd
 
 sys.path.append('/home/zju/wlj/st-learned-index')
-from src.spatial_index.common_utils import Region, biased_search, ZOrder
+from src.spatial_index.common_utils import Region, biased_search
+from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 from src.rmi_keras import TrainedNN, AbstractNN
 
 
 class ZMIndex(SpatialIndex):
-    def __init__(self, model_path=None, z_order=None, train_data_length=None, stage_length=0, rmi=None, index_list=None,
+    def __init__(self, model_path=None, geohash=None, train_data_length=None, stage_length=0, rmi=None, index_list=None,
                  point_list=None):
         super(ZMIndex, self).__init__("ZM Index")
         self.model_path = model_path
-        self.z_order = z_order
+        self.geohash = geohash
         self.train_data_length = train_data_length
         self.stage_length = stage_length
         self.rmi = rmi
@@ -34,7 +35,7 @@ class ZMIndex(SpatialIndex):
         :param data: pd.dataframe, [x, y]
         :return: None
         """
-        data["z"] = data.apply(lambda t: self.z_order.point_to_z(t.x, t.y), 1)
+        data["z"] = data.apply(lambda t: self.geohash.point_to_z(t.x, t.y), 1)
         data.sort_values(by=["z"], ascending=True, inplace=True)
         data.reset_index(drop=True, inplace=True)
         self.train_data_length = len(data) - 1
@@ -48,7 +49,7 @@ class ZMIndex(SpatialIndex):
         1. init train z->index data from x/y data
         2. create rmi for train z->index data
         """
-        self.z_order = ZOrder(data_precision=data_precision, region=region)
+        self.geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
         self.stage_length = len(stages)
         train_inputs = [[[] for i in range(stages[i])] for i in range(self.stage_length)]
         train_labels = [[[] for i in range(stages[i])] for i in range(self.stage_length)]
@@ -164,7 +165,7 @@ class ZMIndex(SpatialIndex):
         """
         with open(self.model_path + 'zm_index.json', "r") as f:
             zm_index = json.load(f, cls=MyDecoder)
-            self.z_order = zm_index.z_order
+            self.geohash = zm_index.geohash
             self.train_data_length = zm_index.train_data_length
             self.stage_length = zm_index.stage_length
             self.rmi = zm_index.rmi
@@ -174,7 +175,7 @@ class ZMIndex(SpatialIndex):
 
     @staticmethod
     def init_by_dict(d: dict):
-        return ZMIndex(z_order=d['z_order'],
+        return ZMIndex(geohash=d['geohash'],
                        train_data_length=d['train_data_length'],
                        stage_length=d['stage_length'],
                        rmi=d['rmi'])
@@ -182,7 +183,7 @@ class ZMIndex(SpatialIndex):
     def save_to_dict(self):
         return {
             'name': self.name,
-            'z_order': self.z_order,
+            'geohash': self.geohash,
             'train_data_length': self.train_data_length,
             'stage_length': self.stage_length,
             'rmi': self.rmi
@@ -196,7 +197,7 @@ class ZMIndex(SpatialIndex):
         3. binary search in scope
         """
         # 1. compute z from x/y of point
-        z_value = self.z_order.point_to_z(point[0], point[1])
+        z_value = self.geohash.point_to_z(point[0], point[1])
         # 2. predict by z and create index scope [pre - min_err, pre + max_err]
         pre, min_err, max_err = self.predict(z_value)
         left_bound = max(round(pre - max_err), 0)
@@ -214,8 +215,8 @@ class ZMIndex(SpatialIndex):
         """
         region = Region(window[0], window[1], window[2], window[3])
         # 1. compute z of window_left and window_right
-        z_value1 = self.z_order.point_to_z(window[2], window[0])
-        z_value2 = self.z_order.point_to_z(window[3], window[1])
+        z_value1 = self.geohash.point_to_z(window[2], window[0])
+        z_value2 = self.geohash.point_to_z(window[3], window[1])
         # 2. find index_left by point query
         # if point not found, index_left = pre - min_err
         pre1, min_err1, max_err1 = self.predict(z_value1)
@@ -247,7 +248,7 @@ class MyEncoder(json.JSONEncoder):
             return obj.tolist()
         elif isinstance(obj, Region):
             return obj.__dict__
-        elif isinstance(obj, ZOrder):
+        elif isinstance(obj, Geohash):
             return obj.save_to_dict()
         elif isinstance(obj, ZMIndex):
             return obj.save_to_dict()
@@ -270,8 +271,8 @@ class MyDecoder(json.JSONDecoder):
         elif len(d.keys()) == 4 and d.__contains__("bottom") and d.__contains__("up") \
                 and d.__contains__("left") and d.__contains__("right"):
             t = Region.init_by_dict(d)
-        elif d.__contains__("name") and d["name"] == "Z Order":
-            t = ZOrder.init_by_dict(d)
+        elif d.__contains__("name") and d["name"] == "Geohash":
+            t = Geohash.init_by_dict(d)
         elif d.__contains__("name") and d["name"] == "ZM Index":
             t = ZMIndex.init_by_dict(d)
         else:
