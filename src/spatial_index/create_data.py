@@ -77,7 +77,7 @@ def create_point_from_csv(input_path, output_path, point_limit):
 
 def print_window_from_csv_to_log(input_path, output_path, window_limit, thread_pool_size):
     df = pandas.read_csv(input_path)
-    multiprocessing.set_start_method('spawn')  # 解决CUDA_ERROR_NOT_INITIALIZED报错
+    multiprocessing.set_start_method('spawn', force=True)  # 解决CUDA_ERROR_NOT_INITIALIZED报错  # 解决CUDA_ERROR_NOT_INITIALIZED报错
     pool = multiprocessing.Pool(processes=thread_pool_size)
     df_sample = df.sample(n=window_limit, random_state=1)
     df_sample = df_sample.reset_index()

@@ -80,7 +80,8 @@ class ZMIndex(SpatialIndex):
                         train_inputs[i + 1][pre].append(train_inputs[i][j][ind])
                         train_labels[i + 1][pre].append(train_labels[i][j][ind])
         # 叶子节点使用线程池训练
-        multiprocessing.set_start_method('spawn')  # 解决CUDA_ERROR_NOT_INITIALIZED报错
+        multiprocessing.set_start_method('spawn',
+                                         force=True)  # 解决CUDA_ERROR_NOT_INITIALIZED报错  # 解决CUDA_ERROR_NOT_INITIALIZED报错
         pool = multiprocessing.Pool(processes=thread_pool_size)
         mp_dict = multiprocessing.Manager().dict()  # 使用共享dict暂存index[i]的所有model
         i = self.stage_length - 1

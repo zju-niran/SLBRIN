@@ -64,7 +64,7 @@ class GeoHashModelIndex(SpatialIndex):
         self.zbrin = ZBRIN()
         self.zbrin.build(quad_tree, self.geohash.sum_bits)
         # 4. in every part data, create zm-model
-        multiprocessing.set_start_method('spawn')  # 解决CUDA_ERROR_NOT_INITIALIZED报错
+        multiprocessing.set_start_method('spawn', force=True)  # 解决CUDA_ERROR_NOT_INITIALIZED报错
         pool = multiprocessing.Pool(processes=thread_pool_size)
         mp_dict = multiprocessing.Manager().dict()  # 使用共享dict暂存index[i]的所有model
         block_num = len(split_data)

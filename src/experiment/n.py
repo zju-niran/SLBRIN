@@ -41,7 +41,10 @@ def load_model_size():
 """
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    logging.basicConfig(filename=os.path.join("model/gm_index/log.file"),
+    parent_path = "model/gm_index"
+    if not os.path.exists(parent_path):
+        os.makedirs(parent_path)
+    logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
                         level=logging.INFO,
                         format="%(asctime)s - %(levelname)s - %(message)s",
                         datefmt="%m/%d/%Y %H:%M:%S %p")
@@ -55,6 +58,8 @@ if __name__ == '__main__':
     # 3.1 快速构建精度低的
     for n in n_list:
         model_path = "model/gm_index/n_" + str(n) + "/"
+        if not os.path.exists(model_path):
+            os.makedirs(model_path)
         index = GeoHashModelIndex(model_path=model_path)
         index_name = index.name
         logging.info("*************start %s************" % model_path)
@@ -74,7 +79,7 @@ if __name__ == '__main__':
         logging.info("Build time: %s" % build_time)
         index.save()
         model_num = len(index.gm_dict)
-        logging.info("Model num: %s" % len(index.gm_dict))
+        logging.info("Model num: %s" % model_num)
         model_precisions = [(nn.max_err - nn.min_err) for nn in index.gm_dict if nn is not None]
         model_precisions_avg = sum(model_precisions) / model_num
         logging.info("Model precision avg: %s" % model_precisions_avg)
@@ -86,10 +91,12 @@ if __name__ == '__main__':
         end_time = time.time()
         search_time = (end_time - start_time) / len(point_query_list)
         logging.info("Point query time: %s" % search_time)
-    load_model_size()
+    # load_model_size()
     # 3.2 构建精度高的
     for n in n_list:
         model_path = "model/gm_index/n_" + str(n) + "_precision/"
+        if not os.path.exists(model_path):
+            os.makedirs(model_path)
         index = GeoHashModelIndex(model_path=model_path)
         index_name = index.name
         logging.info("*************start %s************" % model_path)
@@ -109,7 +116,7 @@ if __name__ == '__main__':
         logging.info("Build time: %s" % build_time)
         index.save()
         model_num = len(index.gm_dict)
-        logging.info("Model num: %s" % len(index.gm_dict))
+        logging.info("Model num: %s" % model_num)
         model_precisions = [(nn.max_err - nn.min_err) for nn in index.gm_dict if nn is not None]
         model_precisions_avg = sum(model_precisions) / model_num
         logging.info("Model precision avg: %s" % model_precisions_avg)
