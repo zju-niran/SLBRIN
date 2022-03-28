@@ -11,7 +11,7 @@ from src.spatial_index.geohash_utils import Geohash
 """
 
 
-class ZBRIN:
+class SBRIN:
     def __init__(self, version=None, size=None, threshold_number=None, threshold_length=None, difflen=None,
                  geohash=None, blkregs=None, blknums=None, blkindexes=None, blkghs=None, blkghlens=None):
         # meta page
@@ -30,7 +30,7 @@ class ZBRIN:
 
     @staticmethod
     def init_by_dict(d: dict):
-        return ZBRIN(version=d['version'],
+        return SBRIN(version=d['version'],
                      size=d['size'],
                      threshold_number=d['threshold_number'],
                      threshold_length=d['threshold_length'],
@@ -65,8 +65,8 @@ class ZBRIN:
             quad_tree.build(data, z=True)
             quad_tree.geohash(self.geohash)
             split_data = quad_tree.leaf_nodes
-            zbrin = ZBRIN()
-            zbrin.build(quad_tree, geohash_length)
+            sbrin = SBRIN()
+            sbrin.build(quad_tree, geohash_length)
         """
         split_data = quad_tree.leaf_nodes
         self.size = len(split_data) - 1
