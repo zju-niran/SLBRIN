@@ -64,7 +64,7 @@ if __name__ == '__main__':
         index_name = index.name
         logging.info("*************start %s************" % model_path)
         start_time = time.time()
-        index.build(data=train_set_xy, max_num=n, data_precision=6, region=Region(40, 42, -75, -73),
+        index.build(data=train_set_xy, threshold_number=n, data_precision=6, region=Region(40, 42, -75, -73),
                     use_threshold=False,
                     threshold=20,
                     core=[1, 128, 1],
@@ -101,7 +101,7 @@ if __name__ == '__main__':
         index_name = index.name
         logging.info("*************start %s************" % model_path)
         start_time = time.time()
-        index.build(data=train_set_xy, max_num=n, data_precision=6, region=Region(40, 42, -75, -73),
+        index.build(data=train_set_xy, threshold_number=n, data_precision=6, region=Region(40, 42, -75, -73),
                     use_threshold=True,
                     threshold=20,
                     core=[1, 128, 1],

@@ -40,16 +40,16 @@ class QuadTreeNode:
 
 
 class QuadTree(SpatialIndex):
-    def __init__(self, model_path=None, region=Region(-90, 90, -180, 180), max_num=MAX_ELE_NUM, data_precision=6):
+    def __init__(self, model_path=None, region=Region(-90, 90, -180, 180), threshold_number=MAX_ELE_NUM, data_precision=6):
         """
         初始化非满四叉树，超过阈值就分裂
         :param region: 四叉树整体的bbox
-        :param max_num: 节点内的点数据数量预置
+        :param threshold_number: 节点内的点数据数量预置
         """
         super(QuadTree, self).__init__("QuadTree")
         self.model_path = model_path
         self.region = region
-        self.max_num = max_num
+        self.threshold_number = threshold_number
         self.data_precision = data_precision
         self.max_depth = region.get_max_depth_by_region_and_precision(precision=data_precision)
         self.root_node = QuadTreeNode(region=region)
@@ -68,7 +68,7 @@ class QuadTree(SpatialIndex):
         if node is None:
             node = self.root_node
         if node.is_leaf == 1:
-            if len(node.items) >= self.max_num and node.depth < self.max_depth:
+            if len(node.items) >= self.threshold_number and node.depth < self.max_depth:
                 self.split_node(node)
                 self.insert(point, node)
             else:
@@ -143,7 +143,7 @@ class QuadTree(SpatialIndex):
                 else:
                     combine_flag = self.delete(point, node.LB)
             if combine_flag:
-                if (len(node.RU.items) + len(node.LU.items) + len(node.RB.items) + len(node.LB.items)) <= self.max_num:
+                if (len(node.RU.items) + len(node.LU.items) + len(node.RB.items) + len(node.LB.items)) <= self.threshold_number:
                     self.combine_node(node)
                     combine_flag = False
             return combine_flag
@@ -386,7 +386,7 @@ def main():
     train_set_xy = pd.read_csv(path)
     # create index
     model_path = "model/quadtree_1451w/"
-    index = QuadTree(model_path=model_path, region=Region(40, 42, -75, -73), max_num=1000, data_precision=6)
+    index = QuadTree(model_path=model_path, region=Region(40, 42, -75, -73), threshold_number=1000, data_precision=6)
     index_name = index.name
     logging.basicConfig(filename=os.path.join(model_path, "log.file"),
                         level=logging.INFO,

@@ -1,11 +1,11 @@
 import gc
 import json
+import logging
 import multiprocessing
 import os
 import sys
 import time
 
-import logging
 import numpy as np
 import pandas as pd
 
@@ -13,7 +13,6 @@ sys.path.append('/home/zju/wlj/st-learned-index')
 from src.zbrin import ZBRIN
 from src.spatial_index.common_utils import Region, biased_search, Point, biased_search_almost
 from src.spatial_index.geohash_utils import Geohash
-from src.spatial_index.quad_tree import QuadTree
 from src.spatial_index.spatial_index import SpatialIndex
 from src.rmi_keras import TrainedNN, AbstractNN
 from src.rmi_keras_simple import TrainedNN as TrainedNN_Simple
@@ -43,41 +42,33 @@ class GeoHashModelIndex(SpatialIndex):
         self.index_list = data.z.tolist()
         self.point_list = data[["x", "y"]].values.tolist()
 
-    def build(self, data: pd.DataFrame, max_num, data_precision, region, use_threshold, threshold, core, train_step,
-              batch_size, learning_rate, retrain_time_limit, thread_pool_size, record):
+    def build(self, data: pd.DataFrame, threshold_number, data_precision, region, use_threshold, threshold, core,
+              train_step,
+              batch_size, learning_rate, retrain_time_limit, thread_pool_size, load_data, save_nn):
         """
         build index
         1. init train z->index data from x/y data
-        2. split data by quad tree: geohash->data_list
-        3. create brin index
-        4. create zm-model(stage=1) for every leaf node
+        2. create brin index
+        3. create zm-model(stage=1) for every leaf node
         """
         self.geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
         # 1. init train z->index data from x/y data
         self.init_train_data(data)
-        # 2. split data by quad tree
-        quad_tree = QuadTree(region=region, max_num=max_num, data_precision=data_precision)
-        quad_tree.build(data, z=True)
-        quad_tree.geohash(self.geohash)
-        split_data = quad_tree.leaf_nodes
-        # 3. create brin index
+        # 2. create brin index
         self.zbrin = ZBRIN()
-        self.zbrin.build(quad_tree, self.geohash.sum_bits)
-        # 4. in every part data, create zm-model
+        self.zbrin.build(self.index_list, self.geohash.sum_bits, region, threshold_number, data_precision)
+        # 3. in every part data, create zm-model
         multiprocessing.set_start_method('spawn', force=True)  # 解决CUDA_ERROR_NOT_INITIALIZED报错
         pool = multiprocessing.Pool(processes=thread_pool_size)
         mp_dict = multiprocessing.Manager().dict()  # 使用共享dict暂存index[i]的所有model
-        block_num = len(split_data)
+        block_num = self.zbrin.size + 1
         self.gm_dict = [None for i in range(block_num)]
-        for index in range(len(split_data)):
-            points = split_data[index]["items"]
-            inputs = []
-            labels = []
-            if len(points) == 0:
+        for index in range(block_num):
+            z_index_bound = self.zbrin.blkindexes[index]
+            if self.zbrin.blknums == 0:
                 continue
-            for point in points:
-                inputs.append(point.z)
-                labels.append(point.index)
+            inputs = self.index_list[z_index_bound[0]:z_index_bound[1] + 1]
+            labels = list(range(z_index_bound[0], z_index_bound[1] + 1))
             pool.apply_async(self.build_single_thread, (1, index, inputs, labels, use_threshold, threshold, core,
                                                         train_step, batch_size, learning_rate, retrain_time_limit,
                                                         record, mp_dict))

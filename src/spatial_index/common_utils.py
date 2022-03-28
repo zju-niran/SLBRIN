@@ -226,6 +226,24 @@ class Region:
         self.up -= i
         self.right -= i
 
+    @staticmethod
+    def up_right_less_region(region, i):
+        region.up -= i
+        region.right -= i
+        return region
+
+    def split(self):
+        """
+        一分四
+        """
+        y_center = (self.up + self.bottom) / 2
+        x_center = (self.left + self.right) / 2
+        LB = Region(self.bottom, y_center, self.left, x_center)
+        RB = Region(self.bottom, y_center, x_center, self.right)
+        LU = Region(y_center, self.up, self.left, x_center)
+        RU = Region(y_center, self.up, x_center, self.right)
+        return LB, RB, LU, RU
+
 
 # python sys.getsizeof无法对自定义类统计内存，提出以下方法
 # 代码来自：https://code.activestate.com/recipes/577504
