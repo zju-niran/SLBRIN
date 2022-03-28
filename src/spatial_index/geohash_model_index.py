@@ -28,19 +28,21 @@ class GeoHashModelIndex(SpatialIndex):
         self.index_list = index_list
         self.point_list = point_list
 
-    def init_train_data(self, data: pd.DataFrame):
+    def init_train_data(self, data: pd.DataFrame, load_data):
         """
         init train data from x/y data
         1. compute z from data.x and data.y
         2. inputs = z and labels = range(0, data_length)
-        :param data: pd.dataframe, [x, y]
-        :return: None
         """
-        data["z"] = data.apply(lambda t: self.geohash.point_to_z(t.x, t.y), 1)
-        data.sort_values(by=["z"], ascending=True, inplace=True)
-        data.reset_index(drop=True, inplace=True)
-        self.index_list = data.z.tolist()
-        self.point_list = data[["x", "y"]].values.tolist()
+        if load_data:
+            self.index_list = np.loadtxt(self.model_path + 'index_list.csv', delimiter=",").tolist()
+            self.point_list = np.loadtxt(self.model_path + 'point_list.csv', dtype=float, delimiter=",").tolist()
+        else:
+            data["z"] = data.apply(lambda t: self.geohash.point_to_z(t.x, t.y), 1)
+            data.sort_values(by=["z"], ascending=True, inplace=True)
+            data.reset_index(drop=True, inplace=True)
+            self.index_list = data.z.tolist()
+            self.point_list = data[["x", "y"]].values.tolist()
 
     def build(self, data: pd.DataFrame, threshold_number, data_precision, region, use_threshold, threshold, core,
               train_step,
@@ -53,7 +55,7 @@ class GeoHashModelIndex(SpatialIndex):
         """
         self.geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
         # 1. init train z->index data from x/y data
-        self.init_train_data(data)
+        self.init_train_data(data, load_data)
         # 2. create brin index
         self.zbrin = ZBRIN()
         self.zbrin.build(self.index_list, self.geohash.sum_bits, region, threshold_number, data_precision)
@@ -71,18 +73,18 @@ class GeoHashModelIndex(SpatialIndex):
             labels = list(range(z_index_bound[0], z_index_bound[1] + 1))
             pool.apply_async(self.build_single_thread, (1, index, inputs, labels, use_threshold, threshold, core,
                                                         train_step, batch_size, learning_rate, retrain_time_limit,
-                                                        record, mp_dict))
+                                                        save_nn, mp_dict))
         pool.close()
         pool.join()
         for (key, value) in mp_dict.items():
             self.gm_dict[key] = value
 
     def build_single_thread(self, curr_stage, current_stage_step, inputs, labels, use_threshold, threshold,
-                            core, train_step, batch_size, learning_rate, retrain_time_limit, record, tmp_dict=None):
+                            core, train_step, batch_size, learning_rate, retrain_time_limit, save_nn, tmp_dict=None):
         # train model
         i = curr_stage
         j = current_stage_step
-        if record is False:
+        if save_nn is False:
             logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
                                 level=logging.INFO,
                                 format="%(asctime)s - %(levelname)s - %(message)s",
@@ -547,7 +549,7 @@ def main():
         print("*************start %s************" % index_name)
         print("Start Build")
         start_time = time.time()
-        index.build(data=train_set_xy, max_num=1000, data_precision=6, region=Region(40, 42, -75, -73),
+        index.build(data=train_set_xy, threshold_number=1000, data_precision=6, region=Region(40, 42, -75, -73),
                     use_threshold=False,
                     threshold=20,
                     core=[1, 128, 1],
@@ -556,7 +558,8 @@ def main():
                     learning_rate=0.01,
                     retrain_time_limit=20,
                     thread_pool_size=1,
-                    record=True)
+                    load_data=False,
+                    save_nn=True)
         end_time = time.time()
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)
