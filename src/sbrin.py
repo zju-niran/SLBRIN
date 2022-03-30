@@ -13,7 +13,7 @@ from src.spatial_index.geohash_utils import Geohash
 
 class SBRIN:
     def __init__(self, version=None, size=None, threshold_number=None, threshold_length=None, difflen=None,
-                 geohash=None, blkregs=None, blknums=None, blkindexes=None, blkghs=None, blkghlens=None):
+                 geohash=None, blkghs=None, regular_pages=None):
         # meta page
         self.version = version
         self.threshold_number = threshold_number  # 新增
@@ -23,10 +23,12 @@ class SBRIN:
         self.size = size  # 优化计算所需：blk size - 1
         # regular page
         self.blkghs = blkghs  # 改动：只存单个值，不再是range，对应values
-        self.blkghlens = blkghlens  # 新增：blk geohash的实际length
-        self.blkregs = blkregs  # BRIN-Spatial也有，blk的region
-        self.blknums = blknums  # blk的数据量
-        self.blkindexes = blkindexes  # 对应itemoffsets
+        # blkghlens: 新增，blk geohash的实际length
+        # blkregs: BRIN-Spatial有，blk的region
+        # blknums: BRIN有，blk的数据量
+        # blkindexes: BRIN有，对应itemoffsets
+        # blknn: 新增， learned indices
+        self.regular_pages = regular_pages
 
     @staticmethod
     def init_by_dict(d: dict):
@@ -36,11 +38,8 @@ class SBRIN:
                      threshold_length=d['threshold_length'],
                      difflen=d['difflen'],
                      geohash=d['geohash'],
-                     blkregs=d['blkregs'],
-                     blknums=d['blknums'],
-                     blkindexes=d['blkindexes'],
                      blkghs=d['blkghs'],
-                     blkghlens=d['blkghlens'])
+                     regular_pages=d['regular_pages'])
 
     def save_to_dict(self):
         return {
@@ -50,11 +49,8 @@ class SBRIN:
             'threshold_length': self.threshold_length,
             'difflen': self.difflen,
             'geohash': self.geohash,
-            'blkregs': self.blkregs,
-            'blknums': self.blknums,
-            'blkindexes': self.blkindexes,
             'blkghs': self.blkghs,
-            'blkghlens': self.blkghlens,
+            'regular_pages': self.regular_pages,
         }
 
     def build_by_quadtree(self, quad_tree, geohash_length):
@@ -72,11 +68,13 @@ class SBRIN:
         self.size = len(split_data) - 1
         self.threshold_number = quad_tree.threshold_number
         self.threshold_length = quad_tree.max_depth * 2
-        self.blkregs = [item["region"] for item in split_data]
-        self.blknums = [len(item["items"]) for item in split_data]
-        self.blkindexes = [get_min_max([point.index for point in item["items"]]) for item in split_data]
-        self.blkghlens = [len(item["geohash"]) for item in split_data]
-        self.geohash = Geohash(sum_bits=max(self.blkghlens), region=quad_tree.region)
+        self.regular_pages = [RegularPage(blkghlen=len(item["geohash"]),
+                                          blkreg=item["region"],
+                                          blknum=len(item["items"]),
+                                          blkindex=get_min_max([point.index for point in item["items"]]))
+                              for item in split_data]
+        max_geohash_length = max([len(item["geohash"]) for item in split_data])
+        self.geohash = Geohash(sum_bits=max_geohash_length, region=quad_tree.region)
         self.difflen = geohash_length - self.geohash.sum_bits
         self.blkghs = [self.geohash.geohash_to_int(item["geohash"]) for item in split_data]
 
@@ -100,7 +98,6 @@ class SBRIN:
             # 如果number不超过threshold_number则为结果block
             if cur_block[3] <= threshold_number:
                 result_block_list.append(cur_block)
-                continue
             else:  # 如果number超过threshold_number则开始分裂
                 child_region = cur_block[2].split()
                 left_index = cur_block[4][0]
@@ -125,11 +122,12 @@ class SBRIN:
                     tmp_left_index = tmp_right_index + 1
                 init_block_list.extend(child_block_list[::-1])  # 倒着放入init中，保持顺序
         # 根据result_block_list转为SBRIN存储
-        self.blkghlens = [blk[1] for blk in result_block_list]
-        self.blkregs = [Region.up_right_less_region(blk[2], pow(10, -data_precision - 1)) for blk in result_block_list]
-        self.blknums = [blk[3] for blk in result_block_list]
-        self.blkindexes = [blk[4] for blk in result_block_list]
-        max_geohash_length = max(self.blkghlens)
+        self.regular_pages = [RegularPage(blkghlen=blk[1],
+                                          blkreg=Region.up_right_less_region(blk[2], pow(10, -data_precision - 1)),
+                                          blknum=blk[3],
+                                          blkindex=blk[4])
+                              for blk in result_block_list]
+        max_geohash_length = max([blk[1] for blk in result_block_list])
         self.blkghs = [blk[0] << max_geohash_length - blk[1] for blk in result_block_list]
         self.geohash = Geohash(sum_bits=max_geohash_length, region=region)
         self.difflen = geohash_length - self.geohash.sum_bits
@@ -137,26 +135,25 @@ class SBRIN:
 
     def point_query(self, point):
         """
-        根据z找到所在的blk的index
+        根据z找到所在的blk
         1. 计算z对应到blk的geohash_int
-        2. 找到比geohash_int小的最大值即为z所在的blk index
+        2. 找到比geohash_int小的最大值即为z所在的blk
         """
-        return binary_search_less_max(self.blkghs, point >> self.difflen, 0, self.size)
+        return self.regular_pages[binary_search_less_max(self.blkghs, point >> self.difflen, 0, self.size)]
 
     def range_query_old(self, point1, point2, window):
         """
-        根据z1/z2找到之间所有blk的index以及blk和window的相交关系
-        1. 使用point_query查找z1和z2所在block的index
-        2. 判断window是否包含这些block之前的region相交或包含
-        3. 返回index1, index2, [[index, intersect/contain]]
+        根据z1/z2找到之间所有blk以及blk和window的相交关系
+        1. 使用point_query查找z1和z2所在blk
+        2. 返回blk1和blk2之间的所有blk，以及他们和window的的包含关系
         TODO: intersect函数还可以改进，改为能判断window对于region的上下左右关系
         """
         i = binary_search_less_max(self.blkghs, point1 >> self.difflen, 0, self.size)
         j = binary_search_less_max(self.blkghs, point2 >> self.difflen, i, self.size)
         if i == j:
-            return [((3, None), i, self.blkindexes[i])]
+            return [((3, None), self.regular_pages[i])]
         else:
-            return [(window.intersect(self.blkregs[k]), k, self.blkindexes[k]) for k in range(i, j - 1)]
+            return [(window.intersect(self.regular_pages[k].blkreg), self.regular_pages[k]) for k in range(i, j - 1)]
 
     def range_query(self, point1, point2):
         """
@@ -211,5 +208,22 @@ class SBRIN:
         # 4. compute distance from point and sort by distance
         return sorted([[target_geohash,
                         target_geohash_list[target_geohash],
-                        self.blkregs[target_geohash].get_min_distance_pow_by_point_list(point3)]
+                        self.regular_pages[target_geohash].blkreg.get_min_distance_pow_by_point_list(point3)]
                        for target_geohash in target_geohash_list], key=lambda x: x[2])
+
+
+class RegularPage:
+    def __init__(self, blkghlen, blkreg, blknum, blkindex, blknn=None):
+        self.blkghlen = blkghlen
+        self.blkreg = blkreg
+        self.blknum = blknum
+        self.blkindex = blkindex
+        self.blknn = blknn
+
+    @staticmethod
+    def init_by_dict(d: dict):
+        return RegularPage(blkghlen=d['blkghlen'],
+                           blkreg=d['blkreg'],
+                           blknum=d['blknum'],
+                           blkindex=d['blkindex'],
+                           blknn=d['blknn'])
