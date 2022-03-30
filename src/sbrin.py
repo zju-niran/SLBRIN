@@ -82,7 +82,7 @@ class SBRIN:
         """
         构建SBRIN
         1. 初始化第一个block
-        2. 用堆栈存储block，对每个block进行分裂，直到block的number不超过threshold_number
+        2. 用堆栈存储block，对每个block进行分裂
         3. 把不超过的block加入结果list，加入的时候顺序为[左上，右下，左上，右上]的逆序，因为堆栈
         4. 从结果list存储为SBRIN
         """
@@ -95,10 +95,9 @@ class SBRIN:
         # 开始分裂
         while len(init_block_list):
             cur_block = init_block_list.pop(-1)
-            # 如果number不超过threshold_number则为结果block
-            if cur_block[3] <= threshold_number:
+            # 如果number超过threshold_number或且length不超过了threshold_length则分裂
+            if cur_block[3] >= self.threshold_number and cur_block[1] < self.threshold_length:
                 result_block_list.append(cur_block)
-            else:  # 如果number超过threshold_number则开始分裂
                 child_region = cur_block[2].split()
                 left_index = cur_block[4][0]
                 right_index = cur_block[4][1]
@@ -121,6 +120,8 @@ class SBRIN:
                                            (tmp_left_index, tmp_right_index))
                     tmp_left_index = tmp_right_index + 1
                 init_block_list.extend(child_block_list[::-1])  # 倒着放入init中，保持顺序
+            else:
+                result_block_list.append(cur_block)
         # 根据result_block_list转为SBRIN存储
         self.regular_pages = [RegularPage(blkghlen=blk[1],
                                           blkreg=Region.up_right_less_region(blk[2], pow(10, -data_precision - 1)),
