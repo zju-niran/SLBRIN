@@ -149,6 +149,7 @@ class TrainedNN:
                 os.remove(self.model_hdf_file)
             model = tf.keras.Sequential()
             for i in range(len(self.core_nums) - 2):
+                # TODO: 为什么sigmoid要比relu训练快很多，虽然计算的慢
                 model.add(tf.keras.layers.Dense(units=self.core_nums[i + 1],
                                                 input_dim=self.core_nums[i],
                                                 activation='sigmoid'))
