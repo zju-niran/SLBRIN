@@ -17,6 +17,7 @@ class RTree(SpatialIndex):
         self.model_path = model_path
         p = index.Property()
         self.index = index.Index(properties=p)
+        # self.index = index.RtreeContainer(properties=p)  # 没有直接Index来得快，range_query慢了一倍
 
     def insert(self, point):
         self.index.insert(point.index, (point.lng, point.lat))
@@ -50,7 +51,7 @@ class RTree(SpatialIndex):
 
     def save(self):
         """
-        save rtree into json file
+        save rtree into file
         :return: None
         """
         if os.path.exists(self.model_path) is False:
@@ -58,7 +59,7 @@ class RTree(SpatialIndex):
 
     def load(self):
         """
-        load zm index from json file
+        load rtree index from file
         :return: None
         """
 
