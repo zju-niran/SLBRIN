@@ -3,34 +3,12 @@ import os
 import sys
 import time
 
+import numpy as np
 import pandas as pd
-from memory_profiler import profile
 
-sys.path.append('/home/zju/wlj/st-learned-index')
+sys.path.append('D:\Code\Paper\st-learned-index')
 from src.spatial_index.common_utils import Region
 from src.spatial_index.geohash_model_index import GeoHashModelIndex
-
-
-@profile(precision=8)
-def load_model_size():
-    n_list = [40000, 20000, 10000, 5000, 2500]
-    model_paths = ["model/gm_index/n_" + str(n) + "/" for n in n_list]
-    index = GeoHashModelIndex(model_path=model_path[0])
-    index.load()
-    index = None
-    index = GeoHashModelIndex(model_path=model_path[1])
-    index.load()
-    index = None
-    index = GeoHashModelIndex(model_path=model_path[2])
-    index.load()
-    index = None
-    index = GeoHashModelIndex(model_path=model_path[3])
-    index.load()
-    index = None
-    index = GeoHashModelIndex(model_path=model_path[4])
-    index.load()
-    index = None
-
 
 """
 1. 读取数据
@@ -49,11 +27,11 @@ if __name__ == '__main__':
                         format="%(asctime)s - %(levelname)s - %(message)s",
                         datefmt="%m/%d/%Y %H:%M:%S %p")
     # 1. 读取数据
-    # path = '../../data/trip_data_1_100000.csv'
-    path = '../../data/trip_data_1_filter.csv'
-    train_set_xy = pd.read_csv(path)
+    path = '../../data/trip_data_1_100000_sorted.npy'
+    # path = '../../data/trip_data_1_filter_sorted.npy'
+    data_list = np.load(path).tolist()
     # 2. 设置实验参数
-    n_list = [40000, 20000, 10000, 5000, 2500]
+    n_list = [160000, 80000, 40000, 20000, 10000, 5000]
     # 3. 开始实验
     # 3.1 快速构建精度低的
     for n in n_list:
@@ -64,7 +42,7 @@ if __name__ == '__main__':
         index_name = index.name
         logging.info("*************start %s************" % model_path)
         start_time = time.time()
-        index.build(data=train_set_xy, threshold_number=n, data_precision=6, region=Region(40, 42, -75, -73),
+        index.build(data_list=data_list, threshold_number=n, data_precision=6, region=Region(40, 42, -75, -73),
                     use_threshold=False,
                     threshold=20,
                     core=[1, 128, 1],
@@ -73,7 +51,6 @@ if __name__ == '__main__':
                     learning_rate=0.01,
                     retrain_time_limit=20,
                     thread_pool_size=6,
-                    load_data=True,
                     save_nn=False)
         end_time = time.time()
         build_time = end_time - start_time
@@ -92,7 +69,6 @@ if __name__ == '__main__':
         end_time = time.time()
         search_time = (end_time - start_time) / len(point_query_list)
         logging.info("Point query time: %s" % search_time)
-    # load_model_size()
     # 3.2 构建精度高的
     for n in n_list:
         model_path = "model/gm_index/n_" + str(n) + "_precision/"
@@ -102,7 +78,7 @@ if __name__ == '__main__':
         index_name = index.name
         logging.info("*************start %s************" % model_path)
         start_time = time.time()
-        index.build(data=train_set_xy, threshold_number=n, data_precision=6, region=Region(40, 42, -75, -73),
+        index.build(data_list=data_list, threshold_number=n, data_precision=6, region=Region(40, 42, -75, -73),
                     use_threshold=True,
                     threshold=20,
                     core=[1, 128, 1],
@@ -111,7 +87,6 @@ if __name__ == '__main__':
                     learning_rate=0.01,
                     retrain_time_limit=20,
                     thread_pool_size=6,
-                    load_data=True,
                     save_nn=True)
         end_time = time.time()
         build_time = end_time - start_time

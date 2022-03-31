@@ -3,6 +3,7 @@ import os
 import sys
 import time
 
+import numpy as np
 import pandas as pd
 from rtree import index
 
@@ -25,9 +26,9 @@ class RTree(SpatialIndex):
     def delete(self, point):
         self.index.delete(point.index, (point.lng, point.lat))
 
-    def build(self, data: pd.DataFrame):
-        for index, point in data.iterrows():
-            self.insert(Point(point.x, point.y, index=index))
+    def build(self, data_list):
+        for i in range(len(data_list)):
+            self.insert(Point(data_list[i][0], data_list[i][1], index=i))
 
     def point_query_single(self, point):
         """
@@ -67,8 +68,8 @@ class RTree(SpatialIndex):
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     # load data
-    path = '../../data/trip_data_1_filter.csv'
-    train_set_xy = pd.read_csv(path)
+    path = '../../data/trip_data_1_filter_sorted.npy'
+    data_list = np.load(path).tolist()
     # create index
     model_path = "model/rtree_1451w/"
     index = RTree(model_path=model_path)
@@ -83,7 +84,7 @@ def main():
     else:
         logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        index.build(train_set_xy)
+        index.build(data_list=data_list)
         end_time = time.time()
         build_time = end_time - start_time
         logging.info("Build time %s" % build_time)

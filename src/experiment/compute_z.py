@@ -17,8 +17,7 @@ geohash = Geohash.init_by_precision(data_precision=6, region=Region(40, 42, -75,
 data["z"] = data.apply(lambda t: geohash.point_to_z(t.x, t.y), 1)
 data.sort_values(by=["z"], ascending=True, inplace=True)
 data.reset_index(drop=True, inplace=True)
-index_list = data.z.tolist()
-point_list = data[["x", "y"]].values.tolist()
+data_list = data.values.tolist()
 end_time = time.time()
 search_time = end_time - start_time
 print("Load data time: %s" % search_time)

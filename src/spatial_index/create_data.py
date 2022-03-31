@@ -4,10 +4,12 @@ import logging
 import multiprocessing
 import os
 
+import numpy as np
 import pandas
 import pandas as pd
 
 from src.spatial_index.common_utils import Point, Region
+from src.spatial_index.geohash_utils import Geohash
 
 
 def count_csv(path):
@@ -77,7 +79,8 @@ def create_point_from_csv(input_path, output_path, point_limit):
 
 def print_window_from_csv_to_log(input_path, output_path, window_limit, thread_pool_size):
     df = pandas.read_csv(input_path)
-    multiprocessing.set_start_method('spawn', force=True)  # 解决CUDA_ERROR_NOT_INITIALIZED报错  # 解决CUDA_ERROR_NOT_INITIALIZED报错
+    multiprocessing.set_start_method('spawn',
+                                     force=True)  # 解决CUDA_ERROR_NOT_INITIALIZED报错  # 解决CUDA_ERROR_NOT_INITIALIZED报错
     pool = multiprocessing.Pool(processes=thread_pool_size)
     df_sample = df.sample(n=window_limit, random_state=1)
     df_sample = df_sample.reset_index()
@@ -166,6 +169,19 @@ def check_knn():
                 print("gm: %s, r: %s" % (list1[i], list2[i]))
 
 
+def geohash_and_sort(input_path, output_path, data_precision, region):
+    geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
+    df = pandas.read_csv(input_path, usecols=["x", "y"])
+    df["z"] = df.apply(lambda t: geohash.point_to_z(t.x, t.y), 1)
+    df.sort_values(by=["z"], ascending=True, inplace=True)
+    df.reset_index(drop=True, inplace=True)
+    np.save(output_path, df.values)
+
+
+def csv_to_npy(input_path, output_path):
+    np.save(output_path, pandas.read_csv(input_path, usecols=["x", "y"]).values)  # pd.read_csv->np.load:11->4，而且npy比csv小
+
+
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     headers = ['medallion',
@@ -217,4 +233,12 @@ if __name__ == '__main__':
     # create_knn_from_csv(output_path_100000_sample, output_path_knn_query_csv, knn_point_limit, knn_n_limit)
 
     # 确定knn找到的数据对不对
-    check_knn()
+    # check_knn()
+    # 6. Geohash排序数据
+    # input_path = "../../data/trip_data_1_filter.csv"
+    # output_path = "../../data/trip_data_1_filter_sorted.npy"
+    # geohash_and_sort(input_path, output_path, 6, Region(40, 42, -75, -73))
+    # 7. 把csv转npy
+    input_path = "../../data/trip_data_1_filter.csv"
+    output_path = "../../data/trip_data_1_filter.npy"
+    csv_to_npy(input_path, output_path)

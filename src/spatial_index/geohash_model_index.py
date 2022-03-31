@@ -17,35 +17,30 @@ from src.spatial_index.spatial_index import SpatialIndex
 from src.rmi_keras import TrainedNN, AbstractNN
 from src.rmi_keras_simple import TrainedNN as TrainedNN_Simple
 
+"""
+代码上和论文的diff:
+1. 数据和geohash索引没有分开，而是放在data_list里：理论上，索引中找到index后能找到数据磁盘位置，然后直接读取point，但代码实现不了
+为了模拟和贴近寻道的效率，索引上直接放了数据；
+索引size = 数据+索引的size - 数据的size + gm_index.json的size；
+索引构建时间 = 数据geohash编码时间+gm_index构建时间
+"""
 
+
+# block_size=100，是指一个page能存一百个point，磁盘io率用扫描过的data_list数据量来表示
+# SBRIN是一级索引，geohash只是数据排序和blk mbr计算的工具
+# 对于数据更新
+# 策略1：不要搞缓存和留空了，换一种策略，就是定期生成新的索引，数据就按时间插入，生成新的blk geohash mbr，一定时间后更新整体的数据顺序形成新的SBRIN，再一定时间后合并到老的SBRIN
+# 策略2：留空，如果blk满了，就生成新的blk，配上原来blk一样的属性；如果没满，就先放到队尾，并且检查误差（误差不一定变大的）。
 class GeoHashModelIndex(SpatialIndex):
-    def __init__(self, model_path=None, geohash=None, sbrin=None, index_list=None, point_list=None):
+    def __init__(self, model_path=None, geohash=None, sbrin=None):
         super(GeoHashModelIndex, self).__init__("GeoHash Model Index")
         self.model_path = model_path
         self.geohash = geohash
         self.sbrin = sbrin
-        self.index_list = index_list
-        self.point_list = point_list
+        self.data_list = None
 
-    def init_train_data(self, data: pd.DataFrame, load_data):
-        """
-        init train data from x/y data
-        1. compute z from data.x and data.y
-        2. inputs = z and labels = range(0, data_length)
-        """
-        if load_data:
-            self.index_list = np.loadtxt(self.model_path + 'index_list.csv', delimiter=",").tolist()
-            self.point_list = np.loadtxt(self.model_path + 'point_list.csv', dtype=float, delimiter=",").tolist()
-        else:
-            data["z"] = data.apply(lambda t: self.geohash.point_to_z(t.x, t.y), 1)
-            data.sort_values(by=["z"], ascending=True, inplace=True)
-            data.reset_index(drop=True, inplace=True)
-            self.index_list = data.z.tolist()
-            self.point_list = data[["x", "y"]].values.tolist()
-
-    def build(self, data: pd.DataFrame, threshold_number, data_precision, region, use_threshold, threshold, core,
-              train_step,
-              batch_size, learning_rate, retrain_time_limit, thread_pool_size, load_data, save_nn):
+    def build(self, data_list, threshold_number, data_precision, region, use_threshold, threshold, core,
+              train_step, batch_size, learning_rate, retrain_time_limit, thread_pool_size, save_nn):
         """
         build index
         1. init train z->index data from x/y data
@@ -54,10 +49,10 @@ class GeoHashModelIndex(SpatialIndex):
         """
         self.geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
         # 1. init train z->index data from x/y data
-        self.init_train_data(data, load_data)
+        self.data_list = data_list
         # 2. create brin index
         self.sbrin = SBRIN()
-        self.sbrin.build(self.index_list, self.geohash.sum_bits, region, threshold_number, data_precision)
+        self.sbrin.build(self.data_list, self.geohash.sum_bits, region, threshold_number, data_precision)
         # 3. in every part data, create zm-model
         multiprocessing.set_start_method('spawn', force=True)  # 解决CUDA_ERROR_NOT_INITIALIZED报错
         pool = multiprocessing.Pool(processes=thread_pool_size)
@@ -68,7 +63,7 @@ class GeoHashModelIndex(SpatialIndex):
             z_index_bound = block.blkindex
             if block.blknum == 0:  # block is None
                 continue
-            inputs = self.index_list[z_index_bound[0]:z_index_bound[1] + 1]
+            inputs = [i[2] for i in self.data_list[z_index_bound[0]:z_index_bound[1] + 1]]
             labels = list(range(z_index_bound[0], z_index_bound[1] + 1))
             pool.apply_async(self.build_single_thread, (1, index, inputs, labels, use_threshold, threshold, core,
                                                         train_step, batch_size, learning_rate, retrain_time_limit,
@@ -124,8 +119,6 @@ class GeoHashModelIndex(SpatialIndex):
         """
         if os.path.exists(self.model_path) is False:
             os.makedirs(self.model_path)
-        np.savetxt(self.model_path + 'index_list.csv', self.index_list, delimiter=',', fmt='%d')
-        np.savetxt(self.model_path + 'point_list.csv', self.point_list, delimiter=',', fmt='%f,%f')
         with open(self.model_path + 'gm_index.json', "w") as f:
             json.dump(self, f, cls=MyEncoder, ensure_ascii=False)
 
@@ -138,8 +131,6 @@ class GeoHashModelIndex(SpatialIndex):
             gm_index = json.load(f, cls=MyDecoder)
             self.geohash = gm_index.geohash
             self.sbrin = gm_index.sbrin
-            self.index_list = np.loadtxt(self.model_path + 'index_list.csv', delimiter=",").tolist()
-            self.point_list = np.loadtxt(self.model_path + 'point_list.csv', dtype=float, delimiter=",").tolist()
             del gm_index
 
     @staticmethod
@@ -173,7 +164,7 @@ class GeoHashModelIndex(SpatialIndex):
             pre, min_err, max_err = blk.blknn.predict(z), blk.blknn.min_err, blk.blknn.max_err
             # 4. binary search in scope
             # 优化: round->int:2->1
-            return biased_search(self.index_list, z, int(pre),
+            return biased_search(self.data_list, 2, z, int(pre),
                                  max(round(pre - max_err), blk.blkindex[0]),
                                  min(round(pre - min_err), blk.blkindex[1]))
 
@@ -223,7 +214,7 @@ class GeoHashModelIndex(SpatialIndex):
                     max_err = blk_nn.max_err
                     left_bound1 = max(round(pre1 - max_err), blk[1].blkindex[0])
                     right_bound1 = min(round(pre1 - min_err), blk[1].blkindex[1])
-                    index_left = biased_search(self.index_list, z_value1, int(pre1), left_bound1, right_bound1)
+                    index_left = biased_search(self.data_list, 2, z_value1, int(pre1), left_bound1, right_bound1)
                     if z_value1 == z_value2:
                         if len(index_left) > 0:
                             result.extend(index_left)
@@ -231,11 +222,11 @@ class GeoHashModelIndex(SpatialIndex):
                         index_left = left_bound1 if len(index_left) == 0 else min(index_left)
                         left_bound2 = max(round(pre2 - max_err), blk[1].blkindex[0])
                         right_bound2 = min(round(pre2 - min_err), blk[1].blkindex[1])
-                        index_right = biased_search(self.index_list, z_value2, int(pre2), left_bound2, right_bound2)
+                        index_right = biased_search(self.data_list, 2, z_value2, int(pre2), left_bound2, right_bound2)
                         index_right = right_bound2 if len(index_right) == 0 else max(index_right)
                         # 3.2.3 filter all the point of scope[min_index/max_index] by range.contain(point)
                         result.extend([index for index in range(index_left, index_right + 1)
-                                       if region.contain_and_border_by_list(self.point_list[index])])
+                                       if region.contain_and_border_by_list(self.data_list[index])])
         return result
 
     def range_query_old(self, windows):
@@ -340,7 +331,7 @@ class GeoHashModelIndex(SpatialIndex):
                     pre1 = blk_nn.predict(z_value_new1)
                     left_bound1 = max(round(pre1 - max_err), blk_index[0])
                     right_bound1 = min(round(pre1 - min_err), blk_index[1])
-                    index_left = min(biased_search_almost(self.index_list, z_value_new1, int(pre1), left_bound1,
+                    index_left = min(biased_search_almost(self.data_list, 2, z_value_new1, int(pre1), left_bound1,
                                                           right_bound1))
 
                 else:
@@ -349,7 +340,7 @@ class GeoHashModelIndex(SpatialIndex):
                     pre2 = blk_nn.predict(z_value_new2)
                     left_bound2 = max(round(pre2 - max_err), blk_index[0])
                     right_bound2 = min(round(pre2 - min_err), blk_index[1])
-                    index_right = max(biased_search_almost(self.index_list, z_value_new2, int(pre2), left_bound2,
+                    index_right = max(biased_search_almost(self.data_list, 2, z_value_new2, int(pre2), left_bound2,
                                                            right_bound2))
 
                 else:
@@ -357,7 +348,7 @@ class GeoHashModelIndex(SpatialIndex):
                 # 5 filter all the point of scope[min_index/max_index] by range.contain(point)
                 # 优化: region.contain->compare_func不同位置的点做不同的判断: 638->474mil
                 result.extend([index for index in range(index_left, index_right + 1)
-                               if compare_func(self.point_list[index])])
+                               if compare_func(self.data_list[index])])
         return result
 
     def knn_query_single(self, knn):
@@ -380,9 +371,9 @@ class GeoHashModelIndex(SpatialIndex):
             pre, min_err, max_err = qp_blk.blknn.predict(qp_z), qp_blk.blknn.min_err, qp_blk.blknn.max_err
             left_bound = max(round(pre - max_err), qp_blk.blkindex[0])
             right_bound = min(round(pre - min_err), qp_blk.blkindex[1])
-            query_point_index = biased_search_almost(self.index_list, qp_z, int(pre), left_bound, right_bound)[0]
+            query_point_index = biased_search_almost(self.data_list, 2, qp_z, int(pre), left_bound, right_bound)[0]
         # 2. get the nn points to create range query window
-        tp_list = [[Point.distance_pow_point_list(knn, self.point_list[i]), i]
+        tp_list = [[Point.distance_pow_point_list(knn, self.data_list[i]), i]
                    for i in range(query_point_index - n, query_point_index + n + 1)]
         tp_list = sorted(tp_list)[:n]
         max_dist = tp_list[-1][0]
@@ -449,7 +440,7 @@ class GeoHashModelIndex(SpatialIndex):
                 pre1 = blk_nn.predict(z_value_new1)
                 left_bound1 = max(round(pre1 - max_err), blk_index[0])
                 right_bound1 = min(round(pre1 - min_err), blk_index[1])
-                index_left = min(biased_search_almost(self.index_list, z_value_new1, int(pre1), left_bound1,
+                index_left = min(biased_search_almost(self.data_list, 2, z_value_new1, int(pre1), left_bound1,
                                                       right_bound1))
             else:
                 index_left = blk_index[0]
@@ -457,13 +448,13 @@ class GeoHashModelIndex(SpatialIndex):
                 pre2 = blk_nn.predict(z_value_new2)
                 left_bound2 = max(round(pre2 - max_err), blk_index[0])
                 right_bound2 = min(round(pre2 - min_err), blk_index[1])
-                index_right = max(biased_search_almost(self.index_list, z_value_new2, int(pre2), left_bound2,
+                index_right = max(biased_search_almost(self.data_list, 2, z_value_new2, int(pre2), left_bound2,
                                                        right_bound2))
 
             else:
                 index_right = blk_index[1]
             # 3 filter point by distance
-            tp_list.extend([[Point.distance_pow_point_list(knn, self.point_list[i]), i]
+            tp_list.extend([[Point.distance_pow_point_list(knn, self.data_list[i]), i]
                             for i in range(index_left, index_right + 1)])
             tp_list = sorted(tp_list)[:n]
             max_dist = tp_list[-1][0]
@@ -512,9 +503,9 @@ class MyDecoder(json.JSONDecoder):
             t = Geohash.init_by_dict(d)
         elif d.__contains__("name") and d["name"] == "GeoHash Model Index":
             t = GeoHashModelIndex.init_by_dict(d)
-        elif len(d.keys()) == 8 and d.__contains__("version"):
+        elif d.__contains__("regular_pages"):
             t = SBRIN.init_by_dict(d)
-        elif len(d.keys()) == 5 and d.__contains__("blknn"):
+        elif d.__contains__("blknn"):
             t = RegularPage.init_by_dict(d)
         else:
             t = d
@@ -525,20 +516,21 @@ class MyDecoder(json.JSONDecoder):
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     # load data
-    path = '../../data/trip_data_1_filter.csv'
-    train_set_xy = pd.read_csv(path)
+    path = '../../data/trip_data_1_100000_sorted.npy'
+    data_list = np.load(path).tolist()
     # create index
-    model_path = "model/gm_index_1451w/"
+    model_path = "model/gm_index_10w/"
     index = GeoHashModelIndex(model_path=model_path)
     index_name = index.name
     load_index_from_json = False
     if load_index_from_json:
         index.load()
+        index.data_list = data_list
     else:
         print("*************start %s************" % index_name)
         print("Start Build")
         start_time = time.time()
-        index.build(data=train_set_xy, threshold_number=1000, data_precision=6, region=Region(40, 42, -75, -73),
+        index.build(data_list=data_list, threshold_number=1000, data_precision=6, region=Region(40, 42, -75, -73),
                     use_threshold=False,
                     threshold=20,
                     core=[1, 128, 1],
@@ -546,8 +538,7 @@ def main():
                     batch_size=1024,
                     learning_rate=0.01,
                     retrain_time_limit=20,
-                    thread_pool_size=1,
-                    load_data=False,
+                    thread_pool_size=5,
                     save_nn=True)
         end_time = time.time()
         build_time = end_time - start_time

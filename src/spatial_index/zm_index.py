@@ -16,33 +16,16 @@ from src.rmi_keras import TrainedNN, AbstractNN
 
 
 class ZMIndex(SpatialIndex):
-    def __init__(self, model_path=None, geohash=None, train_data_length=None, stage_length=0, rmi=None, index_list=None,
-                 point_list=None):
+    def __init__(self, model_path=None, geohash=None, train_data_length=None, stage_length=0, rmi=None):
         super(ZMIndex, self).__init__("ZM Index")
         self.model_path = model_path
         self.geohash = geohash
         self.train_data_length = train_data_length
         self.stage_length = stage_length
         self.rmi = rmi
-        self.index_list = index_list
-        self.point_list = point_list
+        self.data_list = None
 
-    def init_train_data(self, data: pd.DataFrame):
-        """
-        init train data from x/y data
-        1. compute z from data.x and data.y
-        2. inputs = z and labels = range(0, data_length)
-        :param data: pd.dataframe, [x, y]
-        :return: None
-        """
-        data["z"] = data.apply(lambda t: self.geohash.point_to_z(t.x, t.y), 1)
-        data.sort_values(by=["z"], ascending=True, inplace=True)
-        data.reset_index(drop=True, inplace=True)
-        self.train_data_length = len(data) - 1
-        self.index_list = data.z.tolist()
-        self.point_list = data[["x", "y"]].values.tolist()
-
-    def build(self, data: pd.DataFrame, data_precision, region, use_thresholds, thresholds, stages, cores, train_steps,
+    def build(self, data_list, data_precision, region, use_thresholds, thresholds, stages, cores, train_steps,
               batch_sizes, learning_rates, retrain_time_limits, thread_pool_size):
         """
         build index by multi threads
@@ -55,9 +38,10 @@ class ZMIndex(SpatialIndex):
         train_labels = [[[] for i in range(stages[i])] for i in range(self.stage_length)]
         self.rmi = [[None for i in range(stages[i])] for i in range(self.stage_length)]
         # 1. init train z->index data from x/y data
-        self.init_train_data(data)
-        train_inputs[0][0] = self.index_list
-        train_labels[0][0] = np.arange(0, self.train_data_length + 1).tolist()
+        self.data_list = data_list
+        self.train_data_length = len(self.data_list) - 1
+        train_inputs[0][0] = [i[2] for i in self.data_list]
+        train_labels[0][0] = list(range(0, self.train_data_length + 1))
         # 2. create rmi for train z->index data
         # 构建stage_nums结构的树状NNs
         for i in range(self.stage_length - 1):
@@ -154,8 +138,6 @@ class ZMIndex(SpatialIndex):
         """
         if os.path.exists(self.model_path) is False:
             os.makedirs(self.model_path)
-        np.savetxt(self.model_path + 'index_list.csv', self.index_list, delimiter=',', fmt='%d')
-        np.savetxt(self.model_path + 'point_list.csv', self.point_list, delimiter=',', fmt='%f,%f')
         with open(self.model_path + 'zm_index.json', "w") as f:
             json.dump(self, f, cls=MyEncoder, ensure_ascii=False)
 
@@ -170,8 +152,6 @@ class ZMIndex(SpatialIndex):
             self.train_data_length = zm_index.train_data_length
             self.stage_length = zm_index.stage_length
             self.rmi = zm_index.rmi
-            self.index_list = np.loadtxt(self.model_path + 'index_list.csv', dtype=np.int64, delimiter=",").tolist()
-            self.point_list = np.loadtxt(self.model_path + 'point_list.csv', dtype=float, delimiter=",").tolist()
             del zm_index
 
     @staticmethod
@@ -204,7 +184,7 @@ class ZMIndex(SpatialIndex):
         left_bound = max(round(pre - max_err), 0)
         right_bound = min(round(pre - min_err), self.train_data_length)
         # 3. binary search in scope
-        return biased_search(self.index_list, z_value, int(pre), left_bound, right_bound)
+        return biased_search(self.data_list, 2, z_value, int(pre), left_bound, right_bound)
 
     def range_query_single(self, window):
         """
@@ -224,7 +204,7 @@ class ZMIndex(SpatialIndex):
         pre1_init = int(pre1)
         left_bound1 = max(round(pre1 - max_err1), 0)
         right_bound1 = min(round(pre1 - min_err1), self.train_data_length)
-        index_left = biased_search(self.index_list, z_value1, pre1_init, left_bound1, right_bound1)
+        index_left = biased_search(self.data_list, 2, z_value1, pre1_init, left_bound1, right_bound1)
         index_left = left_bound1 if len(index_left) == 0 else min(index_left)
         # 3. find index_right by point query
         # if point not found, index_right = pre - max_err
@@ -232,11 +212,11 @@ class ZMIndex(SpatialIndex):
         pre2_init = int(pre2)
         left_bound2 = max(round(pre2 - max_err2), 0)
         right_bound2 = min(round(pre2 - min_err2), self.train_data_length)
-        index_right = biased_search(self.index_list, z_value2, pre2_init, left_bound2, right_bound2)
+        index_right = biased_search(self.data_list, 2, z_value2, pre2_init, left_bound2, right_bound2)
         index_right = right_bound2 if len(index_right) == 0 else max(index_right)
         # 4. filter all the point of scope[index1, index2] by range(x1/y1/x2/y2).contain(point)
         return [index for index in range(index_left, index_right + 1)
-                if region.contain_and_border_by_list(self.point_list[index])]
+                if region.contain_and_border_by_list(self.data_list[index])]
 
 
 class MyEncoder(json.JSONEncoder):
@@ -284,20 +264,21 @@ class MyDecoder(json.JSONDecoder):
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     # load data
-    path = '../../data/trip_data_1_filter.csv'
-    train_set_xy = pd.read_csv(path)
+    path = '../../data/trip_data_1_100000_sorted.npy'
+    data_list = np.load(path).tolist()
     # create index
-    model_path = "model/zm_index_1451w/"
+    model_path = "model/zm_index_10w/"
     index = ZMIndex(model_path=model_path)
     index_name = index.name
-    load_index_from_json = True
+    load_index_from_json = False
     if load_index_from_json:
         index.load()
+        index.data_list = data_list
     else:
         print("*************start %s************" % index_name)
         print("Start Build")
         start_time = time.time()
-        index.build(data=train_set_xy, data_precision=6, region=Region(40, 42, -75, -73),
+        index.build(data_list=data_list, data_precision=6, region=Region(40, 42, -75, -73),
                     use_thresholds=[False, False],
                     thresholds=[30, 200],
                     stages=[1, 100],

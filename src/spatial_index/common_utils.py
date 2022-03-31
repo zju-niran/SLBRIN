@@ -356,48 +356,48 @@ def nparray_diff_normalize_reverse_num(num1, num2, min_v, max_v):
     return (num1 - num2) * (max_v - min_v)
 
 
-def binary_search_less_max(nums, x, left, right):
+def binary_search_less_max(nums, field, x, left, right):
     """
     二分查找比x小的最大值
     优化: 循环->二分:15->1
     """
     while left <= right:
         mid = (left + right) // 2
-        if nums[mid] == x:
+        if nums[mid][field] == x:
             return mid
-        elif nums[mid] < x:
+        elif nums[mid][field] < x:
             left = mid + 1
         else:
             right = mid - 1
     return right
 
 
-def binary_search(nums, x, left, right):
+def binary_search(nums, field, x, left, right):
     """
     binary search x in nums[left, right]
     """
     result = []
     while left <= right:
         mid = (left + right) // 2
-        if nums[mid] == x:
+        if nums[mid][field] == x:
             result.append(mid)
             mid_left = mid - 1
-            while mid_left >= left and nums[mid_left] == x:
+            while mid_left >= left and nums[mid_left][field] == x:
                 result.append(mid_left)
                 mid_left -= 1
             mid_right = mid + 1
-            while mid_right <= right and nums[mid_right] == x:
+            while mid_right <= right and nums[mid_right][field] == x:
                 result.append(mid_right)
                 mid_right += 1
             return result
-        elif nums[mid] < x:
+        elif nums[mid][field] < x:
             left = mid + 1
         else:
             right = mid - 1
     return result
 
 
-def biased_search_almost(nums, x, pre, left, right):
+def biased_search_almost(nums, field, x, pre, left, right):
     """
     二分查找，找不到则返回最接近的，值不超过[left, right]
     """
@@ -406,18 +406,18 @@ def biased_search_almost(nums, x, pre, left, right):
     left_store = left
     right_store = right
     while left <= right:
-        if nums[mid] == x:
+        if nums[mid][field] == x:
             result.append(mid)
             mid_left = mid - 1
-            while mid_left >= left and nums[mid_left] == x:
+            while mid_left >= left and nums[mid_left][field] == x:
                 result.append(mid_left)
                 mid_left -= 1
             mid_right = mid + 1
-            while mid_right <= right and nums[mid_right] == x:
+            while mid_right <= right and nums[mid_right][field] == x:
                 result.append(mid_right)
                 mid_right += 1
             return result
-        elif nums[mid] < x:
+        elif nums[mid][field] < x:
             left = mid + 1
         else:
             right = mid - 1
@@ -426,10 +426,10 @@ def biased_search_almost(nums, x, pre, left, right):
         return [left_store]
     if left > right_store:
         return [right_store]
-    return [right] if nums[left] - x > x - nums[right] else [left]
+    return [right] if nums[left][field] - x > x - nums[right][field] else [left]
 
 
-def biased_search(nums, x, pre, left, right):
+def biased_search(nums, field, x, pre, left, right):
     """
     binary search x in nums[left, right], but the first mid is pre
     如果pre不在[left, right]里，会变慢
@@ -437,18 +437,18 @@ def biased_search(nums, x, pre, left, right):
     mid = pre
     result = []
     while left <= right:
-        if nums[mid] == x:
+        if nums[mid][field] == x:
             result.append(mid)
             mid_left = mid - 1
-            while mid_left >= left and nums[mid_left] == x:
+            while mid_left >= left and nums[mid_left][field] == x:
                 result.append(mid_left)
                 mid_left -= 1
             mid_right = mid + 1
-            while mid_right <= right and nums[mid_right] == x:
+            while mid_right <= right and nums[mid_right][field] == x:
                 result.append(mid_right)
                 mid_right += 1
             return result
-        elif nums[mid] < x:
+        elif nums[mid][field] < x:
             left = mid + 1
         else:
             right = mid - 1

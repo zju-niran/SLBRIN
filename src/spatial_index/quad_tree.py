@@ -4,6 +4,7 @@ import os
 import sys
 import time
 
+import numpy as np
 import pandas as pd
 
 sys.path.append('/home/zju/wlj/st-learned-index')
@@ -40,7 +41,8 @@ class QuadTreeNode:
 
 
 class QuadTree(SpatialIndex):
-    def __init__(self, model_path=None, region=Region(-90, 90, -180, 180), threshold_number=MAX_ELE_NUM, data_precision=6):
+    def __init__(self, model_path=None, region=Region(-90, 90, -180, 180), threshold_number=MAX_ELE_NUM,
+                 data_precision=6):
         """
         初始化非满四叉树，超过阈值就分裂
         :param region: 四叉树整体的bbox
@@ -143,7 +145,8 @@ class QuadTree(SpatialIndex):
                 else:
                     combine_flag = self.delete(point, node.LB)
             if combine_flag:
-                if (len(node.RU.items) + len(node.LU.items) + len(node.RB.items) + len(node.LB.items)) <= self.threshold_number:
+                if (len(node.RU.items) + len(node.LU.items) + len(node.RB.items) + len(
+                        node.LB.items)) <= self.threshold_number:
                     self.combine_node(node)
                     combine_flag = False
             return combine_flag
@@ -231,13 +234,9 @@ class QuadTree(SpatialIndex):
             self.geohash(geohash, node.LU, parent_geohash + "10")
             self.geohash(geohash, node.RU, parent_geohash + "11")
 
-    def build(self, data: pd.DataFrame, z=False):
-        if z is False:
-            for index, point in data.iterrows():
-                self.insert(Point(point.x, point.y, index=index))
-        else:
-            for index, point in data.iterrows():
-                self.insert(Point(point.x, point.y, point.z, index))
+    def build(self, data_list):
+        for i in range(len(data_list)):
+            self.insert(Point(data_list[i][0], data_list[i][1], index=i))
 
     def point_query_single(self, point):
         """
@@ -382,8 +381,8 @@ class QuadTree(SpatialIndex):
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     # load data
-    path = '../../data/trip_data_1_filter.csv'
-    train_set_xy = pd.read_csv(path)
+    path = '../../data/trip_data_1_filter_sorted.npy'
+    data_list = np.load(path).tolist()
     # create index
     model_path = "model/quadtree_1451w/"
     index = QuadTree(model_path=model_path, region=Region(40, 42, -75, -73), threshold_number=1000, data_precision=6)
@@ -398,7 +397,7 @@ def main():
     else:
         logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        index.build(train_set_xy)
+        index.build(data_list=data_list)
         end_time = time.time()
         build_time = end_time - start_time
         logging.info("Build time %s" % build_time)
