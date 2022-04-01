@@ -4,8 +4,6 @@ from itertools import chain
 from reprlib import repr
 from sys import getsizeof, stderr
 
-import numpy as np
-
 
 class Point:
     def __init__(self, lng, lat, z=None, index=None):
@@ -309,7 +307,7 @@ def nparray_normalize(na):
     min_v = na.min(axis=0)
     max_v = na.max(axis=0)
     if max_v == min_v:
-        return na, None, None
+        return na, min_v, max_v
     else:
         return (na - min_v) / (max_v - min_v), min_v, max_v
 
@@ -318,20 +316,21 @@ def normalize_minmax(value, min_v, max_v):
     """
     进行指定最大最小值归一化
     """
-    if min_v is None or max_v is None or max_v == min_v:
+    if max_v == min_v:
         return value
     else:
         return (value - min_v) / (max_v - min_v)
 
 
 def nparray_normalize_reverse_arr(na, min_v, max_v):
-    f1 = np.frompyfunc(nparray_normalize_reverse_num, 3, 1)
-    return f1(na, min_v, max_v).astype('float')
+    if max_v == min_v:
+        return min_v
+    return na * (max_v - min_v) + min_v
 
 
 def nparray_normalize_reverse_num(num, min_v, max_v):
-    if min_v is None or max_v is None or max_v == min_v:
-        return num
+    if max_v == min_v:
+        return min_v
     # sigmoid = [0, 1]
     # if num < 0:
     #     num = 0
@@ -341,19 +340,10 @@ def nparray_normalize_reverse_num(num, min_v, max_v):
 
 
 def nparray_diff_normalize_reverse_arr(na1, na2, min_v, max_v):
-    f1 = np.frompyfunc(nparray_diff_normalize_reverse_num, 4, 1)
-    return f1(na1, na2, min_v, max_v).astype('float')
-
-
-def nparray_diff_normalize_reverse_num(num1, num2, min_v, max_v):
-    if min_v is None or max_v is None or max_v == min_v:
-        return num1 - num2
-    # sigmoid = [0, 1]
-    # if num1 < 0:
-    #     num1 = 0
-    # elif num1 > 1:
-    #     num1 = 1
-    return (num1 - num2) * (max_v - min_v)
+    if max_v == min_v:
+        return 0, 0
+    result_na = (na1 - na2) * (max_v - min_v)
+    return result_na.min(), result_na.max()
 
 
 def binary_search_less_max(nums, field, x, left, right):
@@ -475,7 +465,3 @@ def get_min_max(lt):
         if i < min_v:
             min_v = i
     return min_v, max_v
-
-
-if __name__ == '__main__':
-    print(binary_search_no_duplicate([0, 2, 4, 6, 8, 10, 11, 13], 7, 0, 7))

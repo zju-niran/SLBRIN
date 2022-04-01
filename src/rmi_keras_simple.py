@@ -76,9 +76,7 @@ class TrainedNN:
 
     def get_err(self):
         pres = self.model(self.train_x).numpy().flatten()
-        errs_normalize_reverse = nparray_diff_normalize_reverse_arr(pres, self.train_y, self.train_y_min,
-                                                                    self.train_y_max)
-        return errs_normalize_reverse.min(), errs_normalize_reverse.max()
+        return nparray_diff_normalize_reverse_arr(pres, self.train_y, self.train_y_min, self.train_y_max)
 
     def predict(self):
         pres = self.model(self.train_x).numpy().flatten()
