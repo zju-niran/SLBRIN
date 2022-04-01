@@ -42,7 +42,7 @@ class GeoHashModelIndex(SpatialIndex):
             logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
                                 level=logging.INFO,
                                 format="%(asctime)s - %(levelname)s - %(message)s",
-                                datefmt="%m/%d/%Y %H:%M:%S %p")
+                                datefmt="%Y/%m/%d %H:%M:%S %p")
             self.logging = logging.getLogger(self.name)
 
     def build(self, data_list, threshold_number, data_precision, region, use_threshold, threshold, core,
@@ -51,16 +51,19 @@ class GeoHashModelIndex(SpatialIndex):
         build index
         1. init train z->index data from x/y data
         2. create brin index
-        3. create zm-model(stage=1) for every leaf node
+        3. create learned model(stage=1) for every leaf node
         """
         self.geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
         # 1. init train z->index data from x/y data
         # 2. create brin index
+        start_time = time.time()
         self.sbrin = SBRIN()
         block_size = 100
         threshold_length = region.get_max_depth_by_region_and_precision(precision=data_precision) * 2
         self.sbrin.build(data_list, self.geohash.sum_bits, threshold_number, threshold_length, region,
                          data_precision, block_size)
+        end_time = time.time()
+        self.logging.info("Create SRBIN: %s" % (end_time - start_time))
         # reconstruct data
         start_time = time.time()
         result_data_list = []
@@ -73,7 +76,8 @@ class GeoHashModelIndex(SpatialIndex):
         self.data_list = result_data_list
         end_time = time.time()
         self.logging.info("Reconstruct data: %s" % (end_time - start_time))
-        # 3. in every part data, create zm-model
+        # 3. in every part data, create learned model
+        start_time = time.time()
         multiprocessing.set_start_method('spawn', force=True)  # 解决CUDA_ERROR_NOT_INITIALIZED报错
         pool = multiprocessing.Pool(processes=thread_pool_size)
         mp_dict = multiprocessing.Manager().dict()  # 使用共享dict暂存index[i]的所有model
@@ -84,27 +88,22 @@ class GeoHashModelIndex(SpatialIndex):
             inputs = [i[2] for i in self.data_list[index_bound[0]:index_bound[1] + 1]]
             labels = list(range(index_bound[0], index_bound[1] + 1))
             pool.apply_async(self.build_single_thread, (1, regular_page.itemoffset - 1, inputs, labels, use_threshold,
-                                                        threshold, core, train_step, batch_size, learning_rate,
-                                                        retrain_time_limit, save_nn, mp_dict))
+                                             threshold, core, train_step, batch_size, learning_rate,
+                                             retrain_time_limit, save_nn, mp_dict))
         pool.close()
         pool.join()
         for (key, value) in mp_dict.items():
             self.sbrin.regular_pages[key].model = value
 
-    def build_single_thread(self, curr_stage, current_stage_step, inputs, labels, use_threshold, threshold,
-                            core, train_step, batch_size, learning_rate, retrain_time_limit, save_nn, tmp_dict=None):
+    def build_nn(self, model_index, inputs, labels, use_threshold, threshold, core, train_step, batch_size,
+                 learning_rate, retrain_time_limit, save_nn, tmp_dict=None):
         # train model
-        i = curr_stage
-        j = current_stage_step
         if save_nn is False:
-            start_time = time.time()
-            tmp_index = TrainedNN_Simple(inputs, labels, core, train_step, batch_size, learning_rate)
+            tmp_index = TrainedNN_Simple(self.model_path, model_index, inputs, labels, core, train_step, batch_size,
+                                         learning_rate)
             tmp_index.train()
-            end_time = time.time()
-            self.logging.info("Model index: %s, Train time: %s" % (j, end_time - start_time))
         else:
-            model_index = str(i) + "_" + str(j)
-            tmp_index = TrainedNN(self.model_path, model_index, inputs, labels,
+            tmp_index = TrainedNN(self.model_path, str(model_index), inputs, labels,
                                   use_threshold,
                                   threshold,
                                   core,
@@ -114,7 +113,7 @@ class GeoHashModelIndex(SpatialIndex):
                                   retrain_time_limit)
             tmp_index.train()
         # get parameters in model (weight matrix and bias matrix)
-        abstract_index = AbstractNN(tmp_index.get_weights(),
+        abstract_index = AbstractNN(tmp_index.weights,
                                     core,
                                     tmp_index.train_x_min,
                                     tmp_index.train_x_max,
@@ -124,7 +123,7 @@ class GeoHashModelIndex(SpatialIndex):
                                     tmp_index.max_err)
         del tmp_index
         gc.collect()
-        tmp_dict[j] = abstract_index
+        tmp_dict[model_index] = abstract_index
 
     def save(self):
         """

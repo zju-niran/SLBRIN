@@ -1,4 +1,6 @@
+import logging
 import os.path
+import time
 
 import matplotlib
 import numpy as np
@@ -12,7 +14,8 @@ from src.spatial_index.common_utils import nparray_normalize, nparray_diff_norma
 
 # Neural Network Model
 class TrainedNN:
-    def __init__(self, train_x, train_y, cores, train_step_num, batch_size, learning_rate):
+    def __init__(self, model_path, model_index, train_x, train_y, cores, train_step_num, batch_size, learning_rate):
+        self.name = "Trained NN Simple"
         if cores is None:
             cores = []
         self.core_nums = cores
@@ -24,10 +27,19 @@ class TrainedNN:
         self.train_x, self.train_x_min, self.train_x_max = nparray_normalize(np.array(train_x).astype("float"))
         self.train_y, self.train_y_min, self.train_y_max = nparray_normalize(np.array(train_y).astype("float"))
         self.model = None
+        self.model_path = model_path
+        self.model_index = model_index
         self.min_err, self.max_err = 0, 0
+        self.weights = None
+        logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
+                            level=logging.INFO,
+                            format="%(asctime)s - %(levelname)s - %(message)s",
+                            datefmt="%Y/%m/%d %H:%M:%S %p")
+        self.logging = logging.getLogger(self.name)
 
     # train model
     def train(self):
+        start_time = time.time()
         # GPU配置
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -61,6 +73,9 @@ class TrainedNN:
                        verbose=0,
                        callbacks=callbacks_list)
         self.min_err, self.max_err = self.get_err()
+        self.weights = self.get_weights()
+        end_time = time.time()
+        self.logging.info("Model index: %s, Train time: %s" % (self.model_index, end_time - start_time))
 
     def get_weights(self):
         return [np.mat(weight) for weight in self.model.get_weights()]

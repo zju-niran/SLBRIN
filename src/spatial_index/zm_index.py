@@ -1,5 +1,6 @@
 import gc
 import json
+import logging
 import multiprocessing
 import os
 import sys
@@ -18,12 +19,18 @@ from src.rmi_keras import TrainedNN, AbstractNN
 class ZMIndex(SpatialIndex):
     def __init__(self, model_path=None, geohash=None, train_data_length=None, stage_length=0, rmi=None):
         super(ZMIndex, self).__init__("ZM Index")
-        self.model_path = model_path
         self.geohash = geohash
         self.train_data_length = train_data_length
         self.stage_length = stage_length
         self.rmi = rmi
         self.data_list = None
+        if model_path is not None:
+            self.model_path = model_path
+            logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
+                                level=logging.INFO,
+                                format="%(asctime)s - %(levelname)s - %(message)s",
+                                datefmt="%Y/%m/%d %H:%M:%S %p")
+            self.logging = logging.getLogger(self.name)
 
     def build(self, data_list, data_precision, region, use_thresholds, thresholds, stages, cores, train_steps,
               batch_sizes, learning_rates, retrain_time_limits, thread_pool_size):
@@ -140,6 +147,7 @@ class ZMIndex(SpatialIndex):
             os.makedirs(self.model_path)
         with open(self.model_path + 'zm_index.json', "w") as f:
             json.dump(self, f, cls=MyEncoder, ensure_ascii=False)
+        np.save(self.model_path + 'data_list.npy', np.array(self.data_list))
 
     def load(self):
         """
@@ -152,6 +160,7 @@ class ZMIndex(SpatialIndex):
             self.train_data_length = zm_index.train_data_length
             self.stage_length = zm_index.stage_length
             self.rmi = zm_index.rmi
+            self.data_list = np.load(self.model_path + 'data_list.npy', allow_pickle=True).tolist()
             del zm_index
 
     @staticmethod
@@ -263,18 +272,15 @@ class MyDecoder(json.JSONDecoder):
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    # load data
-    path = '../../data/trip_data_1_100000_sorted.npy'
-    data_list = np.load(path).tolist()
-    # create index
+    data_path = '../../data/trip_data_1_100000_sorted.npy'
     model_path = "model/zm_index_10w/"
     index = ZMIndex(model_path=model_path)
     index_name = index.name
     load_index_from_json = False
     if load_index_from_json:
         index.load()
-        index.data_list = data_list
     else:
+        data_list = np.load(data_path).tolist()
         print("*************start %s************" % index_name)
         print("Start Build")
         start_time = time.time()
@@ -287,7 +293,7 @@ if __name__ == '__main__':
                     batch_sizes=[1024, 1024],
                     learning_rates=[0.01, 0.01],
                     retrain_time_limits=[40, 20],
-                    thread_pool_size=1)
+                    thread_pool_size=5)
         end_time = time.time()
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)

@@ -2,6 +2,7 @@ import logging
 import os.path
 import random
 import shutil
+import time
 from functools import wraps
 
 import matplotlib
@@ -87,6 +88,7 @@ class AbstractNN:
 class TrainedNN:
     def __init__(self, model_path, model_index, train_x, train_y, use_threshold, threshold, cores, train_step_num,
                  batch_size, learning_rate, retrain_time_limit):
+        self.name = "Trained NN"
         if cores is None:
             cores = []
         self.core_nums = cores
@@ -101,6 +103,7 @@ class TrainedNN:
         self.threshold = threshold
         self.model = None
         self.min_err, self.max_err = 0, 0
+        self.weights = None
         self.retrain_times = 0
         self.retrain_time_limit = retrain_time_limit
         self.model_path = model_path
@@ -119,13 +122,15 @@ class TrainedNN:
         self.model_loss_file = os.path.join(self.model_loss_dir, self.model_index + "_weights.best.loss")
         self.clean_not_best_model_file()
         self.get_best_model_file()
-
-    # train model
-    def train(self):
         logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
                             level=logging.INFO,
                             format="%(asctime)s - %(levelname)s - %(message)s",
-                            datefmt="%m/%d/%Y %H:%M:%S %p")
+                            datefmt="%Y/%m/%d %H:%M:%S %p")
+        self.logging = logging.getLogger(self.name)
+
+    # train model
+    def train(self):
+        start_time = time.time()
         # GPU配置
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -195,30 +200,24 @@ class TrainedNN:
                 if self.retrain_times < self.retrain_time_limit:
                     self.init_model_name_by_random()
                     self.retrain_times += 1
-                    print("Retrain %d when score not perfect: Model %s, Err %f, Threshold %f" % (
-                        self.retrain_times, self.model_hdf_file, err_length, self.threshold))
-                    logging.info("Retrain %d when score not perfect: Model %s, Err %f, Threshold %f" % (
+                    self.logging.info("Retrain %d when score not perfect: Model %s, Err %f, Threshold %f" % (
                         self.retrain_times, self.model_hdf_file, err_length, self.threshold))
                     self.train()
                 else:
-                    print("Retrain time limit: Model %s, Err %f, Threshold %f" % (
-                        self.model_hdf_file, err_length, self.threshold))
-                    logging.info("Retrain time limit: Model %s, Err %f, Threshold %f" % (
+                    self.logging.info("Retrain time limit: Model %s, Err %f, Threshold %f" % (
                         self.model_hdf_file, err_length, self.threshold))
                     self.get_best_model_file()
                     self.model = tf.keras.models.load_model(self.model_hdf_file, custom_objects={'score': self.score})
                     self.min_err, self.max_err = self.get_err()
-                    return
             else:
-                print("Model perfect: Model %s, Err %f, Threshold %f" % (
-                    self.model_hdf_file, err_length, self.threshold))
-                logging.info("Model perfect: Model %s, Err %f, Threshold %f" % (
+                self.logging.info("Model perfect: Model %s, Err %f, Threshold %f" % (
                     self.model_hdf_file, err_length, self.threshold))
         else:
-            print("Stop train when train early stop or epoch finish: Model %s, Err %f, Threshold %f" % (
+            self.logging.info("Stop train when train early stop or epoch finish: Model %s, Err %f, Threshold %f" % (
                 self.model_hdf_file, err_length, self.threshold))
-            logging.info("Stop train when train early stop or epoch finish: Model %s, Err %f, Threshold %f" % (
-                self.model_hdf_file, err_length, self.threshold))
+        self.weights = self.get_weights()
+        end_time = time.time()
+        self.logging.info("Model index: %s, Train time: %s" % (self.model_index, end_time - start_time))
 
     def is_model_file_valid(self):
         try:

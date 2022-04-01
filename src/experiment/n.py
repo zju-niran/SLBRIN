@@ -25,7 +25,7 @@ if __name__ == '__main__':
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
                         level=logging.INFO,
                         format="%(asctime)s - %(levelname)s - %(message)s",
-                        datefmt="%m/%d/%Y %H:%M:%S %p")
+                        datefmt="%Y/%m/%d %H:%M:%S %p")
     # 1. 读取数据
     path = '../../data/trip_data_1_100000_sorted.npy'
     # path = '../../data/trip_data_1_filter_sorted.npy'
