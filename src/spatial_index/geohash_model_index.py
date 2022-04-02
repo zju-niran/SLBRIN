@@ -78,6 +78,13 @@ class GeoHashModelIndex(SpatialIndex):
         self.logging.info("Reconstruct data: %s" % (end_time - start_time))
         # 3. in every part data, create learned model
         start_time = time.time()
+        self.build_nn_multiprocess(use_threshold, threshold, core, train_step, batch_size, learning_rate,
+                                   retrain_time_limit, thread_pool_size, save_nn)
+        end_time = time.time()
+        self.logging.info("Create learned model: %s" % (end_time - start_time))
+
+    def build_nn_multiprocess(self, use_threshold, threshold, core, train_step, batch_size, learning_rate,
+                              retrain_time_limit, thread_pool_size, save_nn):
         multiprocessing.set_start_method('spawn', force=True)  # 解决CUDA_ERROR_NOT_INITIALIZED报错
         pool = multiprocessing.Pool(processes=thread_pool_size)
         mp_dict = multiprocessing.Manager().dict()  # 使用共享dict暂存index[i]的所有model
@@ -87,7 +94,7 @@ class GeoHashModelIndex(SpatialIndex):
                 continue
             inputs = [i[2] for i in self.data_list[index_bound[0]:index_bound[1] + 1]]
             labels = list(range(index_bound[0], index_bound[1] + 1))
-            pool.apply_async(self.build_single_thread, (1, regular_page.itemoffset - 1, inputs, labels, use_threshold,
+            pool.apply_async(self.build_nn, (regular_page.itemoffset - 1, inputs, labels, use_threshold,
                                              threshold, core, train_step, batch_size, learning_rate,
                                              retrain_time_limit, save_nn, mp_dict))
         pool.close()
