@@ -15,17 +15,13 @@ from src.spatial_index.common_utils import Point
 class RTree(SpatialIndex):
     def __init__(self, model_path=None):
         super(RTree, self).__init__("RTree")
-        p = index.Property()
-        self.index = index.Index(properties=p)
-        # self.index = index.RtreeContainer(properties=p)  # 没有直接Index来得快，range_query慢了一倍
-        self.data_list = None
-        if model_path is not None:
-            self.model_path = model_path
-            logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
-                                level=logging.INFO,
-                                format="%(asctime)s - %(levelname)s - %(message)s",
-                                datefmt="%Y/%m/%d %H:%M:%S %p")
-            self.logging = logging.getLogger(self.name)
+        self.model_path = model_path
+        self.index = None
+        logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
+                            level=logging.INFO,
+                            format="%(asctime)s - %(levelname)s - %(message)s",
+                            datefmt="%Y/%m/%d %H:%M:%S %p")
+        self.logging = logging.getLogger(self.name)
 
     def insert(self, point):
         self.index.insert(point.index, (point.lng, point.lat))
@@ -34,8 +30,14 @@ class RTree(SpatialIndex):
         self.index.delete(point.index, (point.lng, point.lat))
 
     def build(self, data_list):
-        self.data_list = data_list
-        for i in range(len(self.data_list)):
+        p = index.Property()
+        p.dimension = 2
+        p.dat_extension = "data"
+        p.idx_extension = "index"
+        self.index = index.Index(os.path.join(self.model_path, 'rtree'),
+                                 interleaved=False, properties=p, overwrite=True)
+        # self.index = index.RtreeContainer(properties=p)  # 没有直接Index来得快，range_query慢了一倍
+        for i in range(len(data_list)):
             self.insert(Point(data_list[i][0], data_list[i][1], index=i))
 
     def point_query_single(self, point):
@@ -65,15 +67,18 @@ class RTree(SpatialIndex):
         """
         if os.path.exists(self.model_path) is False:
             os.makedirs(self.model_path)
-        np.save(self.model_path + 'data_list.npy', np.array(self.data_list))
 
     def load(self):
         """
         load rtree index from file
         :return: None
         """
-        self.data_list = np.load(self.model_path + 'data_list.npy', allow_pickle=True).tolist()
-        self.build(data_list=self.data_list)
+        p = index.Property()
+        p.dimension = 2
+        p.dat_extension = "data"
+        p.idx_extension = "index"
+        self.index = index.Index(os.path.join(self.model_path, 'rtree'),
+                                 interleaved=False, properties=p, overwrite=False)
 
 
 def main():
