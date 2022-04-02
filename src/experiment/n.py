@@ -6,7 +6,7 @@ import time
 import numpy as np
 import pandas as pd
 
-sys.path.append('D:\Code\Paper\st-learned-index')
+sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.common_utils import Region
 from src.spatial_index.geohash_model_index import GeoHashModelIndex
 
@@ -27,8 +27,8 @@ if __name__ == '__main__':
                         format="%(asctime)s - %(levelname)s - %(message)s",
                         datefmt="%Y/%m/%d %H:%M:%S %p")
     # 1. 读取数据
-    path = '../../data/trip_data_1_100000_sorted.npy'
-    # path = '../../data/trip_data_1_filter_sorted.npy'
+    # path = '../../data/trip_data_1_100000_sorted.npy'
+    path = '../../data/trip_data_1_filter_sorted.npy'
     data_list = np.load(path).tolist()
     # 2. 设置实验参数
     n_list = [160000, 80000, 40000, 20000, 10000, 5000]
@@ -56,9 +56,10 @@ if __name__ == '__main__':
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)
         index.save()
-        model_num = len(index.gm_dict)
+        model_num = index.sbrin.meta_page.size + 1
         logging.info("Model num: %s" % model_num)
-        model_precisions = [(nn.max_err - nn.min_err) for nn in index.gm_dict if nn is not None]
+        model_precisions = [(blk_range.model.max_err - blk_range.model.min_err)
+                            for blk_range in index.sbrin.regular_pages if blk_range is not None]
         model_precisions_avg = sum(model_precisions) / model_num
         logging.info("Model precision avg: %s" % model_precisions_avg)
         path = '../../data/trip_data_1_point_query.csv'
@@ -90,9 +91,10 @@ if __name__ == '__main__':
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)
         index.save()
-        model_num = len(index.gm_dict)
+        model_num = index.sbrin.meta_page.size + 1
         logging.info("Model num: %s" % model_num)
-        model_precisions = [(nn.max_err - nn.min_err) for nn in index.gm_dict if nn is not None]
+        model_precisions = [(blk_range.model.max_err - blk_range.model.min_err)
+                            for blk_range in index.sbrin.regular_pages if blk_range is not None]
         model_precisions_avg = sum(model_precisions) / model_num
         logging.info("Model precision avg: %s" % model_precisions_avg)
         path = '../../data/trip_data_1_point_query.csv'
