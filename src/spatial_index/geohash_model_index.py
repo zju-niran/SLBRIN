@@ -37,13 +37,12 @@ class GeoHashModelIndex(SpatialIndex):
         self.geohash = geohash
         self.sbrin = sbrin
         self.data_list = None
-        if model_path is not None:
-            self.model_path = model_path
-            logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
-                                level=logging.INFO,
-                                format="%(asctime)s - %(levelname)s - %(message)s",
-                                datefmt="%Y/%m/%d %H:%M:%S %p")
-            self.logging = logging.getLogger(self.name)
+        self.model_path = model_path
+        logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
+                            level=logging.INFO,
+                            format="%(asctime)s - %(levelname)s - %(message)s",
+                            datefmt="%Y/%m/%d %H:%M:%S %p")
+        self.logging = logging.getLogger(self.name)
 
     def build(self, data_list, threshold_number, data_precision, region, use_threshold, threshold, core,
               train_step, batch_size, learning_rate, retrain_time_limit, thread_pool_size, save_nn):
@@ -157,14 +156,14 @@ class GeoHashModelIndex(SpatialIndex):
 
     @staticmethod
     def init_by_dict(d: dict):
-        return GeoHashModelIndex(geohash=d['geohash'],
-                                 sbrin=d['sbrin'])
+        return GeoHashModelIndex(model_path=d['model_path'], geohash=d['geohash'], sbrin=d['sbrin'])
 
     def save_to_dict(self):
         return {
             'name': self.name,
             'geohash': self.geohash,
-            'sbrin': self.sbrin
+            'sbrin': self.sbrin,
+            'model_path': self.model_path
         }
 
     def point_query_single(self, point):
@@ -615,13 +614,9 @@ def main():
     path = '../../data/trip_data_1_knn_query.csv'
     knn_query_df = pd.read_csv(path, usecols=[1, 2, 3], dtype={"n": int})
     knn_query_list = [[value[0], value[1], int(value[2])] for value in knn_query_df.values]
-    profile = line_profiler.LineProfiler(index.knn_query_single)
-    profile.enable()
     start_time = time.time()
     results = index.knn_query(knn_query_list)
     end_time = time.time()
-    profile.disable()
-    profile.print_stats()
     search_time = (end_time - start_time) / len(knn_query_list)
     print("KNN query time ", search_time)
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')

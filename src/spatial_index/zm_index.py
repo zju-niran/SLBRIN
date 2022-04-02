@@ -24,13 +24,12 @@ class ZMIndex(SpatialIndex):
         self.stage_length = stage_length
         self.rmi = rmi
         self.data_list = None
-        if model_path is not None:
-            self.model_path = model_path
-            logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
-                                level=logging.INFO,
-                                format="%(asctime)s - %(levelname)s - %(message)s",
-                                datefmt="%Y/%m/%d %H:%M:%S %p")
-            self.logging = logging.getLogger(self.name)
+        self.model_path = model_path
+        logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
+                            level=logging.INFO,
+                            format="%(asctime)s - %(levelname)s - %(message)s",
+                            datefmt="%Y/%m/%d %H:%M:%S %p")
+        self.logging = logging.getLogger(self.name)
 
     def build(self, data_list, data_precision, region, use_thresholds, thresholds, stages, cores, train_steps,
               batch_sizes, learning_rates, retrain_time_limits, thread_pool_size):
@@ -165,10 +164,8 @@ class ZMIndex(SpatialIndex):
 
     @staticmethod
     def init_by_dict(d: dict):
-        return ZMIndex(geohash=d['geohash'],
-                       train_data_length=d['train_data_length'],
-                       stage_length=d['stage_length'],
-                       rmi=d['rmi'])
+        return ZMIndex(model_path=d['model_path'], geohash=d['geohash'], train_data_length=d['train_data_length'],
+                       stage_length=d['stage_length'], rmi=d['rmi'])
 
     def save_to_dict(self):
         return {
@@ -176,7 +173,8 @@ class ZMIndex(SpatialIndex):
             'geohash': self.geohash,
             'train_data_length': self.train_data_length,
             'stage_length': self.stage_length,
-            'rmi': self.rmi
+            'rmi': self.rmi,
+            'model_path': self.model_path
         }
 
     def point_query_single(self, point):

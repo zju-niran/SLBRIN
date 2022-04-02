@@ -53,6 +53,10 @@ class Point:
     def distance_pow_point_list(point1: list, point2: list):
         return (point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2
 
+    @staticmethod
+    def init_by_dict(d: dict):
+        return Point(lng=d['lng'], lat=d['lat'], index=d['index'])
+
 
 class Region:
     def __init__(self, bottom, up, left, right):

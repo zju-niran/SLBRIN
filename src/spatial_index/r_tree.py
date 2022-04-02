@@ -29,13 +29,13 @@ class RTree(SpatialIndex):
     def delete(self, point):
         self.index.delete(point.index, (point.lng, point.lat))
 
-    def build(self, data_list):
+    def build(self, data_list, threshold_number):
         p = index.Property()
         p.dimension = 2
         p.dat_extension = "data"
         p.idx_extension = "index"
-        self.index = index.Index(os.path.join(self.model_path, 'rtree'),
-                                 interleaved=False, properties=p, overwrite=True)
+        p.leaf_capacity = threshold_number
+        self.index = index.Index(os.path.join(self.model_path, 'rtree'), properties=p, overwrite=True)
         # self.index = index.RtreeContainer(properties=p)  # 没有直接Index来得快，range_query慢了一倍
         for i in range(len(data_list)):
             self.insert(Point(data_list[i][0], data_list[i][1], index=i))

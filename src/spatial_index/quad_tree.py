@@ -1,4 +1,5 @@
 import heapq
+import json
 import logging
 import os
 import sys
@@ -20,15 +21,15 @@ QUADRANT_RB = 4
 
 
 class QuadTreeNode:
-    def __init__(self, region, depth=1, is_leaf=1):
+    def __init__(self, region, depth=1, is_leaf=1, LB=None, RB=None, LU=None, RU=None, items=None):
         self.depth = depth
         self.is_leaf = is_leaf
         self.region = region
-        self.LB = None
-        self.RB = None
-        self.LU = None
-        self.RU = None
-        self.items = []
+        self.LB = LB
+        self.RB = RB
+        self.LU = LU
+        self.RU = RU
+        self.items = items if items is not None else []
 
     def get_all_items(self, result):
         if self.is_leaf == 1:
@@ -39,30 +40,30 @@ class QuadTreeNode:
             self.LU.get_all_items(result)
             self.RU.get_all_items(result)
 
+    @staticmethod
+    def init_by_dict(d: dict):
+        return QuadTreeNode(depth=d['depth'], is_leaf=d['is_leaf'], region=d['region'],
+                            LB=d['LB'], RB=d['RB'], LU=d['LU'], RU=d['RU'], items=d['items'])
+
 
 class QuadTree(SpatialIndex):
-    def __init__(self, model_path=None, region=Region(-90, 90, -180, 180), threshold_number=MAX_ELE_NUM,
-                 data_precision=6):
+    def __init__(self, model_path=None, root_node=None):
         """
         初始化非满四叉树，超过阈值就分裂
         :param region: 四叉树整体的bbox
         :param threshold_number: 节点内的点数据数量预置
         """
         super(QuadTree, self).__init__("QuadTree")
-        self.region = region
-        self.threshold_number = threshold_number
-        self.data_precision = data_precision
-        self.max_depth = region.get_max_depth_by_region_and_precision(precision=data_precision)
-        self.root_node = QuadTreeNode(region=region)
-        self.leaf_nodes = []
+        self.root_node = root_node
         self.data_list = None
-        if model_path is not None:
-            self.model_path = model_path
-            logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
-                                level=logging.INFO,
-                                format="%(asctime)s - %(levelname)s - %(message)s",
-                                datefmt="%Y/%m/%d %H:%M:%S %p")
-            self.logging = logging.getLogger(self.name)
+        self.threshold_number = None
+        self.max_depth = None
+        self.model_path = model_path
+        logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
+                            level=logging.INFO,
+                            format="%(asctime)s - %(levelname)s - %(message)s",
+                            datefmt="%Y/%m/%d %H:%M:%S %p")
+        self.logging = logging.getLogger(self.name)
 
     def insert(self, point, node=None):
         """
@@ -213,36 +214,11 @@ class QuadTree(SpatialIndex):
             else:
                 return self.search_node(point, node.RU)
 
-    def geohash(self, geohash, node=None, parent_geohash=None):
-        """
-        get geohash->items by quad tree
-        :param geohash: for iter
-        :param node: for iter
-        :param parent_geohash: for iter
-        :return: save geohash->items in self.geohash_data_map
-        """
-        if node is None:
-            node = self.root_node
-        if parent_geohash is None:
-            parent_geohash = ""
-        if node.is_leaf == 1:
-            # 所有region右上角往左下角移一点，这样region交点的z仍能在region内，但是右上角需要始终大于所有其内点
-            # 因此移动距离 = 数据精度 - 1
-            node.region.up_right_less(pow(10, -self.data_precision - 1))
-            self.leaf_nodes.append({
-                "items": node.items,
-                "region": node.region,
-                "geohash": parent_geohash
-            })
-            return
-        else:
-            self.geohash(geohash, node.LB, parent_geohash + "00")
-            self.geohash(geohash, node.RB, parent_geohash + "01")
-            self.geohash(geohash, node.LU, parent_geohash + "10")
-            self.geohash(geohash, node.RU, parent_geohash + "11")
-
-    def build(self, data_list):
+    def build(self, data_list, region, threshold_number, data_precision):
         self.data_list = data_list
+        self.threshold_number = threshold_number
+        self.max_depth = region.get_max_depth_by_region_and_precision(precision=data_precision)
+        self.root_node = QuadTreeNode(region=region)
         for i in range(len(self.data_list)):
             self.insert(Point(data_list[i][0], data_list[i][1], index=i))
 
@@ -377,6 +353,8 @@ class QuadTree(SpatialIndex):
         """
         if os.path.exists(self.model_path) is False:
             os.makedirs(self.model_path)
+        with open(self.model_path + 'quad_tree.json', "w") as f:
+            json.dump(self, f, cls=MyEncoder, ensure_ascii=False)
         np.save(self.model_path + 'data_list.npy', np.array(self.data_list))
 
     def load(self):
@@ -384,8 +362,55 @@ class QuadTree(SpatialIndex):
         load zm index from json file
         :return: None
         """
-        self.data_list = np.load(self.model_path + 'data_list.npy', allow_pickle=True).tolist()
-        self.build(data_list=self.data_list)
+        with open(self.model_path + 'quad_tree.json', "r") as f:
+            quad_tree = json.load(f, cls=MyDecoder)
+            self.root_node = quad_tree.root_node
+            self.data_list = np.load(self.model_path + 'data_list.npy', allow_pickle=True).tolist()
+            del quad_tree
+
+    @staticmethod
+    def init_by_dict(d: dict):
+        return QuadTree(model_path=d['model_path'], root_node=d['root_node'])
+
+    def save_to_dict(self):
+        return {
+            'name': self.name,
+            'root_node': self.root_node,
+            'model_path': self.model_path
+        }
+
+
+class MyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Region):
+            return obj.__dict__
+        if isinstance(obj, Point):
+            return obj.__dict__
+        elif isinstance(obj, QuadTreeNode):
+            return obj.__dict__
+        elif isinstance(obj, QuadTree):
+            return obj.save_to_dict()
+        else:
+            return super(MyEncoder, self).default(obj)
+
+
+class MyDecoder(json.JSONDecoder):
+    def __init__(self):
+        json.JSONDecoder.__init__(self, object_hook=self.dict_to_object)
+
+    def dict_to_object(self, d):
+        if len(d.keys()) == 4 and d.__contains__("bottom") and d.__contains__("up") \
+                and d.__contains__("left") and d.__contains__("right"):
+            t = Region.init_by_dict(d)
+        elif d.__contains__("lng") and d.__contains__("lat"):
+            t = Point.init_by_dict(d)
+        elif d.__contains__("name") and d["name"] == "QuadTree":
+            t = QuadTree.init_by_dict(d)
+        elif d.__contains__("LB"):
+            t = QuadTreeNode.init_by_dict(d)
+        else:
+            t = d
+        return t
 
 
 # @profile(precision=8)
@@ -393,7 +418,7 @@ def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     data_path = '../../data/trip_data_1_filter_sorted.npy'
     model_path = "model/quadtree_1451w/"
-    index = QuadTree(model_path=model_path, region=Region(40, 42, -75, -73), threshold_number=1000, data_precision=6)
+    index = QuadTree(model_path=model_path)
     index_name = index.name
     load_index_from_json = True
     if load_index_from_json:
@@ -402,7 +427,7 @@ def main():
         data_list = np.load(data_path).tolist()
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        index.build(data_list=data_list)
+        index.build(data_list=data_list, region=Region(40, 42, -75, -73), threshold_number=1000, data_precision=6)
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time %s" % build_time)
