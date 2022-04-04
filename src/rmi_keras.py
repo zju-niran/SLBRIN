@@ -61,7 +61,7 @@ class AbstractNN:
         return 1 / (1 + np.exp(-x))
 
     # @memoize
-    # TODO: 和model.predict有小偏差，怀疑是exp的e和elu的e不一致
+    # model.predict有小偏差，可能是exp的e和elu的e不一致
     def predict(self, input_key):
         """
         单个key的矩阵计算
@@ -69,9 +69,10 @@ class AbstractNN:
         :return:
         """
         y = normalize_minmax(input_key, self.input_min, self.input_max)
-        for i in range(len(self.core_nums) - 1):
+        for i in range(len(self.core_nums) - 2):
             # sigmoid(w * x + b)
             y = AbstractNN.sigmoid(y * self.weights[i * 2] + self.weights[i * 2 + 1])
+        y = y * self.weights[-2] + self.weights[-1]
         # clip到最大最小值之间
         return nparray_normalize_reverse_num(y[0, 0], self.output_min, self.output_max)
 
@@ -154,14 +155,11 @@ class TrainedNN:
                 os.remove(self.model_hdf_file)
             model = tf.keras.Sequential()
             for i in range(len(self.core_nums) - 2):
-                # TODO: 为什么sigmoid要比relu训练快很多，虽然计算的慢
                 model.add(tf.keras.layers.Dense(units=self.core_nums[i + 1],
                                                 input_dim=self.core_nums[i],
                                                 activation='sigmoid'))
-            model.add(tf.keras.layers.Dense(units=self.core_nums[-1],
-                                            activation='sigmoid'))
+            model.add(tf.keras.layers.Dense(units=self.core_nums[-1]))
             optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
-
             model.compile(optimizer=optimizer, loss=self.score)
             self.model = model
             # self.model.summary()
@@ -232,6 +230,7 @@ class TrainedNN:
         return [np.mat(weight) for weight in self.model.get_weights()]
 
     def score(self, y_true, y_pred):
+        # 对比mse/mae/mae+minmax，最后选择mse+minmax
         # 这里的y应该是局部的，因此scores和err算出来不一致
         y_pred_clip = tf.keras.backend.clip(y_pred, 0, 1)
         diff_clip = y_true - y_pred_clip

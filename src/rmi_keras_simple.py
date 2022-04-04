@@ -12,7 +12,6 @@ from src.spatial_index.common_utils import nparray_normalize, nparray_diff_norma
     nparray_normalize_reverse_arr
 
 
-# Neural Network Model
 class TrainedNN:
     def __init__(self, model_path, model_index, train_x, train_y, cores, train_step_num, batch_size, learning_rate):
         self.name = "Trained NN Simple"
@@ -22,8 +21,6 @@ class TrainedNN:
         self.train_step_nums = train_step_num
         self.batch_size = batch_size
         self.learning_rate = learning_rate
-        # 当只有一个输入输出时，整数的index作为y_true会导致score中y_true-y_pred出现类型错误：
-        # TypeError: Input 'y' of 'Sub' Op has type float32 that does not match type int32 of argument 'x'.
         self.train_x, self.train_x_min, self.train_x_max = nparray_normalize(np.array(train_x).astype("float"))
         self.train_y, self.train_y_min, self.train_y_max = nparray_normalize(np.array(train_y).astype("float"))
         self.model = None
@@ -55,8 +52,7 @@ class TrainedNN:
             model.add(tf.keras.layers.Dense(units=self.core_nums[i + 1],
                                             input_dim=self.core_nums[i],
                                             activation='sigmoid'))
-        model.add(tf.keras.layers.Dense(units=self.core_nums[-1],
-                                        activation='sigmoid'))
+        model.add(tf.keras.layers.Dense(units=self.core_nums[-1]))
         optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
 
         model.compile(optimizer=optimizer, loss=self.score)
@@ -81,7 +77,6 @@ class TrainedNN:
         return [np.mat(weight) for weight in self.model.get_weights()]
 
     def score(self, y_true, y_pred):
-        # 这里的y应该是局部的，因此scores和err算出来不一致
         y_pred_clip = tf.keras.backend.clip(y_pred, 0, 1)
         diff_clip = y_true - y_pred_clip
         range_loss = tf.keras.backend.max(diff_clip) - tf.keras.backend.min(diff_clip)

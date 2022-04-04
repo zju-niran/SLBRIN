@@ -4,6 +4,8 @@ from itertools import chain
 from reprlib import repr
 from sys import getsizeof, stderr
 
+import numpy as np
+
 
 class Point:
     def __init__(self, lng, lat, z=None, index=None):
@@ -335,19 +337,28 @@ def nparray_normalize_reverse_arr(na, min_v, max_v):
 def nparray_normalize_reverse_num(num, min_v, max_v):
     if max_v == min_v:
         return min_v
-    # sigmoid = [0, 1]
-    # if num < 0:
-    #     num = 0
-    # elif num > 1:
-    #     num = 1
+    if num < 0:
+        return min_v
+    elif num > 1:
+        return max_v
     return num * (max_v - min_v) + min_v
 
 
 def nparray_diff_normalize_reverse_arr(na1, na2, min_v, max_v):
     if max_v == min_v:
         return 0, 0
-    result_na = (na1 - na2) * (max_v - min_v)
-    return result_na.min(), result_na.max()
+    else:
+        f1 = np.frompyfunc(nparray_diff_normalize_reverse_num, 4, 1)
+        result_na = f1(na1, na2, min_v, max_v).astype('float')
+        return result_na.min(), result_na.max()
+
+
+def nparray_diff_normalize_reverse_num(num1, num2, min_v, max_v):
+    if num1 < 0:
+        num1 = 0
+    elif num1 > 1:
+        num1 = 1
+    return (num1 - num2) * (max_v - min_v)
 
 
 def binary_search_less_max(nums, field, x, left, right):
