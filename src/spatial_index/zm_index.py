@@ -124,7 +124,8 @@ class ZMIndex(SpatialIndex):
         """
         predict index from key
         1. predict the leaf_model by rmi
-        2. predict the index by leaf_model
+        2. return the less max index when leaf model is None
+        3. predict the index by leaf_model
         :param key: float
         :return: the index predicted by rmi, min_err and max_err of leaf_model
         """
@@ -132,8 +133,16 @@ class ZMIndex(SpatialIndex):
         leaf_model_index = 0
         for i in range(0, self.stage_length - 1):
             leaf_model_index = round(self.rmi[i][leaf_model_index].predict(key))
-        # 2. predict the index by leaf_model
-        leaf_model = self.rmi[self.stage_length - 1][leaf_model_index]
+        # 2. return the less max index when leaf model is None
+        if self.rmi[-1][leaf_model_index] is None:
+            while self.rmi[-1][leaf_model_index] is None:
+                if leaf_model_index < 0:
+                    return 0, 0, 0
+                else:
+                    leaf_model_index -= 1
+            return self.rmi[-1][leaf_model_index].output_max, 0, 0
+        # 3. predict the index by leaf_model
+        leaf_model = self.rmi[-1][leaf_model_index]
         pre = leaf_model.predict(key)
         return pre, leaf_model.min_err, leaf_model.max_err
 

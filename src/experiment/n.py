@@ -59,7 +59,7 @@ if __name__ == '__main__':
         model_num = index.sbrin.meta_page.size + 1
         logging.info("Model num: %s" % model_num)
         model_precisions = [(blk_range.model.max_err - blk_range.model.min_err)
-                            for blk_range in index.sbrin.regular_pages if blk_range is not None]
+                            for blk_range in index.sbrin.regular_pages if blk_range.model is not None]
         model_precisions_avg = sum(model_precisions) / model_num
         logging.info("Model precision avg: %s" % model_precisions_avg)
         path = '../../data/trip_data_1_point_query.csv'
@@ -94,7 +94,7 @@ if __name__ == '__main__':
         model_num = index.sbrin.meta_page.size + 1
         logging.info("Model num: %s" % model_num)
         model_precisions = [(blk_range.model.max_err - blk_range.model.min_err)
-                            for blk_range in index.sbrin.regular_pages if blk_range is not None]
+                            for blk_range in index.sbrin.regular_pages if blk_range.model is not None]
         model_precisions_avg = sum(model_precisions) / model_num
         logging.info("Model precision avg: %s" % model_precisions_avg)
         path = '../../data/trip_data_1_point_query.csv'
