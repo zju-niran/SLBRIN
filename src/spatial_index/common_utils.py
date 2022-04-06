@@ -8,11 +8,11 @@ import numpy as np
 
 
 class Point:
-    def __init__(self, lng, lat, z=None, index=None):
+    def __init__(self, lng, lat, z=None, key=None):
         self.lng = lng
         self.lat = lat
         self.z = z
-        self.index = index
+        self.key = key
 
     def __eq__(self, other):
         if other.lng == self.lng and other.lat == self.lat:
@@ -21,7 +21,7 @@ class Point:
             return False
 
     def __str__(self):
-        return "Point({0}, {1}, {2})".format(self.lng, self.lat, self.index)
+        return "Point({0}, {1}, {2})".format(self.lng, self.lat, self.key)
 
     def near(self, other):
         """
@@ -57,7 +57,7 @@ class Point:
 
     @staticmethod
     def init_by_dict(d: dict):
-        return Point(lng=d['lng'], lat=d['lat'], index=d['index'])
+        return Point(lng=d['lng'], lat=d['lat'], key=d['key'])
 
 
 class Region:
@@ -459,14 +459,6 @@ def biased_search(nums, field, x, pre, left, right):
             right = mid - 1
         mid = (left + right) // 2
     return result
-
-
-def group_duplicate_list(lt):
-    """
-    gourp by key1 and max(key2)
-    :param lt: [key1, key2]
-    :return: [value: [index1, index2]]
-    """
 
 
 def get_min_max(lt):

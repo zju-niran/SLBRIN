@@ -32,23 +32,23 @@ class ZMIndex(SpatialIndex):
         self.logging = logging.getLogger(self.name)
 
     def build(self, data_list, data_precision, region, use_thresholds, thresholds, stages, cores, train_steps,
-              batch_sizes, learning_rates, retrain_time_limits, thread_pool_size):
+              batch_sizes, learning_rates, retrain_time_limits, thread_pool_size, weight):
         """
         build index by multi threads
-        1. init train z->index data from x/y data
-        2. create rmi for train z->index data
+        1. init train z->key data from x/y data
+        2. create rmi for train z->key data
         """
         self.geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
         self.stage_length = len(stages)
         train_inputs = [[[] for i in range(stages[i])] for i in range(self.stage_length)]
         train_labels = [[[] for i in range(stages[i])] for i in range(self.stage_length)]
         self.rmi = [[None for i in range(stages[i])] for i in range(self.stage_length)]
-        # 1. init train z->index data from x/y data
+        # 1. init train z->key data from x/y data
         self.data_list = data_list
         self.train_data_length = len(self.data_list) - 1
         train_inputs[0][0] = [i[2] for i in self.data_list]
         train_labels[0][0] = list(range(0, self.train_data_length + 1))
-        # 2. create rmi for train z->index data
+        # 2. create rmi for train z->key data
         # 构建stage_nums结构的树状NNs
         for i in range(self.stage_length - 1):
             for j in range(stages[i]):
@@ -73,7 +73,7 @@ class ZMIndex(SpatialIndex):
         multiprocessing.set_start_method('spawn',
                                          force=True)  # 解决CUDA_ERROR_NOT_INITIALIZED报错  # 解决CUDA_ERROR_NOT_INITIALIZED报错
         pool = multiprocessing.Pool(processes=thread_pool_size)
-        mp_dict = multiprocessing.Manager().dict()  # 使用共享dict暂存index[i]的所有model
+        mp_dict = multiprocessing.Manager().dict()
         i = self.stage_length - 1
         task_size = stages[i]
         for j in range(task_size):
@@ -94,8 +94,8 @@ class ZMIndex(SpatialIndex):
         # train model
         i = curr_stage
         j = current_stage_step
-        model_index = str(i) + "_" + str(j)
-        tmp_index = TrainedNN(self.model_path, model_index, inputs, labels,
+        model_key = str(i) + "_" + str(j)
+        tmp_index = TrainedNN(self.model_path, model_key, inputs, labels,
                               use_threshold,
                               threshold,
                               core,
@@ -122,33 +122,33 @@ class ZMIndex(SpatialIndex):
 
     def predict(self, key):
         """
-        predict index from key
+        predict key from key
         1. predict the leaf_model by rmi
-        2. return the less max index when leaf model is None
-        3. predict the index by leaf_model
+        2. return the less max key when leaf model is None
+        3. predict the key by leaf_model
         :param key: float
-        :return: the index predicted by rmi, min_err and max_err of leaf_model
+        :return: the key predicted by rmi, min_err and max_err of leaf_model
         """
         # 1. predict the leaf_model by rmi
-        leaf_model_index = 0
+        leaf_model_key = 0
         for i in range(0, self.stage_length - 1):
-            leaf_model_index = round(self.rmi[i][leaf_model_index].predict(key))
-        # 2. return the less max index when leaf model is None
-        if self.rmi[-1][leaf_model_index] is None:
-            while self.rmi[-1][leaf_model_index] is None:
-                if leaf_model_index < 0:
+            leaf_model_key = round(self.rmi[i][leaf_model_key].predict(key))
+        # 2. return the less max key when leaf model is None
+        if self.rmi[-1][leaf_model_key] is None:
+            while self.rmi[-1][leaf_model_key] is None:
+                if leaf_model_key < 0:
                     return 0, 0, 0
                 else:
-                    leaf_model_index -= 1
-            return self.rmi[-1][leaf_model_index].output_max, 0, 0
-        # 3. predict the index by leaf_model
-        leaf_model = self.rmi[-1][leaf_model_index]
+                    leaf_model_key -= 1
+            return self.rmi[-1][leaf_model_key].output_max, 0, 0
+        # 3. predict the key by leaf_model
+        leaf_model = self.rmi[-1][leaf_model_key]
         pre = leaf_model.predict(key)
         return pre, leaf_model.min_err, leaf_model.max_err
 
     def save(self):
         """
-        save zm index into json file
+        save index into json file
         :return: None
         """
         if os.path.exists(self.model_path) is False:
@@ -159,7 +159,7 @@ class ZMIndex(SpatialIndex):
 
     def load(self):
         """
-        load zm index from json file
+        load index from json file
         :return: None
         """
         with open(self.model_path + 'zm_index.json', "r") as f:
@@ -188,14 +188,14 @@ class ZMIndex(SpatialIndex):
 
     def point_query_single(self, point):
         """
-        query index by x/y point
+        query key by x/y point
         1. compute z from x/y of point
-        2. predict by z and create index scope [pre - min_err, pre + max_err]
+        2. predict by z and create key scope [pre - min_err, pre + max_err]
         3. binary search in scope
         """
         # 1. compute z from x/y of point
         z_value = self.geohash.point_to_z(point[0], point[1])
-        # 2. predict by z and create index scope [pre - min_err, pre + max_err]
+        # 2. predict by z and create key scope [pre - min_err, pre + max_err]
         pre, min_err, max_err = self.predict(z_value)
         left_bound = max(round(pre - max_err), 0)
         right_bound = min(round(pre - min_err), self.train_data_length)
@@ -204,35 +204,35 @@ class ZMIndex(SpatialIndex):
 
     def range_query_single(self, window):
         """
-        query index by x1/y1/x2/y2 window
+        query key by x1/y1/x2/y2 window
         1. compute z from window_left and window_right
-        2. find index_left by point query
-        3. find index_right by point query
-        4. filter all the points of scope[index_left, index_right] by range(x1/y1/x2/y2).contain(point)
+        2. find key_left by point query
+        3. find key_right by point query
+        4. filter all the points of scope[key_left, key_right] by range(x1/y1/x2/y2).contain(point)
         """
         region = Region(window[0], window[1], window[2], window[3])
         # 1. compute z of window_left and window_right
         z_value1 = self.geohash.point_to_z(window[2], window[0])
         z_value2 = self.geohash.point_to_z(window[3], window[1])
-        # 2. find index_left by point query
-        # if point not found, index_left = pre - min_err
+        # 2. find key_left by point query
+        # if point not found, key_left = pre - min_err
         pre1, min_err1, max_err1 = self.predict(z_value1)
         pre1_init = int(pre1)
         left_bound1 = max(round(pre1 - max_err1), 0)
         right_bound1 = min(round(pre1 - min_err1), self.train_data_length)
-        index_left = biased_search(self.data_list, 2, z_value1, pre1_init, left_bound1, right_bound1)
-        index_left = left_bound1 if len(index_left) == 0 else min(index_left)
-        # 3. find index_right by point query
-        # if point not found, index_right = pre - max_err
+        key_left = biased_search(self.data_list, 2, z_value1, pre1_init, left_bound1, right_bound1)
+        key_left = left_bound1 if len(key_left) == 0 else min(key_left)
+        # 3. find key_right by point query
+        # if point not found, key_right = pre - max_err
         pre2, min_err2, max_err2 = self.predict(z_value2)
         pre2_init = int(pre2)
         left_bound2 = max(round(pre2 - max_err2), 0)
         right_bound2 = min(round(pre2 - min_err2), self.train_data_length)
-        index_right = biased_search(self.data_list, 2, z_value2, pre2_init, left_bound2, right_bound2)
-        index_right = right_bound2 if len(index_right) == 0 else max(index_right)
-        # 4. filter all the point of scope[index1, index2] by range(x1/y1/x2/y2).contain(point)
-        return [index for index in range(index_left, index_right + 1)
-                if region.contain_and_border_by_list(self.data_list[index])]
+        key_right = biased_search(self.data_list, 2, z_value2, pre2_init, left_bound2, right_bound2)
+        key_right = right_bound2 if len(key_right) == 0 else max(key_right)
+        # 4. filter all the point of scope[key1, key2] by range(x1/y1/x2/y2).contain(point)
+        return [key for key in range(key_left, key_right + 1)
+                if region.contain_and_border_by_list(self.data_list[key])]
 
 
 class MyEncoder(json.JSONEncoder):

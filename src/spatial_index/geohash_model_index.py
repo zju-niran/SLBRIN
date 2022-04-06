@@ -19,10 +19,10 @@ from src.rmi_keras_simple import TrainedNN as TrainedNN_Simple
 
 """
 代码上和论文的diff:
-1. 数据和geohash索引没有分开，而是放在data_list里：理论上，索引中找到index后能找到数据磁盘位置，然后直接读取point，但代码实现不了
+1. 数据和geohash索引没有分开，而是放在data_list里：理论上，索引中找到key后能找到数据磁盘位置，然后直接读取point，但代码实现不了
 为了模拟和贴近寻道的效率，索引上直接放了数据；
-索引size = 数据+索引的size - 数据的size + gm_index.json的size；
-索引构建时间 = 数据geohash编码时间+gm_index构建时间
+索引size = 数据+索引的size - 数据的size + sbrin.json的size；
+索引构建时间 = 数据geohash编码时间+sbrin构建时间
 """
 
 
@@ -32,9 +32,8 @@ from src.rmi_keras_simple import TrainedNN as TrainedNN_Simple
 # 策略1：不要搞缓存和留空了，换一种策略，就是定期生成新的索引，数据就按时间插入，生成新的blk range geohash mbr，一定时间后更新整体的数据顺序形成新的SBRIN，再一定时间后合并到老的SBRIN
 # 策略2：留空，如果blk range满了，就生成新的blk range，配上原来blk range一样的属性；如果没满，就先放到队尾，并且检查误差（误差不一定变大的）。
 class GeoHashModelIndex(SpatialIndex):
-    def __init__(self, model_path=None, geohash=None, sbrin=None):
+    def __init__(self, model_path=None, sbrin=None):
         super(GeoHashModelIndex, self).__init__("GeoHash Model Index")
-        self.geohash = geohash
         self.sbrin = sbrin
         self.data_list = None
         self.model_path = model_path
@@ -45,78 +44,78 @@ class GeoHashModelIndex(SpatialIndex):
         self.logging = logging.getLogger(self.name)
 
     def build(self, data_list, threshold_number, data_precision, region, use_threshold, threshold, core,
-              train_step, batch_size, learning_rate, retrain_time_limit, thread_pool_size, save_nn):
+              train_step, batch_size, learning_rate, retrain_time_limit, thread_pool_size, save_nn,
+              weight):
         """
         build index
-        1. init train z->index data from x/y data
+        1. init train z->key data from x/y data
         2. create brin index
         3. create learned model(stage=1) for every leaf node
         """
-        self.geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
-        # 1. init train z->index data from x/y data
+        # 1. init train z->key data from x/y data
         # 2. create brin index
         start_time = time.time()
         self.sbrin = SBRIN()
         block_size = 100
         threshold_length = region.get_max_depth_by_region_and_precision(precision=data_precision) * 2
-        self.sbrin.build(data_list, self.geohash.sum_bits, threshold_number, threshold_length, region,
-                         data_precision, block_size)
+        self.sbrin.build(data_list, threshold_number, threshold_length, region, data_precision, block_size)
         end_time = time.time()
-        self.logging.info("Create SRBIN: %s" % (end_time - start_time))
+        self.logging.info("Create SBRIN: %s" % (end_time - start_time))
         # reconstruct data
         start_time = time.time()
         result_data_list = []
         for regular_page in self.sbrin.regular_pages:
-            result_data_list.extend(data_list[regular_page.index[0]: regular_page.index[1] + 1])
+            result_data_list.extend(data_list[regular_page.key[0]: regular_page.key[1] + 1])
             diff_length = threshold_number - regular_page.number
             result_data_list.extend([None] * diff_length)
-            regular_page.index = [threshold_number * (regular_page.itemoffset - 1),
-                                  threshold_number * (regular_page.itemoffset - 1) + regular_page.number - 1]
+            regular_page.key = [threshold_number * (regular_page.itemoffset - 1),
+                                threshold_number * (regular_page.itemoffset - 1) + regular_page.number - 1]
         self.data_list = result_data_list
         end_time = time.time()
         self.logging.info("Reconstruct data: %s" % (end_time - start_time))
         # 3. in every part data, create learned model
         start_time = time.time()
         self.build_nn_multiprocess(use_threshold, threshold, core, train_step, batch_size, learning_rate,
-                                   retrain_time_limit, thread_pool_size, save_nn)
+                                   retrain_time_limit, thread_pool_size, save_nn, weight)
         end_time = time.time()
         self.logging.info("Create learned model: %s" % (end_time - start_time))
 
     def build_nn_multiprocess(self, use_threshold, threshold, core, train_step, batch_size, learning_rate,
-                              retrain_time_limit, thread_pool_size, save_nn):
+                              retrain_time_limit, thread_pool_size, save_nn, weight):
         multiprocessing.set_start_method('spawn', force=True)  # 解决CUDA_ERROR_NOT_INITIALIZED报错
         pool = multiprocessing.Pool(processes=thread_pool_size)
-        mp_dict = multiprocessing.Manager().dict()  # 使用共享dict暂存index[i]的所有model
+        mp_dict = multiprocessing.Manager().dict()
         for regular_page in self.sbrin.regular_pages:
-            index_bound = regular_page.index
+            key_bound = regular_page.key
             if regular_page.number == 0:  # blk range is None
                 continue
-            inputs = [i[2] for i in self.data_list[index_bound[0]:index_bound[1] + 1]]
-            labels = list(range(index_bound[0], index_bound[1] + 1))
+            inputs = [i[2] for i in self.data_list[key_bound[0]:key_bound[1] + 1]]
+            labels = list(range(key_bound[0], key_bound[1] + 1))
             pool.apply_async(self.build_nn, (regular_page.itemoffset - 1, inputs, labels, use_threshold,
                                              threshold, core, train_step, batch_size, learning_rate,
-                                             retrain_time_limit, save_nn, mp_dict))
+                                             retrain_time_limit, save_nn, weight, mp_dict))
         pool.close()
         pool.join()
         for (key, value) in mp_dict.items():
             self.sbrin.regular_pages[key].model = value
 
-    def build_nn(self, model_index, inputs, labels, use_threshold, threshold, core, train_step, batch_size,
-                 learning_rate, retrain_time_limit, save_nn, tmp_dict=None):
+    def build_nn(self, model_key, inputs, labels, use_threshold, threshold, core, train_step, batch_size,
+                 learning_rate, retrain_time_limit, save_nn, weight, tmp_dict=None):
         # train model
         if save_nn is False:
-            tmp_index = TrainedNN_Simple(self.model_path, model_index, inputs, labels, core, train_step, batch_size,
-                                         learning_rate)
+            tmp_index = TrainedNN_Simple(self.model_path, model_key, inputs, labels, core, train_step, batch_size,
+                                         learning_rate, weight)
             tmp_index.train()
         else:
-            tmp_index = TrainedNN(self.model_path, str(model_index), inputs, labels,
+            tmp_index = TrainedNN(self.model_path, str(model_key), inputs, labels,
                                   use_threshold,
                                   threshold,
                                   core,
                                   train_step,
                                   batch_size,
                                   learning_rate,
-                                  retrain_time_limit)
+                                  retrain_time_limit,
+                                  weight)
             tmp_index.train()
         # get parameters in model (weight matrix and bias matrix)
         abstract_index = AbstractNN(tmp_index.weights,
@@ -129,77 +128,75 @@ class GeoHashModelIndex(SpatialIndex):
                                     tmp_index.max_err)
         del tmp_index
         gc.collect()
-        tmp_dict[model_index] = abstract_index
+        tmp_dict[model_key] = abstract_index
 
     def save(self):
         """
-        save gm index into json file
+        save index into json file
         :return: None
         """
         if os.path.exists(self.model_path) is False:
             os.makedirs(self.model_path)
-        with open(self.model_path + 'gm_index.json', "w") as f:
+        with open(self.model_path + 'sbrin.json', "w") as f:
             json.dump(self, f, cls=MyEncoder, ensure_ascii=False)
         np.save(self.model_path + 'data_list.npy', np.array(self.data_list))
 
     def load(self):
         """
-        load gm index from json file
+        load index from json file
         :return: None
         """
-        with open(self.model_path + 'gm_index.json', "r") as f:
-            gm_index = json.load(f, cls=MyDecoder)
-            self.geohash = gm_index.geohash
-            self.sbrin = gm_index.sbrin
+        with open(self.model_path + 'sbrin.json', "r") as f:
+            sbrin = json.load(f, cls=MyDecoder)
+            self.sbrin = sbrin.sbrin
             self.data_list = np.load(self.model_path + 'data_list.npy', allow_pickle=True).tolist()
-            del gm_index
+            del sbrin
 
     @staticmethod
     def init_by_dict(d: dict):
-        return GeoHashModelIndex(model_path=d['model_path'], geohash=d['geohash'], sbrin=d['sbrin'])
+        return GeoHashModelIndex(model_path=d['model_path'], sbrin=d['sbrin'])
 
     def save_to_dict(self):
         return {
             'name': self.name,
-            'geohash': self.geohash,
             'sbrin': self.sbrin,
             'model_path': self.model_path
         }
 
     def point_query_single(self, point):
         """
-        query index by x/y point
+        query key by x/y point
         1. compute z from x/y of points
         2. find blk range within z by sbrin.point_query
-        3. predict by leaf model and create index scope [pre - min_err, pre + max_err]
+        3. predict by leaf model and create key scope [pre - min_err, pre + max_err]
         4. binary search in scope
         """
         # 1. compute z from x/y of point
         z = self.geohash.point_to_z(point[0], point[1])
         # 2. find blk range within z by sbrin.point_query
-        blk_range = self.sbrin.regular_pages[self.sbrin.point_query(z)]
+        blk_range = self.sbrin.regular_pages[self.sbrin.point_query(gh)]
         if blk_range.model is None:
             return None
         else:
-            # 3. predict by z and create index scope [pre - min_err, pre + max_err]
-            pre, min_err, max_err = blk_range.model.predict(z), blk_range.model.min_err, blk_range.model.max_err
+            # 3. predict by z and create key scope [pre - min_err, pre + max_err]
+            pre, min_err, max_err = blk_range.model.predict(gh), blk_range.model.min_err, blk_range.model.max_err
             # 4. binary search in scope
             # 优化: round->int:2->1
-            return biased_search(self.data_list, 2, z, int(pre),
-                                 max(round(pre - max_err), blk_range.index[0]),
-                                 min(round(pre - min_err), blk_range.index[1]))
+            return biased_search(self.data_list, 2, gh, int(pre),
+                                 max(round(pre - max_err), blk_range.key[0]),
+                                 min(round(pre - min_err), blk_range.key[1]))
 
     def range_query_single_old(self, window):
         """
-        query index by x1/y1/x2/y2 window
+        query key by x1/y1/x2/y2 window
         1. compute z from window_left and window_right
         2. get all the blk range and its relationship with window between z1/z2 by sbrin.range_query
         3. for different relation, use different method to handle the points
         3.1 if window contain the blk range, add all the items into results
         3.2 if window intersect or within the blk range
         3.2.1 get the min_z/max_z of intersect part
-        3.2.2 get the min_index/max_index by nn predict and biased search
-        3.2.3 filter all the point of scope[min_index/max_index] by range.contain(point)
+        3.2.2 get the min_key/max_key by nn predict and biased search
+        3.2.3 filter all the point of scope[min_key/max_key] by range.contain(point)
         主要耗时间：两次z的predict和最后的精确过滤，0.1, 0.1 , 0.6
         # TODO: 由于build sbrin的时候region移动了，导致这里的查询不准确了
         """
@@ -220,7 +217,7 @@ class GeoHashModelIndex(SpatialIndex):
                     continue
                 # 3.1 if window contain the blk range, add all the items into results
                 if blk_range[0][0] == 2:  # window contain blk range
-                    result.extend(list(range(blk_range[1].index[0], blk_range[1].index[1] + 1)))
+                    result.extend(list(range(blk_range[1].key[0], blk_range[1].key[1] + 1)))
                 # 3.2 if window intersect or within the blk range
                 else:
                     # 3.2.1 get the min_z/max_z of intersect part
@@ -228,26 +225,26 @@ class GeoHashModelIndex(SpatialIndex):
                     if blk_range[0][0] == 1:  # intersect
                         z_value1 = self.geohash.point_to_z(blk_range[0][1].left, blk_range[0][1].bottom)
                         z_value2 = self.geohash.point_to_z(blk_range[0][1].right, blk_range[0][1].up)
-                    # 3.2.2 get the min_index/max_index by nn predict and biased search
+                    # 3.2.2 get the min_key/max_key by nn predict and biased search
                     pre1 = model.predict(z_value1)
                     pre2 = model.predict(z_value2)
                     min_err = model.min_err
                     max_err = model.max_err
-                    left_bound1 = max(round(pre1 - max_err), blk_range[1].index[0])
-                    right_bound1 = min(round(pre1 - min_err), blk_range[1].index[1])
-                    index_left = biased_search(self.data_list, 2, z_value1, int(pre1), left_bound1, right_bound1)
+                    left_bound1 = max(round(pre1 - max_err), blk_range[1].key[0])
+                    right_bound1 = min(round(pre1 - min_err), blk_range[1].key[1])
+                    key_left = biased_search(self.data_list, 2, z_value1, int(pre1), left_bound1, right_bound1)
                     if z_value1 == z_value2:
-                        if len(index_left) > 0:
-                            result.extend(index_left)
+                        if len(key_left) > 0:
+                            result.extend(key_left)
                     else:
-                        index_left = left_bound1 if len(index_left) == 0 else min(index_left)
-                        left_bound2 = max(round(pre2 - max_err), blk_range[1].index[0])
-                        right_bound2 = min(round(pre2 - min_err), blk_range[1].index[1])
-                        index_right = biased_search(self.data_list, 2, z_value2, int(pre2), left_bound2, right_bound2)
-                        index_right = right_bound2 if len(index_right) == 0 else max(index_right)
-                        # 3.2.3 filter all the point of scope[min_index/max_index] by range.contain(point)
-                        result.extend([index for index in range(index_left, index_right + 1)
-                                       if region.contain_and_border_by_list(self.data_list[index])])
+                        key_left = left_bound1 if len(key_left) == 0 else min(key_left)
+                        left_bound2 = max(round(pre2 - max_err), blk_range[1].key[0])
+                        right_bound2 = min(round(pre2 - min_err), blk_range[1].key[1])
+                        key_right = biased_search(self.data_list, 2, z_value2, int(pre2), left_bound2, right_bound2)
+                        key_right = right_bound2 if len(key_right) == 0 else max(key_right)
+                        # 3.2.3 filter all the point of scope[min_key/max_key] by range.contain(point)
+                        result.extend([key for key in range(key_left, key_right + 1)
+                                       if region.contain_and_border_by_list(self.data_list[key])])
         return result
 
     def range_query_old(self, windows):
@@ -255,12 +252,12 @@ class GeoHashModelIndex(SpatialIndex):
 
     def range_query_single(self, window):
         """
-        query index by x1/y1/x2/y2 window
+        query key by x1/y1/x2/y2 window
         1. compute z from window_left and window_right
-        2. get all relative blk ranges with index and relationship
+        2. get all relative blk ranges with key and relationship
         3. get min_z and max_z of every blk range for different relation
-        4. predict min_index/max_index by nn
-        5. filter all the point of scope[min_index/max_index] by range.contain(point)
+        4. predict min_key/max_key by nn
+        5. filter all the point of scope[min_key/max_key] by range.contain(point)
         主要耗时间：sbrin.range_query.ranges_by_int/nn predict/精确过滤: 307mil/145mil/359mil
         """
         if window[0] == window[1] and window[2] == window[3]:
@@ -268,8 +265,8 @@ class GeoHashModelIndex(SpatialIndex):
         # 1. compute z of window_left and window_right
         z_value1 = self.geohash.point_to_z(window[2], window[0])
         z_value2 = self.geohash.point_to_z(window[3], window[1])
-        # 2. get all relative blk ranges with index and relationship
-        blk_index_list = self.sbrin.range_query(z_value1, z_value2)
+        # 2. get all relative blk ranges with key and relationship
+        blk_key_list = self.sbrin.range_query(z_value1, z_value2)
         result = []
         # 3. get min_z and max_z of every blk range for different relation
         position_func_list = [lambda reg: (None, None, None),
@@ -333,95 +330,95 @@ class GeoHashModelIndex(SpatialIndex):
                                   z_value1,
                                   z_value2,
                                   lambda x: window[2] <= x[0] <= window[3] and window[0] <= x[1] <= window[1])]
-        for blk_index in blk_index_list:
-            blk = self.sbrin.regular_pages[blk_index]
+        for blk_key in blk_key_list:
+            blk = self.sbrin.regular_pages[blk_key]
             if blk.model is None:  # blk range is None
                 continue
-            position = blk_index_list[blk_index]
-            blk_index = blk.index
+            position = blk_key_list[blk_key]
+            blk_key = blk.key
             if position == 0:  # window contain blk range
-                result.extend(list(range(blk_index[0], blk_index[1] + 1)))
+                result.extend(list(range(blk_key[0], blk_key[1] + 1)))
             else:
                 # if-elif-else->lambda, 30->4
                 z_value_new1, z_value_new2, compare_func = position_func_list[position](blk.scope)
                 model = blk.model
                 min_err = model.min_err
                 max_err = model.max_err
-                # 4 predict min_index/max_index by nn
+                # 4 predict min_key/max_key by nn
                 if z_value_new1 is not None:
                     pre1 = model.predict(z_value_new1)
-                    left_bound1 = max(round(pre1 - max_err), blk_index[0])
-                    right_bound1 = min(round(pre1 - min_err), blk_index[1])
-                    index_left = min(biased_search_almost(self.data_list, 2, z_value_new1, int(pre1), left_bound1,
-                                                          right_bound1))
+                    left_bound1 = max(round(pre1 - max_err), blk_key[0])
+                    right_bound1 = min(round(pre1 - min_err), blk_key[1])
+                    key_left = min(biased_search_almost(self.data_list, 2, z_value_new1, int(pre1), left_bound1,
+                                                        right_bound1))
 
                 else:
-                    index_left = blk_index[0]
+                    key_left = blk_key[0]
                 if z_value_new2 is not None:
                     pre2 = model.predict(z_value_new2)
-                    left_bound2 = max(round(pre2 - max_err), blk_index[0])
-                    right_bound2 = min(round(pre2 - min_err), blk_index[1])
-                    index_right = max(biased_search_almost(self.data_list, 2, z_value_new2, int(pre2), left_bound2,
-                                                           right_bound2))
+                    left_bound2 = max(round(pre2 - max_err), blk_key[0])
+                    right_bound2 = min(round(pre2 - min_err), blk_key[1])
+                    key_right = max(biased_search_almost(self.data_list, 2, z_value_new2, int(pre2), left_bound2,
+                                                         right_bound2))
 
                 else:
-                    index_right = blk_index[1]
-                # 5 filter all the point of scope[min_index/max_index] by range.contain(point)
+                    key_right = blk_key[1]
+                # 5 filter all the point of scope[min_key/max_key] by range.contain(point)
                 # 优化: region.contain->compare_func不同位置的点做不同的判断: 638->474mil
-                result.extend([index for index in range(index_left, index_right + 1)
-                               if compare_func(self.data_list[index])])
+                result.extend([key for key in range(key_left, key_right + 1)
+                               if compare_func(self.data_list[key])])
         return result
 
     def knn_query_single(self, knn):
         """
-        query index by x1/y1/n knn
-        1. get the nearest index of query point
+        query key by x1/y1/n knn
+        1. get the nearest key of query point
         2. get the nn points to create range query window
         3 filter point by distance
         主要耗时间：sbrin.knn_query.ranges_by_int/nn predict/精确过滤: 4.7mil/21mil/14.4mil
         """
         n = knn[2]
-        # 1. get the nearest index of query point
         qp_z = self.geohash.point_to_z(knn[0], knn[1])
-        qp_blk_index = self.sbrin.point_query(qp_z)
-        qp_blk = self.sbrin.regular_pages[qp_blk_index]
-        # if blk range is None, qp_index = the max index of the last blk range
+        # 1. get the nearest key of query point
+        qp_blk_key = self.sbrin.point_query(qp_z)
+        qp_blk = self.sbrin.regular_pages[qp_blk_key]
+        # if blk range is None, qp_key = the max key of the last blk range
         if qp_blk.model is None:
-            query_point_index = qp_blk.index[1]
-        # if model is not None, qp_index = point_query(z)
+            query_point_key = qp_blk.key[1]
+        # if model is not None, qp_key = point_query(z)
         else:
             pre, min_err, max_err = qp_blk.model.predict(qp_z), qp_blk.model.min_err, qp_blk.model.max_err
-            left_bound = max(round(pre - max_err), qp_blk.index[0])
-            right_bound = min(round(pre - min_err), qp_blk.index[1])
-            query_point_index = biased_search_almost(self.data_list, 2, qp_z, int(pre), left_bound, right_bound)[0]
+            left_bound = max(round(pre - max_err), qp_blk.key[0])
+            right_bound = min(round(pre - min_err), qp_blk.key[1])
+            query_point_key = biased_search_almost(self.data_list, 2, qp_z, int(pre), left_bound, right_bound)[0]
         # 2. get the n points to create range query window
         # TODO: 两种策略，一种是左右找一半，但是如果跳跃了，window很大；还有一种是两边找n，减少跳跃，使window变小
-        tp_list = [[Point.distance_pow_point_list(knn, self.data_list[query_point_index]), query_point_index]]
-        cur_index = query_point_index + 1
-        cur_block_index = qp_blk_index
+        tp_list = [[Point.distance_pow_point_list(knn, self.data_list[query_point_key]), query_point_key]]
+        cur_key = query_point_key + 1
+        cur_block_key = qp_blk_key
         i = 0
         while i < n - 1:
-            if self.data_list[cur_index] is None:
-                cur_block_index += 1
-                if cur_block_index > self.sbrin.meta_page.size:
+            if self.data_list[cur_key] is None:
+                cur_block_key += 1
+                if cur_block_key > self.sbrin.meta_page.size:
                     break
-                cur_index = self.sbrin.regular_pages[cur_block_index].index[0]
+                cur_key = self.sbrin.regular_pages[cur_block_key].key[0]
             else:
-                tp_list.append([Point.distance_pow_point_list(knn, self.data_list[cur_index]), cur_index])
-                cur_index += 1
+                tp_list.append([Point.distance_pow_point_list(knn, self.data_list[cur_key]), cur_key])
+                cur_key += 1
                 i += 1
-        cur_index = query_point_index - 1
-        cur_block_index = qp_blk_index
+        cur_key = query_point_key - 1
+        cur_block_key = qp_blk_key
         i = 0
         while i < n - 1:
-            if self.data_list[cur_index] is None:
-                cur_block_index -= 1
-                if cur_block_index < 0:
+            if self.data_list[cur_key] is None:
+                cur_block_key -= 1
+                if cur_block_key < 0:
                     break
-                cur_index = self.sbrin.regular_pages[qp_blk_index].index[1]
+                cur_key = self.sbrin.regular_pages[qp_blk_key].key[1]
             else:
-                tp_list.append([Point.distance_pow_point_list(knn, self.data_list[cur_index]), cur_index])
-                cur_index -= 1
+                tp_list.append([Point.distance_pow_point_list(knn, self.data_list[cur_key]), cur_key])
+                cur_key -= 1
                 i += 1
         tp_list = sorted(tp_list)[:n]
         max_dist = tp_list[-1][0]
@@ -480,30 +477,30 @@ class GeoHashModelIndex(SpatialIndex):
             model = blk.model
             if model is None:  # blk range is None
                 continue
-            blk_index = blk.index
+            blk_key = blk.key
             z_value_new1, z_value_new2 = position_func_list[tp_window_blk[1]](blk.scope)
             min_err = model.min_err
             max_err = model.max_err
             if z_value_new1 is not None:
                 pre1 = model.predict(z_value_new1)
-                left_bound1 = max(round(pre1 - max_err), blk_index[0])
-                right_bound1 = min(round(pre1 - min_err), blk_index[1])
-                index_left = min(biased_search_almost(self.data_list, 2, z_value_new1, int(pre1), left_bound1,
-                                                      right_bound1))
+                left_bound1 = max(round(pre1 - max_err), blk_key[0])
+                right_bound1 = min(round(pre1 - min_err), blk_key[1])
+                key_left = min(biased_search_almost(self.data_list, 2, z_value_new1, int(pre1), left_bound1,
+                                                    right_bound1))
             else:
-                index_left = blk_index[0]
+                key_left = blk_key[0]
             if z_value_new2 is not None:
                 pre2 = model.predict(z_value_new2)
-                left_bound2 = max(round(pre2 - max_err), blk_index[0])
-                right_bound2 = min(round(pre2 - min_err), blk_index[1])
-                index_right = max(biased_search_almost(self.data_list, 2, z_value_new2, int(pre2), left_bound2,
-                                                       right_bound2))
+                left_bound2 = max(round(pre2 - max_err), blk_key[0])
+                right_bound2 = min(round(pre2 - min_err), blk_key[1])
+                key_right = max(biased_search_almost(self.data_list, 2, z_value_new2, int(pre2), left_bound2,
+                                                     right_bound2))
 
             else:
-                index_right = blk_index[1]
+                key_right = blk_key[1]
             # 3 filter point by distance
             tp_list.extend([[Point.distance_pow_point_list(knn, self.data_list[i]), i]
-                            for i in range(index_left, index_right + 1)])
+                            for i in range(key_left, key_right + 1)])
             tp_list = sorted(tp_list)[:n]
             max_dist = tp_list[-1][0]
         return [tp[1] for tp in tp_list]

@@ -24,25 +24,25 @@ class RTree(SpatialIndex):
         self.logging = logging.getLogger(self.name)
 
     def insert(self, point):
-        self.index.insert(point.index, (point.lng, point.lat))
+        self.index.insert(point.key, (point.lng, point.lat))
 
     def delete(self, point):
-        self.index.delete(point.index, (point.lng, point.lat))
+        self.index.delete(point.key, (point.lng, point.lat))
 
     def build(self, data_list, threshold_number):
         p = index.Property()
         p.dimension = 2
         p.dat_extension = "data"
-        p.idx_extension = "index"
+        p.idx_extension = "key"
         p.leaf_capacity = threshold_number
         self.index = index.Index(os.path.join(self.model_path, 'rtree'), properties=p, overwrite=True)
         # self.index = index.RtreeContainer(properties=p)  # 没有直接Index来得快，range_query慢了一倍
         for i in range(len(data_list)):
-            self.insert(Point(data_list[i][0], data_list[i][1], index=i))
+            self.insert(Point(data_list[i][0], data_list[i][1], key=i))
 
     def point_query_single(self, point):
         """
-        query index by x/y point
+        query key by x/y point
         1. search by x/y
         2. for duplicate point: only return the first one
         """
@@ -50,19 +50,19 @@ class RTree(SpatialIndex):
 
     def range_query_single(self, window):
         """
-        query index by x1/y1/x2/y2 window
+        query key by x1/y1/x2/y2 window
         """
         return list(self.index.intersection((window[2], window[0], window[3], window[1])))
 
     def knn_query_single(self, knn):
         """
-        query index by x1/y1/n knn
+        query key by x1/y1/n knn
         """
         return list(self.index.nearest((knn[0], knn[1]), knn[2]))
 
     def save(self):
         """
-        save rtree into file
+        save index into file
         :return: None
         """
         if os.path.exists(self.model_path) is False:
@@ -70,13 +70,13 @@ class RTree(SpatialIndex):
 
     def load(self):
         """
-        load rtree index from file
+        load index from file
         :return: None
         """
         p = index.Property()
         p.dimension = 2
         p.dat_extension = "data"
-        p.idx_extension = "index"
+        p.idx_extension = "key"
         self.index = index.Index(os.path.join(self.model_path, 'rtree'),
                                  interleaved=False, properties=p, overwrite=False)
 

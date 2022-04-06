@@ -87,8 +87,8 @@ class AbstractNN:
 
 # Neural Network Model
 class TrainedNN:
-    def __init__(self, model_path, model_index, train_x, train_y, use_threshold, threshold, cores, train_step_num,
                  batch_size, learning_rate, retrain_time_limit):
+    def __init__(self, model_path, model_key, train_x, train_y, use_threshold, threshold, cores, train_step_num,
         self.name = "Trained NN"
         if cores is None:
             cores = []
@@ -96,7 +96,7 @@ class TrainedNN:
         self.train_step_nums = train_step_num
         self.batch_size = batch_size
         self.learning_rate = learning_rate
-        # 当只有一个输入输出时，整数的index作为y_true会导致score中y_true-y_pred出现类型错误：
+        # 当只有一个输入输出时，整数的key作为y_true会导致score中y_true-y_pred出现类型错误：
         # TypeError: Input 'y' of 'Sub' Op has type float32 that does not match type int32 of argument 'x'.
         self.train_x, self.train_x_min, self.train_x_max = nparray_normalize(np.array(train_x).astype("float"))
         self.train_y, self.train_y_min, self.train_y_max = nparray_normalize(np.array(train_y).astype("float"))
@@ -108,7 +108,7 @@ class TrainedNN:
         self.retrain_times = 0
         self.retrain_time_limit = retrain_time_limit
         self.model_path = model_path
-        self.model_index = model_index
+        self.model_key = model_key
         self.model_hdf_dir = model_path + "hdf/"
         self.model_png_dir = model_path + "png/"
         self.model_loss_dir = model_path + "loss/"
@@ -118,9 +118,9 @@ class TrainedNN:
             os.makedirs(self.model_png_dir)
         if os.path.exists(self.model_loss_dir) is False:
             os.makedirs(self.model_loss_dir)
-        self.model_hdf_file = os.path.join(self.model_hdf_dir, self.model_index + "_weights.best.hdf5")
-        self.model_png_file = os.path.join(self.model_png_dir, self.model_index + "_weights.best.png")
-        self.model_loss_file = os.path.join(self.model_loss_dir, self.model_index + "_weights.best.loss")
+        self.model_hdf_file = os.path.join(self.model_hdf_dir, self.model_key + "_weights.best.hdf5")
+        self.model_png_file = os.path.join(self.model_png_dir, self.model_key + "_weights.best.png")
+        self.model_loss_file = os.path.join(self.model_loss_dir, self.model_key + "_weights.best.loss")
         self.clean_not_best_model_file()
         self.get_best_model_file()
         logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
@@ -215,7 +215,7 @@ class TrainedNN:
                 self.model_hdf_file, err_length, self.threshold))
         self.weights = self.get_weights()
         end_time = time.time()
-        self.logging.info("Model index: %s, Train time: %s" % (self.model_index, end_time - start_time))
+        self.logging.info("Model key: %s, Train time: %s" % (self.model_key, end_time - start_time))
 
     def is_model_file_valid(self):
         try:
@@ -264,8 +264,8 @@ class TrainedNN:
         files = os.listdir(self.model_hdf_dir)
         for file in files:
             tmp_split = file.split('.')
-            tmp_model_index = tmp_split[0]
-            if tmp_model_index == self.model_index:
+            tmp_model_key = tmp_split[0]
+            if tmp_model_key == self.model_key:
                 tmp_err = '.'.join(tmp_split[1:-1])
                 try:
                     tmp_err = float(tmp_err)
@@ -273,9 +273,9 @@ class TrainedNN:
                     continue
                 if (min_err == 'best' or min_err > tmp_err) and tmp_err >= 0:
                     min_err = tmp_err
-        best_file_name = '.'.join([self.model_index, str(min_err), "hdf5"])
-        best_png_name = '.'.join([self.model_index, str(min_err), "png"])
-        best_loss_name = '.'.join([self.model_index, str(min_err), "loss"])
+        best_file_name = '.'.join([self.model_key, str(min_err), "hdf5"])
+        best_png_name = '.'.join([self.model_key, str(min_err), "png"])
+        best_loss_name = '.'.join([self.model_key, str(min_err), "loss"])
         self.model_hdf_file = os.path.join(self.model_hdf_dir, best_file_name)
         self.model_png_file = os.path.join(self.model_png_dir, best_png_name)
         self.model_loss_file = os.path.join(self.model_loss_dir, best_loss_name)
@@ -285,9 +285,9 @@ class TrainedNN:
         rename model file by err
         :param err: float
         """
-        new_file_name = '.'.join([self.model_index, str(err), "hdf5"])
-        new_png_name = '.'.join([self.model_index, str(err), "png"])
-        new_loss_name = '.'.join([self.model_index, str(err), "loss"])
+        new_file_name = '.'.join([self.model_key, str(err), "hdf5"])
+        new_png_name = '.'.join([self.model_key, str(err), "png"])
+        new_loss_name = '.'.join([self.model_key, str(err), "loss"])
         new_model_path = os.path.join(self.model_hdf_dir, new_file_name)
         new_png_path = os.path.join(self.model_png_dir, new_png_name)
         new_loss_path = os.path.join(self.model_loss_dir, new_loss_name)
@@ -318,9 +318,9 @@ class TrainedNN:
         init model name by random float num
         """
         random_str = str(random.random() * -1)
-        new_file_name = '.'.join([self.model_index, random_str, "hdf5"])
-        new_png_name = '.'.join([self.model_index, random_str, "png"])
-        new_loss_name = '.'.join([self.model_index, random_str, "loss"])
+        new_file_name = '.'.join([self.model_key, random_str, "hdf5"])
+        new_png_name = '.'.join([self.model_key, random_str, "png"])
+        new_loss_name = '.'.join([self.model_key, random_str, "loss"])
         self.model_hdf_file = os.path.join(self.model_hdf_dir, new_file_name)
         self.model_png_file = os.path.join(self.model_png_dir, new_png_name)
         self.model_loss_file = os.path.join(self.model_loss_dir, new_loss_name)
@@ -333,8 +333,8 @@ class TrainedNN:
         files = os.listdir(self.model_hdf_dir)
         for file in files:
             tmp_split = file.split('.')
-            tmp_model_index = tmp_split[0]
-            if tmp_model_index == self.model_index:
+            tmp_model_key = tmp_split[0]
+            if tmp_model_key == self.model_key:
                 tmp_err = '.'.join(tmp_split[1:-1])
                 try:
                     tmp_err = float(tmp_err)
@@ -346,9 +346,9 @@ class TrainedNN:
                 else:
                     tmp_min_err = min_err
                     tmp_max_err = tmp_err
-                last_min_file_name = '.'.join([self.model_index, str(tmp_max_err), "hdf5"])
-                last_min_png_name = '.'.join([self.model_index, str(tmp_max_err), "png"])
-                last_min_loss_name = '.'.join([self.model_index, str(tmp_max_err), "loss"])
+                last_min_file_name = '.'.join([self.model_key, str(tmp_max_err), "hdf5"])
+                last_min_png_name = '.'.join([self.model_key, str(tmp_max_err), "png"])
+                last_min_loss_name = '.'.join([self.model_key, str(tmp_max_err), "loss"])
                 if os.path.exists(os.path.join(self.model_hdf_dir, last_min_file_name)):
                     os.remove(os.path.join(self.model_hdf_dir, last_min_file_name))
                 if os.path.exists(os.path.join(self.model_png_dir, last_min_png_name)):

@@ -13,7 +13,7 @@ from src.spatial_index.common_utils import nparray_normalize, nparray_diff_norma
 
 
 class TrainedNN:
-    def __init__(self, model_path, model_index, train_x, train_y, cores, train_step_num, batch_size, learning_rate):
+    def __init__(self, model_path, model_key, train_x, train_y, cores, train_step_num, batch_size, learning_rate,
         self.name = "Trained NN Simple"
         if cores is None:
             cores = []
@@ -25,7 +25,7 @@ class TrainedNN:
         self.train_y, self.train_y_min, self.train_y_max = nparray_normalize(np.array(train_y).astype("float"))
         self.model = None
         self.model_path = model_path
-        self.model_index = model_index
+        self.model_key = model_key
         self.min_err, self.max_err = 0, 0
         self.weights = None
         logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
@@ -71,7 +71,7 @@ class TrainedNN:
         self.min_err, self.max_err = self.get_err()
         self.weights = self.get_weights()
         end_time = time.time()
-        self.logging.info("Model index: %s, Train time: %s" % (self.model_index, end_time - start_time))
+        self.logging.info("Model key: %s, Train time: %s" % (self.model_key, end_time - start_time))
 
     def get_weights(self):
         return [np.mat(weight) for weight in self.model.get_weights()]
@@ -82,7 +82,7 @@ class TrainedNN:
         range_loss = tf.keras.backend.max(diff_clip) - tf.keras.backend.min(diff_clip)
         diff = y_true - y_pred
         mse_loss = tf.keras.backend.mean(tf.keras.backend.square(diff), axis=-1)
-        return 0.1 * range_loss + mse_loss
+        return self.weight * range_loss + mse_loss
 
     def get_err(self):
         pres = self.model(self.train_x).numpy().flatten()

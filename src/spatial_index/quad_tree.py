@@ -33,7 +33,7 @@ class QuadTreeNode:
 
     def get_all_items(self, result):
         if self.is_leaf == 1:
-            result.extend([item.index for item in self.items])
+            result.extend([item.key for item in self.items])
         else:
             self.LB.get_all_items(result)
             self.RB.get_all_items(result)
@@ -135,7 +135,7 @@ class QuadTree(SpatialIndex):
             node = self.root_node
         if node.is_leaf == 1:
             for i in range(len(node.items)):
-                if node.items[i] == point and node.items[i].index == point.index:
+                if node.items[i] == point and node.items[i].key == point.key:
                     combine_flag = True
                     del node.items[i]
             return combine_flag
@@ -176,7 +176,7 @@ class QuadTree(SpatialIndex):
         if node is None:
             node = self.root_node
         if node.is_leaf == 1:
-            return [item.index for item in node.items if item == point]
+            return [item.key for item in node.items if item == point]
         y_center = (node.region.up + node.region.bottom) / 2
         x_center = (node.region.left + node.region.right) / 2
         if point.lat < y_center:
@@ -220,11 +220,11 @@ class QuadTree(SpatialIndex):
         self.max_depth = region.get_max_depth_by_region_and_precision(precision=data_precision)
         self.root_node = QuadTreeNode(region=region)
         for i in range(len(self.data_list)):
-            self.insert(Point(data_list[i][0], data_list[i][1], index=i))
+            self.insert(Point(data_list[i][0], data_list[i][1], key=i))
 
     def point_query_single(self, point):
         """
-        query index by x/y point
+        query key by x/y point
         1. search by x/y
         2. for duplicate point: only return the first one
         """
@@ -236,7 +236,7 @@ class QuadTree(SpatialIndex):
             node.get_all_items(result)
             return
         if node.is_leaf == 1:
-            result.extend([item.index for item in node.items if region.contain_and_border_by_point(item)])
+            result.extend([item.key for item in node.items if region.contain_and_border_by_point(item)])
         else:
             # 所有的or：region的四至点刚好在子节点的region上，因为split的时候经纬度都是向上取整，所以子节点的重心在右和上
             if node.LB.region.contain(Point(region.left, region.bottom)):
@@ -262,7 +262,7 @@ class QuadTree(SpatialIndex):
 
     def range_query_single(self, window):
         """
-        query index by x1/y1/x2/y2 window
+        query key by x1/y1/x2/y2 window
         """
         result = []
         self.range_search(region=Region(window[0], window[1], window[2], window[3]), node=None, result=result)
@@ -270,14 +270,14 @@ class QuadTree(SpatialIndex):
 
     def knn_query_single_old(self, knn):
         """
-        query index by x1/y1/n knn
+        query key by x1/y1/n knn
         代码参考：https://github.com/diana12333/QuadtreeNN
         1.用root node初始化stack，nearest_distance和point_heap分别为正无穷和空
         2.循环：当stack非空
         2.1.如果节点距离够：node.region和point的距离不超过nearest_distance
         2.1.1.如果node is_leaf，则遍历items，用距离够的item更新point_heap，同时更新nearest_distance
         2.1.2.如果node not_leaf，则把child放入stack
-        3.返回result里的所有index
+        3.返回result里的所有key
         """
         point = Point(knn[0], knn[1])
         n = knn[2]
@@ -290,13 +290,13 @@ class QuadTree(SpatialIndex):
                 if cur.is_leaf:
                     for item in cur.items:
                         if len(point_heap) < n:
-                            heapq.heappush(point_heap, (-point.distance_pow(item), item.index))
+                            heapq.heappush(point_heap, (-point.distance_pow(item), item.key))
                             nearest_distance = heapq.nsmallest(1, point_heap)[0]
                             continue
                         point_distance = point.distance_pow(item)
                         if point_distance < -nearest_distance[0]:
                             heapq.heappop(point_heap)
-                            heapq.heappush(point_heap, (-point_distance, item.index))
+                            heapq.heappush(point_heap, (-point_distance, item.key))
                             nearest_distance = heapq.nsmallest(1, point_heap)[0]
                 else:
                     stack.extend([cur.LB, cur.RB, cur.LU, cur.RU])
@@ -304,7 +304,7 @@ class QuadTree(SpatialIndex):
 
     def knn_query_single(self, knn):
         """
-        query index by x1/y1/n knn
+        query key by x1/y1/n knn
         1.先找到point所在的节点，初始化nearest_distance和point_heap
         2.后续操作和knn_query_old一致，但是由于nearest_distance被初始化，后续遍历可以减少大量节点的距离判断
         检索时间从0.099225优化到0.006712
@@ -317,13 +317,13 @@ class QuadTree(SpatialIndex):
         point_node = self.search_node(point)
         for item in point_node.items:
             if len(point_heap) < n:
-                heapq.heappush(point_heap, (-point.distance_pow(item), item.index))
+                heapq.heappush(point_heap, (-point.distance_pow(item), item.key))
                 nearest_distance = heapq.nsmallest(1, point_heap)[0]
                 continue
             point_distance = point.distance_pow(item)
             if point_distance < -nearest_distance[0]:
                 heapq.heappop(point_heap)
-                heapq.heappush(point_heap, (-point_distance, item.index))
+                heapq.heappush(point_heap, (-point_distance, item.key))
                 nearest_distance = heapq.nsmallest(1, point_heap)[0]
         while len(stack):
             cur = stack.pop(-1)
@@ -334,13 +334,13 @@ class QuadTree(SpatialIndex):
                 if cur.is_leaf:
                     for item in cur.items:
                         if len(point_heap) < n:
-                            heapq.heappush(point_heap, (-point.distance_pow(item), item.index))
+                            heapq.heappush(point_heap, (-point.distance_pow(item), item.key))
                             nearest_distance = heapq.nsmallest(1, point_heap)[0]
                             continue
                         point_distance = point.distance_pow(item)
                         if point_distance < -nearest_distance[0]:
                             heapq.heappop(point_heap)
-                            heapq.heappush(point_heap, (-point_distance, item.index))
+                            heapq.heappush(point_heap, (-point_distance, item.key))
                             nearest_distance = heapq.nsmallest(1, point_heap)[0]
                 elif not cur.is_leaf:
                     stack.extend([cur.LB, cur.RB, cur.LU, cur.RU])
@@ -348,7 +348,7 @@ class QuadTree(SpatialIndex):
 
     def save(self):
         """
-        save rtree into json file
+        save index into json file
         :return: None
         """
         if os.path.exists(self.model_path) is False:
@@ -359,7 +359,7 @@ class QuadTree(SpatialIndex):
 
     def load(self):
         """
-        load zm index from json file
+        load index from json file
         :return: None
         """
         with open(self.model_path + 'quad_tree.json', "r") as f:
