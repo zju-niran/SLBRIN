@@ -94,7 +94,7 @@ def main():
         data_list = np.load(data_path).tolist()
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        index.build(data_list=data_list)
+        index.build(data_list=data_list, threshold_number=100)
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time %s" % build_time)

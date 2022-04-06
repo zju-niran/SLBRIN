@@ -1,11 +1,15 @@
 # BTree Index with Python
+import os
 
-import pandas as pd
+import line_profiler
+import numpy as np
 
 # Node in BTree
+from src.spatial_index.common_utils import binary_search_less_max
+
+
 class BTreeNode:
-    def __init__(self, degree=2, number_of_keys=0, is_leaf=True, items=None, children=None,
-                 index=None):
+    def __init__(self, degree=2, number_of_keys=0, is_leaf=True, items=None, children=None, index=None):
         self.isLeaf = is_leaf
         self.numberOfKeys = number_of_keys
         self.index = index
@@ -29,11 +33,12 @@ class BTreeNode:
         while i < self.numberOfKeys and an_item > self.items[i]:
             i += 1
         if i < self.numberOfKeys and an_item == self.items[i]:
-            return {'found': True, 'fileIndex': self.index, 'nodeIndex': i}
+            return True, self.index, i
         if self.isLeaf:
-            return {'found': False, 'fileIndex': self.index, 'nodeIndex': i - 1}
+            return False, self.index, i - 1
         else:
             return b_tree.get_node(self.children[i]).search(b_tree, an_item)
+
 
 # BTree Class
 class BTree:
@@ -63,10 +68,17 @@ class BTree:
 
     def predict(self, key):
         search_result = self.search(Item(key, 0))
-        a_node = self.nodes[search_result['fileIndex']]
-        if a_node.items[search_result['nodeIndex']] is None:
+        a_node = self.nodes[search_result[1]]
+        if a_node.items[search_result[2]] is None:
             return -1
-        return a_node.items[search_result['nodeIndex']].v
+        return a_node.items[search_result[2]].v
+
+    def predict_less_max(self, key):
+        search_result = self.search(Item(key, 0))
+        if search_result[0]:
+            return self.nodes[search_result[1]].items[search_result[2]].v
+        else:
+            return self.nodes[search_result[1]].items[search_result[2] + 1].v - 1
 
     # 分裂的时候最耗时间
     def split_child(self, p_node, i, c_node):
@@ -94,7 +106,7 @@ class BTree:
     def insert(self, an_item):
         # 如果key在里面就不插入
         search_result = self.search(an_item)
-        if search_result['found']:
+        if search_result[0]:
             return None
         # 如果key在里面就插入
         r = self.rootNode
@@ -131,14 +143,14 @@ class BTree:
     def delete(self, an_item):
         an_item = Item(an_item, 0)
         search_result = self.search(an_item)
-        if search_result['found'] is False:
+        if search_result[0] is False:
             return None
         r = self.rootNode
         self.delete_in_node(r, an_item, search_result)
 
     def delete_in_node(self, a_node, an_item, search_result):
-        if a_node.index == search_result['fileIndex']:
-            i = search_result['nodeIndex']
+        if a_node.index == search_result[1]:
+            i = search_result[2]
             if a_node.isLeaf:
                 while i < a_node.numberOfKeys - 1:
                     a_node.items[i] = a_node.items[i + 1]
@@ -166,10 +178,10 @@ class BTree:
                     if a_node.numberOfKeys == 0:
                         del self.nodes[a_node.get_index()]
                         self.set_root_node(left)
-                    self.delete_in_node(left, an_item, {'found': True, 'fileIndex': left.index, 'nodeIndex': k})
+                    self.delete_in_node(left, an_item, (True, left.index, k))
         else:
             i = 0
-            while i < a_node.numberOfKeys and self.get_node(a_node.children[i]).search(self, an_item)['found'] is False:
+            while i < a_node.numberOfKeys and self.get_node(a_node.children[i]).search(self, an_item)[0] is False:
                 i += 1
             c_node = self.get_node(a_node.children[i])
             if c_node.numberOfKeys < self.degree:
@@ -220,8 +232,7 @@ class BTree:
     def get_right_most(self, aNode):
         if aNode.children[aNode.numberOfKeys] is None:
             upItem = aNode.items[aNode.numberOfKeys - 1]
-            self.delete_in_node(aNode, upItem,
-                                {'found': True, 'fileIndex': aNode.index, 'nodeIndex': aNode.numberOfKeys - 1})
+            self.delete_in_node(aNode, upItem, (True, aNode.index, aNode.numberOfKeys - 1))
             return upItem
         else:
             return self.get_right_most(self.get_node(aNode.children[aNode.numberOfKeys]))
@@ -246,6 +257,7 @@ class BTree:
 
     def write_at(self, index, a_node):
         self.nodes[index] = a_node
+
 
 # Value in Node
 class Item():
@@ -283,17 +295,29 @@ class Item():
         else:
             return False
 
+
 # For Test
 def b_tree_main():
-    path = "last_data.csv"
-    data = pd.read_csv(path)
+    os.chdir(os.path.dirname(os.path.realpath(__file__)))
+    path = '../data/trip_data_1_100000_sorted.npy'
+    data_list = np.load(path).tolist()
     b = BTree(2)
-    for i in range(data.shape[0]):
-        b.insert(Item(data.iloc[i, 0], data.iloc[i, 1]))
-
-    pos = b.predict(30310)
-    print(pos)
+    l = len(data_list)
+    for i in range(l):
+        b.insert(Item(data_list[i][2], i))
+    for i in range(l):
+        x = i
+        # 二分比btree快
+        pos = b.predict_less_max(x)  # 61221874.0
+        pos1 = binary_search_less_max(data_list, 2, x, 0, l - 1)  # 14473453.0
+        if pos1 != pos:
+            print(pos1)
+            print(pos)
 
 
 if __name__ == '__main__':
+    profile = line_profiler.LineProfiler(b_tree_main)
+    profile.enable()
     b_tree_main()
+    profile.disable()
+    profile.print_stats()
