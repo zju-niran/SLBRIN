@@ -87,8 +87,8 @@ class AbstractNN:
 
 # Neural Network Model
 class TrainedNN:
-                 batch_size, learning_rate, retrain_time_limit):
     def __init__(self, model_path, model_key, train_x, train_y, use_threshold, threshold, cores, train_step_num,
+                 batch_size, learning_rate, retrain_time_limit, weight):
         self.name = "Trained NN"
         if cores is None:
             cores = []
@@ -128,6 +128,7 @@ class TrainedNN:
                             format="%(asctime)s - %(levelname)s - %(message)s",
                             datefmt="%Y/%m/%d %H:%M:%S %p")
         self.logging = logging.getLogger(self.name)
+        self.weight = weight
 
     # train model
     def train(self):
@@ -237,7 +238,7 @@ class TrainedNN:
         range_loss = tf.keras.backend.max(diff_clip) - tf.keras.backend.min(diff_clip)
         diff = y_true - y_pred
         mse_loss = tf.keras.backend.mean(tf.keras.backend.square(diff), axis=-1)
-        return 0.1 * range_loss + mse_loss
+        return self.weight * range_loss + mse_loss
 
     def get_err(self):
         pres = self.model(self.train_x).numpy().flatten()

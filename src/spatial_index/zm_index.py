@@ -82,15 +82,15 @@ class ZMIndex(SpatialIndex):
             if labels is None or len(labels) == 0:
                 continue
             pool.apply_async(self.build_single_thread,
-                             (i, j, inputs, labels, use_thresholds[i], thresholds[i], cores[i],
-                              train_steps[i], batch_sizes[i], learning_rates[i], retrain_time_limits[i], mp_dict))
+                             (i, j, inputs, labels, use_thresholds[i], thresholds[i], cores[i], train_steps[i],
+                              batch_sizes[i], learning_rates[i], retrain_time_limits[i], weight, mp_dict))
         pool.close()
         pool.join()
         for (key, value) in mp_dict.items():
             self.rmi[i][key] = value
 
     def build_single_thread(self, curr_stage, current_stage_step, inputs, labels, use_threshold, threshold,
-                            core, train_step, batch_size, learning_rate, retrain_time_limit, tmp_dict=None):
+                            core, train_step, batch_size, learning_rate, retrain_time_limit, weight, tmp_dict=None):
         # train model
         i = curr_stage
         j = current_stage_step
@@ -102,7 +102,8 @@ class ZMIndex(SpatialIndex):
                               train_step,
                               batch_size,
                               learning_rate,
-                              retrain_time_limit)
+                              retrain_time_limit,
+                              weight)
         tmp_index.train()
         # get parameters in model (weight matrix and bias matrix)
         abstract_index = AbstractNN(tmp_index.get_weights(),
@@ -300,7 +301,8 @@ if __name__ == '__main__':
                     batch_sizes=[1024, 1024],
                     learning_rates=[0.01, 0.01],
                     retrain_time_limits=[40, 20],
-                    thread_pool_size=5)
+                    thread_pool_size=5,
+                    weight=0.01)
         end_time = time.time()
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)

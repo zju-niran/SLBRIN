@@ -51,7 +51,8 @@ if __name__ == '__main__':
                     learning_rate=0.01,
                     retrain_time_limit=20,
                     thread_pool_size=6,
-                    save_nn=False)
+                    save_nn=False,
+                    weight=0.01)
         end_time = time.time()
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)
@@ -86,7 +87,8 @@ if __name__ == '__main__':
                                     learning_rate=0.01,
                                     retrain_time_limit=20,
                                     thread_pool_size=6,
-                                    save_nn=True)
+                                    save_nn=True,
+                                    weight=0.01)
         end_time = time.time()
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)

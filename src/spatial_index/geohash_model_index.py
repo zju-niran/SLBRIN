@@ -584,8 +584,9 @@ def main():
                     batch_size=1024,
                     learning_rate=0.01,
                     retrain_time_limit=20,
-                    thread_pool_size=5,
-                    save_nn=True)
+                    thread_pool_size=1,
+                    save_nn=True,
+                    weight=0.01)
         end_time = time.time()
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)

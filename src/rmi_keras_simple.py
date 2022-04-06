@@ -14,6 +14,7 @@ from src.spatial_index.common_utils import nparray_normalize, nparray_diff_norma
 
 class TrainedNN:
     def __init__(self, model_path, model_key, train_x, train_y, cores, train_step_num, batch_size, learning_rate,
+                 weight):
         self.name = "Trained NN Simple"
         if cores is None:
             cores = []
@@ -33,6 +34,7 @@ class TrainedNN:
                             format="%(asctime)s - %(levelname)s - %(message)s",
                             datefmt="%Y/%m/%d %H:%M:%S %p")
         self.logging = logging.getLogger(self.name)
+        self.weight = weight
 
     # train model
     def train(self):
