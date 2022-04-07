@@ -346,7 +346,7 @@ def nparray_normalize_reverse_num(num, min_v, max_v):
 
 def nparray_diff_normalize_reverse_arr(na1, na2, min_v, max_v):
     if max_v == min_v:
-        return 0, 0
+        return 0.0, 0.0
     else:
         f1 = np.frompyfunc(nparray_diff_normalize_reverse_num, 4, 1)
         result_na = f1(na1, na2, min_v, max_v).astype('float')
