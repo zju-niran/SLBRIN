@@ -8,10 +8,10 @@ import numpy as np
 
 
 class Point:
-    def __init__(self, lng, lat, z=None, key=None):
+    def __init__(self, lng, lat, geohash=None, key=None):
         self.lng = lng
         self.lat = lat
-        self.z = z
+        self.geohash = geohash
         self.key = key
 
     def __eq__(self, other):
@@ -200,7 +200,7 @@ class Region:
 
     def get_min_distance_pow_by_point_list(self, point: list):
         """
-        计算点到region的距离，如果点在region内，则距离为点离最近边的距离的负数
+        计算点到region的距离，如果点在region内，则为0
         :param point:
         :return:
         """
@@ -215,7 +215,8 @@ class Region:
             if point[1] <= self.bottom:
                 return (self.bottom - point[1]) ** 2
             elif self.bottom < point[1] < self.up:
-                return max(self.bottom - point[1], point[1] - self.up, self.left - point[0], point[0] - self.right)
+                # return max(self.bottom - point[1], point[1] - self.up, self.left - point[0], point[0] - self.right)
+                return 0
             else:
                 return (point[1] - self.up) ** 2
         else:
@@ -402,11 +403,10 @@ def binary_search(nums, field, x, left, right):
     return result
 
 
-def biased_search_almost(nums, field, x, pre, left, right):
+def biased_search_almost(nums, field, x, mid, left, right):
     """
     二分查找，找不到则返回最接近的，值不超过[left, right]
     """
-    mid = pre
     result = []
     left_store = left
     right_store = right
@@ -434,12 +434,11 @@ def biased_search_almost(nums, field, x, pre, left, right):
     return [right] if nums[left][field] - x > x - nums[right][field] else [left]
 
 
-def biased_search(nums, field, x, pre, left, right):
+def biased_search(nums, field, x, mid, left, right):
     """
     binary search x in nums[left, right], but the first mid is pre
     如果pre不在[left, right]里，会变慢
     """
-    mid = pre
     result = []
     while left <= right:
         if nums[mid][field] == x:

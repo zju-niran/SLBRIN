@@ -48,11 +48,11 @@ class GeoHashModelIndex(SpatialIndex):
               weight):
         """
         build index
-        1. init train z->key data from x/y data
+        1. init train geohash->key data from x/y data
         2. create brin index
         3. create learned model(stage=1) for every leaf node
         """
-        # 1. init train z->key data from x/y data
+        # 1. init train geohash->key data from x/y data
         # 2. create brin index
         start_time = time.time()
         self.sbrin = SBRIN()
@@ -166,19 +166,19 @@ class GeoHashModelIndex(SpatialIndex):
     def point_query_single(self, point):
         """
         query key by x/y point
-        1. compute z from x/y of points
-        2. find blk range within z by sbrin.point_query
+        1. compute geohash from x/y of points
+        2. find blk range within geohash by sbrin.point_query
         3. predict by leaf model and create key scope [pre - min_err, pre + max_err]
         4. binary search in scope
         """
-        # 1. compute z from x/y of point
-        z = self.geohash.point_to_z(point[0], point[1])
-        # 2. find blk range within z by sbrin.point_query
+        # 1. compute geohash from x/y of point
+        gh = self.sbrin.meta_page.geohash.encode(point[0], point[1])
+        # 2. find blk range within geohash by sbrin.point_query
         blk_range = self.sbrin.regular_pages[self.sbrin.point_query(gh)]
         if blk_range.model is None:
             return None
         else:
-            # 3. predict by z and create key scope [pre - min_err, pre + max_err]
+            # 3. predict by leaf model and create key scope [pre - min_err, pre + max_err]
             pre, min_err, max_err = blk_range.model.predict(gh), blk_range.model.min_err, blk_range.model.max_err
             # 4. binary search in scope
             # 优化: round->int:2->1
@@ -189,23 +189,23 @@ class GeoHashModelIndex(SpatialIndex):
     def range_query_single_old(self, window):
         """
         query key by x1/y1/x2/y2 window
-        1. compute z from window_left and window_right
-        2. get all the blk range and its relationship with window between z1/z2 by sbrin.range_query
+        1. compute geohash from window_left and window_right
+        2. get all the blk range and its relationship with window between geohash1/geohash2 by sbrin.range_query
         3. for different relation, use different method to handle the points
         3.1 if window contain the blk range, add all the items into results
         3.2 if window intersect or within the blk range
-        3.2.1 get the min_z/max_z of intersect part
+        3.2.1 get the min_geohash/max_geohash of intersect part
         3.2.2 get the min_key/max_key by nn predict and biased search
         3.2.3 filter all the point of scope[min_key/max_key] by range.contain(point)
-        主要耗时间：两次z的predict和最后的精确过滤，0.1, 0.1 , 0.6
+        主要耗时间：两次geohash, predict和最后的精确过滤，0.1, 0.1 , 0.6
         # TODO: 由于build sbrin的时候region移动了，导致这里的查询不准确了
         """
         region = Region(window[0], window[1], window[2], window[3])
-        # 1. compute z of window_left and window_right
-        z_value1 = self.geohash.point_to_z(window[2], window[0])
-        z_value2 = self.geohash.point_to_z(window[3], window[1])
-        # 2. get all the blk range and its relationship with window between z1/z2 by sbrin.range_query
-        blk_range_list = self.sbrin.range_query_old(z_value1, z_value2, region)
+        # 1. compute geohash of window_left and window_right
+        gh1 = self.sbrin.meta_page.geohash.encode(window[2], window[0])
+        gh2 = self.sbrin.meta_page.geohash.encode(window[3], window[1])
+        # 2. get all the blk range and its relationship with window between geohash1/geohash2 by sbrin.range_query
+        blk_range_list = self.sbrin.range_query_old(gh1, gh2, region)
         result = []
         # 3. for different relation, use different method to handle the points
         for blk_range in blk_range_list:
@@ -220,27 +220,27 @@ class GeoHashModelIndex(SpatialIndex):
                     result.extend(list(range(blk_range[1].key[0], blk_range[1].key[1] + 1)))
                 # 3.2 if window intersect or within the blk range
                 else:
-                    # 3.2.1 get the min_z/max_z of intersect part
+                    # 3.2.1 get the min_geohash/max_geohash of intersect part
                     model = blk_range[1].model
                     if blk_range[0][0] == 1:  # intersect
-                        z_value1 = self.geohash.point_to_z(blk_range[0][1].left, blk_range[0][1].bottom)
-                        z_value2 = self.geohash.point_to_z(blk_range[0][1].right, blk_range[0][1].up)
+                        gh1 = self.sbrin.meta_page.geohash.encode(blk_range[0][1].left, blk_range[0][1].bottom)
+                        gh2 = self.sbrin.meta_page.geohash.encode(blk_range[0][1].right, blk_range[0][1].up)
                     # 3.2.2 get the min_key/max_key by nn predict and biased search
-                    pre1 = model.predict(z_value1)
-                    pre2 = model.predict(z_value2)
+                    pre1 = model.predict(gh1)
+                    pre2 = model.predict(gh2)
                     min_err = model.min_err
                     max_err = model.max_err
                     left_bound1 = max(round(pre1 - max_err), blk_range[1].key[0])
                     right_bound1 = min(round(pre1 - min_err), blk_range[1].key[1])
-                    key_left = biased_search(self.data_list, 2, z_value1, int(pre1), left_bound1, right_bound1)
-                    if z_value1 == z_value2:
+                    key_left = biased_search(self.data_list, 2, gh1, int(pre1), left_bound1, right_bound1)
+                    if gh1 == gh2:
                         if len(key_left) > 0:
                             result.extend(key_left)
                     else:
                         key_left = left_bound1 if len(key_left) == 0 else min(key_left)
                         left_bound2 = max(round(pre2 - max_err), blk_range[1].key[0])
                         right_bound2 = min(round(pre2 - min_err), blk_range[1].key[1])
-                        key_right = biased_search(self.data_list, 2, z_value2, int(pre2), left_bound2, right_bound2)
+                        key_right = biased_search(self.data_list, 2, gh2, int(pre2), left_bound2, right_bound2)
                         key_right = right_bound2 if len(key_right) == 0 else max(key_right)
                         # 3.2.3 filter all the point of scope[min_key/max_key] by range.contain(point)
                         result.extend([key for key in range(key_left, key_right + 1)
@@ -253,82 +253,82 @@ class GeoHashModelIndex(SpatialIndex):
     def range_query_single(self, window):
         """
         query key by x1/y1/x2/y2 window
-        1. compute z from window_left and window_right
+        1. compute geohash from window_left and window_right
         2. get all relative blk ranges with key and relationship
-        3. get min_z and max_z of every blk range for different relation
+        3. get min_geohash and max_geohash of every blk range for different relation
         4. predict min_key/max_key by nn
         5. filter all the point of scope[min_key/max_key] by range.contain(point)
         主要耗时间：sbrin.range_query.ranges_by_int/nn predict/精确过滤: 307mil/145mil/359mil
         """
         if window[0] == window[1] and window[2] == window[3]:
             return self.point_query_single([window[2], window[0]])
-        # 1. compute z of window_left and window_right
-        z_value1 = self.geohash.point_to_z(window[2], window[0])
-        z_value2 = self.geohash.point_to_z(window[3], window[1])
+        # 1. compute geohash of window_left and window_right
+        gh1 = self.sbrin.meta_page.geohash.encode(window[2], window[0])
+        gh2 = self.sbrin.meta_page.geohash.encode(window[3], window[1])
         # 2. get all relative blk ranges with key and relationship
-        blk_key_list = self.sbrin.range_query(z_value1, z_value2)
+        blk_key_list = self.sbrin.range_query(gh1, gh2)
         result = []
-        # 3. get min_z and max_z of every blk range for different relation
+        # 3. get min_geohash and max_geohash of every blk range for different relation
         position_func_list = [lambda reg: (None, None, None),
                               lambda reg: (  # right
                                   None,
-                                  self.geohash.point_to_z(window[3], reg.up),
+                                  self.sbrin.meta_page.geohash.encode(window[3], reg.up),
                                   lambda x: window[3] >= x[0]),
                               lambda reg: (  # left
-                                  self.geohash.point_to_z(window[2], reg.bottom),
+                                  self.sbrin.meta_page.geohash.encode(window[2], reg.bottom),
                                   None,
                                   lambda x: window[2] <= x[0]),
                               lambda reg: (  # left-right
-                                  self.geohash.point_to_z(window[2], reg.bottom),
-                                  self.geohash.point_to_z(window[3], reg.up),
+                                  self.sbrin.meta_page.geohash.encode(window[2], reg.bottom),
+                                  self.sbrin.meta_page.geohash.encode(window[3], reg.up),
                                   lambda x: window[2] <= x[0] <= window[3]),
                               lambda reg: (  # up
                                   None,
-                                  self.geohash.point_to_z(reg.right, window[1]),
+                                  self.sbrin.meta_page.geohash.encode(reg.right, window[1]),
                                   lambda x: window[1] >= x[1]),
                               lambda reg: (  # up-right
                                   None,
-                                  z_value2,
+                                  gh2,
                                   lambda x: window[3] >= x[0] and window[1] >= x[1]),
                               lambda reg: (  # up-left
-                                  self.geohash.point_to_z(window[2], reg.bottom),
-                                  self.geohash.point_to_z(reg.right, window[1]),
+                                  self.sbrin.meta_page.geohash.encode(window[2], reg.bottom),
+                                  self.sbrin.meta_page.geohash.encode(reg.right, window[1]),
                                   lambda x: window[2] <= x[0] and window[1] >= x[1]),
                               lambda reg: (  # up-left-right
-                                  self.geohash.point_to_z(window[2], reg.bottom),
-                                  z_value2,
+                                  self.sbrin.meta_page.geohash.encode(window[2], reg.bottom),
+                                  gh2,
                                   lambda x: window[2] <= x[0] <= window[3] and window[1] >= x[1]),
                               lambda reg: (  # bottom
-                                  self.geohash.point_to_z(reg.left, window[0]),
+                                  self.sbrin.meta_page.geohash.encode(reg.left, window[0]),
                                   None,
                                   lambda x: window[0] <= x[1]),
                               lambda reg: (  # bottom-right
-                                  self.geohash.point_to_z(reg.left, window[0]),
-                                  self.geohash.point_to_z(window[3], reg.up),
+                                  self.sbrin.meta_page.geohash.encode(reg.left, window[0]),
+                                  self.sbrin.meta_page.geohash.encode(window[3], reg.up),
                                   lambda x: window[3] >= x[0] and window[0] <= x[1]),
                               lambda reg: (  # bottom-left
-                                  z_value1,
+                                  gh1,
                                   None,
                                   lambda x: window[2] <= x[0] and window[0] <= x[1]),
                               lambda reg: (  # bottom-left-right
-                                  z_value1,
-                                  self.geohash.point_to_z(window[3], reg.up),
+                                  gh1,
+                                  self.sbrin.meta_page.geohash.encode(window[3], reg.up),
                                   lambda x: window[2] <= x[0] <= window[3] and window[0] <= x[1]),
                               lambda reg: (  # bottom-up
-                                  self.geohash.point_to_z(reg.left, window[0]),
-                                  self.geohash.point_to_z(reg.right, window[1]),
+                                  self.sbrin.meta_page.geohash.encode(reg.left, window[0]),
+                                  self.sbrin.meta_page.geohash.encode(reg.right, window[1]),
                                   lambda x: window[0] <= x[1] <= window[1]),
                               lambda reg: (  # bottom-up-right
-                                  self.geohash.point_to_z(reg.left, window[0]),
-                                  z_value2,
+                                  self.sbrin.meta_page.geohash.encode(reg.left, window[0]),
+                                  gh2,
                                   lambda x: window[3] >= x[0] and window[0] <= x[1] <= window[1]),
                               lambda reg: (  # bottom-up-left
-                                  z_value1,
-                                  self.geohash.point_to_z(reg.right, window[1]),
+                                  gh1,
+                                  self.sbrin.meta_page.geohash.encode(reg.right, window[1]),
                                   lambda x: window[2] <= x[0] and window[0] <= x[1] <= window[1]),
                               lambda reg: (  # bottom-up-left-right
-                                  z_value1,
-                                  z_value2,
+                                  gh1,
+                                  gh2,
                                   lambda x: window[2] <= x[0] <= window[3] and window[0] <= x[1] <= window[1])]
         for blk_key in blk_key_list:
             blk = self.sbrin.regular_pages[blk_key]
@@ -340,25 +340,25 @@ class GeoHashModelIndex(SpatialIndex):
                 result.extend(list(range(blk_key[0], blk_key[1] + 1)))
             else:
                 # if-elif-else->lambda, 30->4
-                z_value_new1, z_value_new2, compare_func = position_func_list[position](blk.scope)
+                gh_new1, gh_new2, compare_func = position_func_list[position](blk.scope)
                 model = blk.model
                 min_err = model.min_err
                 max_err = model.max_err
                 # 4 predict min_key/max_key by nn
-                if z_value_new1 is not None:
-                    pre1 = model.predict(z_value_new1)
+                if gh_new1 is not None:
+                    pre1 = model.predict(gh_new1)
                     left_bound1 = max(round(pre1 - max_err), blk_key[0])
                     right_bound1 = min(round(pre1 - min_err), blk_key[1])
-                    key_left = min(biased_search_almost(self.data_list, 2, z_value_new1, int(pre1), left_bound1,
+                    key_left = min(biased_search_almost(self.data_list, 2, gh_new1, int(pre1), left_bound1,
                                                         right_bound1))
 
                 else:
                     key_left = blk_key[0]
-                if z_value_new2 is not None:
-                    pre2 = model.predict(z_value_new2)
+                if gh_new2 is not None:
+                    pre2 = model.predict(gh_new2)
                     left_bound2 = max(round(pre2 - max_err), blk_key[0])
                     right_bound2 = min(round(pre2 - min_err), blk_key[1])
-                    key_right = max(biased_search_almost(self.data_list, 2, z_value_new2, int(pre2), left_bound2,
+                    key_right = max(biased_search_almost(self.data_list, 2, gh_new2, int(pre2), left_bound2,
                                                          right_bound2))
 
                 else:
@@ -378,19 +378,19 @@ class GeoHashModelIndex(SpatialIndex):
         主要耗时间：sbrin.knn_query.ranges_by_int/nn predict/精确过滤: 4.7mil/21mil/14.4mil
         """
         n = knn[2]
-        qp_z = self.geohash.point_to_z(knn[0], knn[1])
         # 1. get the nearest key of query point
-        qp_blk_key = self.sbrin.point_query(qp_z)
+        qp_g = self.sbrin.meta_page.geohash.encode(knn[0], knn[1])
+        qp_blk_key = self.sbrin.point_query(qp_g)
         qp_blk = self.sbrin.regular_pages[qp_blk_key]
         # if blk range is None, qp_key = the max key of the last blk range
         if qp_blk.model is None:
             query_point_key = qp_blk.key[1]
-        # if model is not None, qp_key = point_query(z)
+        # if model is not None, qp_key = point_query(geohash)
         else:
-            pre, min_err, max_err = qp_blk.model.predict(qp_z), qp_blk.model.min_err, qp_blk.model.max_err
+            pre, min_err, max_err = qp_blk.model.predict(qp_g), qp_blk.model.min_err, qp_blk.model.max_err
             left_bound = max(round(pre - max_err), qp_blk.key[0])
             right_bound = min(round(pre - min_err), qp_blk.key[1])
-            query_point_key = biased_search_almost(self.data_list, 2, qp_z, int(pre), left_bound, right_bound)[0]
+            query_point_key = biased_search_almost(self.data_list, 2, qp_g, int(pre), left_bound, right_bound)[0]
         # 2. get the n points to create range query window
         # TODO: 两种策略，一种是左右找一半，但是如果跳跃了，window很大；还有一种是两边找n，减少跳跃，使window变小
         tp_list = [[Point.distance_pow_point_list(knn, self.data_list[query_point_key]), query_point_key]]
@@ -426,49 +426,49 @@ class GeoHashModelIndex(SpatialIndex):
             return [tp[1] for tp in tp_list]
         max_dist_pow = max_dist ** 0.5
         window = [knn[1] - max_dist_pow, knn[1] + max_dist_pow, knn[0] - max_dist_pow, knn[0] + max_dist_pow]
-        z_value1 = self.geohash.point_to_z(window[2], window[0])
-        z_value2 = self.geohash.point_to_z(window[3], window[1])
-        tp_window_blkes = self.sbrin.knn_query(z_value1, z_value2, knn)
+        gh1 = self.sbrin.meta_page.geohash.encode(window[2], window[0])
+        gh2 = self.sbrin.meta_page.geohash.encode(window[3], window[1])
+        tp_window_blkes = self.sbrin.knn_query(gh1, gh2, knn)
         position_func_list = [lambda reg: (None, None),  # window contain blk range
                               lambda reg: (  # right
                                   None,
-                                  self.geohash.point_to_z(window[3], reg.up)),
+                                  self.sbrin.meta_page.geohash.encode(window[3], reg.up)),
                               lambda reg: (  # left
-                                  self.geohash.point_to_z(window[2], reg.bottom),
+                                  self.sbrin.meta_page.geohash.encode(window[2], reg.bottom),
                                   None),
                               None,  # left-right
                               lambda reg: (  # up
                                   None,
-                                  self.geohash.point_to_z(reg.right, window[1])),
+                                  self.sbrin.meta_page.geohash.encode(reg.right, window[1])),
                               lambda reg: (  # up-right
                                   None,
-                                  z_value2),
+                                  gh2),
                               lambda reg: (  # up-left
-                                  self.geohash.point_to_z(window[2], reg.bottom),
-                                  self.geohash.point_to_z(reg.right, window[1])),
+                                  self.sbrin.meta_page.geohash.encode(window[2], reg.bottom),
+                                  self.sbrin.meta_page.geohash.encode(reg.right, window[1])),
                               lambda reg: (None, None),  # up-left-right
                               lambda reg: (  # bottom
-                                  self.geohash.point_to_z(reg.left, window[0]),
+                                  self.sbrin.meta_page.geohash.encode(reg.left, window[0]),
                                   None),
                               lambda reg: (  # bottom-right
-                                  self.geohash.point_to_z(reg.left, window[0]),
-                                  self.geohash.point_to_z(window[3], reg.up)),
+                                  self.sbrin.meta_page.geohash.encode(reg.left, window[0]),
+                                  self.sbrin.meta_page.geohash.encode(window[3], reg.up)),
                               lambda reg: (  # bottom-left
-                                  z_value1,
+                                  gh1,
                                   None),
                               lambda reg: (  # bottom-left-right
-                                  z_value1,
-                                  self.geohash.point_to_z(window[3], reg.up)),
+                                  gh1,
+                                  self.sbrin.meta_page.geohash.encode(window[3], reg.up)),
                               None,
                               lambda reg: (  # bottom-up-right
-                                  self.geohash.point_to_z(reg.left, window[0]),
-                                  z_value2),
+                                  self.sbrin.meta_page.geohash.encode(reg.left, window[0]),
+                                  gh2),
                               lambda reg: (  # bottom-up-left
-                                  z_value1,
-                                  self.geohash.point_to_z(reg.right, window[1])),
+                                  gh1,
+                                  self.sbrin.meta_page.geohash.encode(reg.right, window[1])),
                               lambda reg: (  # bottom-up-left-right
-                                  z_value1,
-                                  z_value2)]
+                                  gh1,
+                                  gh2)]
         tp_list = []
         for tp_window_blk in tp_window_blkes:
             if tp_window_blk[2] > max_dist:
@@ -478,22 +478,22 @@ class GeoHashModelIndex(SpatialIndex):
             if model is None:  # blk range is None
                 continue
             blk_key = blk.key
-            z_value_new1, z_value_new2 = position_func_list[tp_window_blk[1]](blk.scope)
+            gh_new1, gh_new2 = position_func_list[tp_window_blk[1]](blk.scope)
             min_err = model.min_err
             max_err = model.max_err
-            if z_value_new1 is not None:
-                pre1 = model.predict(z_value_new1)
+            if gh_new1 is not None:
+                pre1 = model.predict(gh_new1)
                 left_bound1 = max(round(pre1 - max_err), blk_key[0])
                 right_bound1 = min(round(pre1 - min_err), blk_key[1])
-                key_left = min(biased_search_almost(self.data_list, 2, z_value_new1, int(pre1), left_bound1,
+                key_left = min(biased_search_almost(self.data_list, 2, gh_new1, int(pre1), left_bound1,
                                                     right_bound1))
             else:
                 key_left = blk_key[0]
-            if z_value_new2 is not None:
-                pre2 = model.predict(z_value_new2)
+            if gh_new2 is not None:
+                pre2 = model.predict(gh_new2)
                 left_bound2 = max(round(pre2 - max_err), blk_key[0])
                 right_bound2 = min(round(pre2 - min_err), blk_key[1])
-                key_right = max(biased_search_almost(self.data_list, 2, z_value_new2, int(pre2), left_bound2,
+                key_right = max(biased_search_almost(self.data_list, 2, gh_new2, int(pre2), left_bound2,
                                                      right_bound2))
 
             else:

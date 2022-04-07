@@ -35,20 +35,20 @@ class ZMIndex(SpatialIndex):
               batch_sizes, learning_rates, retrain_time_limits, thread_pool_size, weight):
         """
         build index by multi threads
-        1. init train z->key data from x/y data
-        2. create rmi for train z->key data
+        1. init train geohash->key data from x/y data
+        2. create rmi for train geohash->key data
         """
         self.geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
         self.stage_length = len(stages)
         train_inputs = [[[] for i in range(stages[i])] for i in range(self.stage_length)]
         train_labels = [[[] for i in range(stages[i])] for i in range(self.stage_length)]
         self.rmi = [[None for i in range(stages[i])] for i in range(self.stage_length)]
-        # 1. init train z->key data from x/y data
+        # 1. init train geohash->key data from x/y data
         self.data_list = data_list
         self.train_data_length = len(self.data_list) - 1
         train_inputs[0][0] = [i[2] for i in self.data_list]
         train_labels[0][0] = list(range(0, self.train_data_length + 1))
-        # 2. create rmi for train z->key data
+        # 2. create rmi for train geohash->key data
         # 构建stage_nums结构的树状NNs
         for i in range(self.stage_length - 1):
             for j in range(stages[i]):
@@ -190,46 +190,46 @@ class ZMIndex(SpatialIndex):
     def point_query_single(self, point):
         """
         query key by x/y point
-        1. compute z from x/y of point
-        2. predict by z and create key scope [pre - min_err, pre + max_err]
+        1. compute geohash from x/y of point
+        2. predict by geohash and create key scope [pre - min_err, pre + max_err]
         3. binary search in scope
         """
-        # 1. compute z from x/y of point
-        z_value = self.geohash.point_to_z(point[0], point[1])
-        # 2. predict by z and create key scope [pre - min_err, pre + max_err]
-        pre, min_err, max_err = self.predict(z_value)
+        # 1. compute geohash from x/y of point
+        gh = self.geohash.encode(point[0], point[1])
+        # 2. predict by geohash and create key scope [pre - min_err, pre + max_err]
+        pre, min_err, max_err = self.predict(gh)
         left_bound = max(round(pre - max_err), 0)
         right_bound = min(round(pre - min_err), self.train_data_length)
         # 3. binary search in scope
-        return biased_search(self.data_list, 2, z_value, int(pre), left_bound, right_bound)
+        return biased_search(self.data_list, 2, gh, int(pre), left_bound, right_bound)
 
     def range_query_single(self, window):
         """
         query key by x1/y1/x2/y2 window
-        1. compute z from window_left and window_right
+        1. compute geohash from window_left and window_right
         2. find key_left by point query
         3. find key_right by point query
         4. filter all the points of scope[key_left, key_right] by range(x1/y1/x2/y2).contain(point)
         """
         region = Region(window[0], window[1], window[2], window[3])
         # 1. compute z of window_left and window_right
-        z_value1 = self.geohash.point_to_z(window[2], window[0])
-        z_value2 = self.geohash.point_to_z(window[3], window[1])
+        gh1 = self.geohash.encode(window[2], window[0])
+        gh2 = self.geohash.encode(window[3], window[1])
         # 2. find key_left by point query
         # if point not found, key_left = pre - min_err
-        pre1, min_err1, max_err1 = self.predict(z_value1)
+        pre1, min_err1, max_err1 = self.predict(gh1)
         pre1_init = int(pre1)
         left_bound1 = max(round(pre1 - max_err1), 0)
         right_bound1 = min(round(pre1 - min_err1), self.train_data_length)
-        key_left = biased_search(self.data_list, 2, z_value1, pre1_init, left_bound1, right_bound1)
+        key_left = biased_search(self.data_list, 2, gh1, pre1_init, left_bound1, right_bound1)
         key_left = left_bound1 if len(key_left) == 0 else min(key_left)
         # 3. find key_right by point query
         # if point not found, key_right = pre - max_err
-        pre2, min_err2, max_err2 = self.predict(z_value2)
+        pre2, min_err2, max_err2 = self.predict(gh2)
         pre2_init = int(pre2)
         left_bound2 = max(round(pre2 - max_err2), 0)
         right_bound2 = min(round(pre2 - min_err2), self.train_data_length)
-        key_right = biased_search(self.data_list, 2, z_value2, pre2_init, left_bound2, right_bound2)
+        key_right = biased_search(self.data_list, 2, gh2, pre2_init, left_bound2, right_bound2)
         key_right = right_bound2 if len(key_right) == 0 else max(key_right)
         # 4. filter all the point of scope[key1, key2] by range(x1/y1/x2/y2).contain(point)
         return [key for key in range(key_left, key_right + 1)

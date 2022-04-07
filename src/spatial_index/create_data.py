@@ -172,8 +172,8 @@ def check_knn():
 def geohash_and_sort(input_path, output_path, data_precision, region):
     geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
     df = pandas.read_csv(input_path, usecols=["x", "y"])
-    df["z"] = df.apply(lambda t: geohash.point_to_z(t.x, t.y), 1)
-    df.sort_values(by=["z"], ascending=True, inplace=True)
+    df["g"] = df.apply(lambda t: geohash.encode(t.x, t.y), 1)
+    df.sort_values(by=["g"], ascending=True, inplace=True)
     df.reset_index(drop=True, inplace=True)
     np.save(output_path, df.values)
 

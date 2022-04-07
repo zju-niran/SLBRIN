@@ -11,7 +11,6 @@ class SBRIN:
         # threshold_number: 新增：blk range 分裂的数量阈值
         # threshold_length: 新增：blk range 分裂的geohash长度阈值
         # geohash: 新增：max_length = geohash.sum_bits
-        # difflen: 优化计算所需：data z geohash.sum_bits - blk geohash.sumbits
         # size: 优化计算所需：blk size - 1
         self.meta_page = meta_page
         # revmap pages
@@ -25,7 +24,7 @@ class SBRIN:
         # number: 新增：blk range的数据量
         # model: 新增：learned indices
         # scope: 优化计算所需：BRIN-Spatial有，blk range的scope
-        # index: 优化计算所需：blk range的索引index范围=[blknum * block_size, blknum * block_size + number]
+        # key: 优化计算所需：blk range的索引key范围=[blknum * block_size, blknum * block_size + number]
         self.regular_pages = regular_pages
 
     @staticmethod
@@ -33,7 +32,7 @@ class SBRIN:
         return SBRIN(meta_page=d['meta_page'],
                      regular_pages=d['regular_pages'])
 
-    def build(self, data_list, geohash_length, threshold_number, threshold_length,
+    def build(self, data_list, threshold_number, threshold_length,
               region, data_precision, block_size):
         """
         构建SBRIN
@@ -47,29 +46,31 @@ class SBRIN:
         N = len(data_list)
         tmp_stack = [(0, 0, N, (0, N - 1), region)]
         result_list = []
+        geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
         # 2. 用堆栈存储blk range，对每个blk range进行分裂
         while len(tmp_stack):
             cur = tmp_stack.pop(-1)
             # 如果number超过threshold_number或且length不超过了threshold_length则分裂
             if cur[2] >= threshold_number and cur[1] < threshold_length:
                 child_region = cur[4].split()
-                left_index = cur[3][0]
-                right_index = cur[3][1]
-                tmp_left_index = left_index
+                left_key = cur[3][0]
+                right_key = cur[3][1]
+                tmp_left_key = left_key
                 child_list = [None] * 4
                 # 1. length生成
                 length = cur[1] + 2
+                right_bound = cur[0] + (0 << geohash.sum_bits - length)
                 for i in range(4):
                     # 2. value生成
-                    value = (cur[0] << 2) + i
+                    value = right_bound
                     # 3. 数据继承：number生成
                     # 计算right bound
-                    min_value = value + 1 << geohash_length - length
-                    # 找到right_bound对应的index
-                    tmp_right_index = binary_search_less_max(data_list, 2, min_value, tmp_left_index, right_index)
-                    child_list[i] = (value, length, tmp_right_index - tmp_left_index + 1,
-                                     (tmp_left_index, tmp_right_index), child_region[i])
-                    tmp_left_index = tmp_right_index + 1
+                    right_bound = cur[0] + (i + 1 << geohash.sum_bits - length)
+                    # 找到right_bound对应的key
+                    tmp_right_key = binary_search_less_max(data_list, 2, right_bound, tmp_left_key, right_key)
+                    child_list[i] = (value, length, tmp_right_key - tmp_left_key + 1,
+                                     (tmp_left_key, tmp_right_key), child_region[i])
+                    tmp_left_key = tmp_right_key + 1
                 tmp_stack.extend(child_list[::-1])  # 倒着放入init中，保持顺序
             else:
                 # 3. 把不超过的blk range加入结果list，加入的时候顺序为[左上，右下，左上，右上]的逆序，因为堆栈
@@ -77,23 +78,21 @@ class SBRIN:
         # 4. 从结果list创建SBRIN
         # 100为block_size
         pages_per_range = threshold_number // block_size
-        max_geohash_length = max([result[1] for result in result_list])
-        geohash = Geohash(sum_bits=max_geohash_length, region=region)
         # last_revmap_page理论上是第一个regular_page磁盘位置-1
         self.meta_page = MetaPage(version=1, pages_per_range=pages_per_range, last_revmap_page=0,
                                   threshold_number=threshold_number, threshold_length=threshold_length,
                                   geohash=geohash,
-                                  difflen=geohash_length - geohash.sum_bits,
+                                  max_length=max([result[1] for result in result_list]),
                                   size=len(result_list) - 1)
         self.regular_pages = [RegularPage(itemoffset=i + 1,
                                           blknum=i * pages_per_range,
-                                          value=result_list[i][0] << max_geohash_length - result_list[i][1],
+                                          value=result_list[i][0],
                                           length=result_list[i][1],
                                           number=result_list[i][2],
                                           model=None,
                                           scope=Region.up_right_less_region(result_list[i][4],
                                                                             pow(10, -data_precision - 1)),
-                                          index=result_list[i][3])
+                                          key=result_list[i][3])
                               for i in range(len(result_list))]
         # revmap_pages理论上要记录每个regular的磁盘位置
         # 5. 重构数据，每个blk range对应threshold_number的数据空间，移到外面做
@@ -102,27 +101,27 @@ class SBRIN:
     def reconstruct_data(self, data_list):
         result_data_list = []
         for regular_page in self.regular_pages:
-            result_data_list.extend(data_list[regular_page.index[0]: regular_page.index[1] + 1])
+            result_data_list.extend(data_list[regular_page.key[0]: regular_page.key[1] + 1])
             diff_length = self.meta_page.threshold_number - regular_page.number
             result_data_list.extend([None] * diff_length)
 
     def point_query(self, point):
         """
-        根据z找到所在的blk range的index
-        1. 计算z对应到blk的geohash_int
-        2. 找到比geohash_int小的最大值即为z所在的blk range
+        根据geohash找到所在的blk range的key
+        1. 计算geohash对应到blk的geohash_int
+        2. 找到比geohash_int小的最大值即为geohash所在的blk range
         """
-        return self.binary_search_less_max(point >> self.meta_page.difflen, 0, self.meta_page.size)
+        return self.binary_search_less_max(point, 0, self.meta_page.size)
 
     def range_query_old(self, point1, point2, window):
         """
-        根据z1/z2找到之间所有blk range以及blk range和window的相交关系
-        1. 使用point_query查找z1和z2所在blk range
+        根据geohash1/geohash2找到之间所有blk range以及blk range和window的相交关系
+        1. 使用point_query查找geohash1/geohash2所在blk range
         2. 返回blk range1和blk range2之间的所有blk range，以及他们和window的的包含关系
         TODO: intersect函数还可以改进，改为能判断window对于region的上下左右关系
         """
-        i = self.binary_search_less_max(point1 >> self.meta_page.difflen, 0, self.meta_page.size)
-        j = self.binary_search_less_max(point2 >> self.meta_page.difflen, i, self.meta_page.size)
+        i = self.binary_search_less_max(point1, 0, self.meta_page.size)
+        j = self.binary_search_less_max(point2, i, self.meta_page.size)
         if i == j:
             return [((3, None), self.regular_pages[i])]
         else:
@@ -130,57 +129,65 @@ class SBRIN:
 
     def range_query(self, point1, point2):
         """
-        根据z1/z2找到之间所有blk range的index以及和window的位置关系
-        1. 通过geohash_int1/geohash_int2找到window对应的所有origin_geohash和对应window的position
-        2. 通过前缀匹配过滤origin_geohash来找到target_geohash
-        3. 根据target_geohash分组，并且取最大position
+        根据geohash1/geohash2找到之间所有blk range的key以及和window的位置关系
+        1. 通过geohash_int1/geohash_int2找到window对应的所有org_geohash和对应window的position
+        2. 通过前缀匹配过滤org_geohash来找到tgt_geohash
+        3. 根据tgt_geohash分组并合并position
         """
-        # 1. get origin geohash and position in the range(geohash_int1, geohash_int2)
-        origin_geohash_list = self.meta_page.geohash.ranges_by_int(point1 >> self.meta_page.difflen,
-                                                                   point2 >> self.meta_page.difflen)
-        # 2. get target geohash by prefix match
-        size1 = len(origin_geohash_list)
-        # 优化: 先用二分找到第一个，107mil->102mil，全部用二分需要348mil
-        # i, j = 0, 0
-        i, j = 1, self.binary_search_less_max(origin_geohash_list[0][0], 0, self.meta_page.size)
-        origin_geohash_list[0][0] = j
-        while i < size1:
-            if self.regular_pages[j].value > origin_geohash_list[i][0]:
-                origin_geohash_list[i][0] = j - 1
-                i += 1
-            else:
-                j += 1
-        # 3. group target geohash and max(position)
-        return self.meta_page.geohash.groupby_and_max(origin_geohash_list)
-        # 前缀匹配太慢：时间复杂度=O(len(window对应的geohash个数)*(j-i))
+        # 1. 通过geohash_int1/geohash_int2找到window对应的所有org_geohash和对应window的position
+        br_key1 = self.binary_search_less_max(point1, 0, self.meta_page.size)
+        br_key2 = self.binary_search_less_max(point2, br_key1, self.meta_page.size)
+        if br_key1 == br_key2:
+            return {br_key1: 15}
+        else:
+            org_geohash_list = self.meta_page.geohash.ranges_by_int(point1, point2, self.meta_page.max_length)
+            # 2. 通过前缀匹配过滤org_geohash来找到tgt_geohash
+            # 3. 根据tgt_geohash分组并合并position
+            size = len(org_geohash_list) - 1
+            i = 1
+            tgt_geohash_dict = {br_key1: org_geohash_list[0][1],
+                                br_key2: org_geohash_list[-1][1]}
+            while i < size:
+                if self.regular_pages[br_key1].value > org_geohash_list[i][0]:
+                    tgt_geohash_dict[br_key1 - 1] = tgt_geohash_dict.get(br_key1 - 1, 0) | org_geohash_list[i][1]
+                    i += 1
+                else:
+                    br_key1 += 1
+            return tgt_geohash_dict
+            # 前缀匹配太慢：时间复杂度=O(len(window对应的geohash个数)*(j-i))
 
     def knn_query(self, point1, point2, point3):
         """
-        根据z1/z2找到之间所有blk range的index以及和window的位置关系，并基于和point距离排序
-        1. 通过geohash_int1/geohash_int2找到window对应的所有origin_geohash和对应window的position
-        2. 通过前缀匹配过滤origin_geohash来找到target_geohash
-        3. 根据target_geohash分组，并且取最大position
+        根据geohash1/geohash2找到之间所有blk range的key以及和window的位置关系，并基于和point3距离排序
+        1. 通过geohash_int1/geohash_int2找到window对应的所有org_geohash和对应window的position
+        2. 通过前缀匹配过滤org_geohash来找到tgt_geohash
+        3. 根据tgt_geohash分组并合并position
+        4. 计算每个tgt_geohash和point3的距离，并进行降序排序
         """
-        # 1. get origin geohash and position in the range(geohash_int1, geohash_int2)
-        origin_geohash_list = self.meta_page.geohash.ranges_by_int(point1 >> self.meta_page.difflen,
-                                                                   point2 >> self.meta_page.difflen)
-        # 2. get target geohash by prefix match
-        size1 = len(origin_geohash_list)
-        i, j = 1, self.binary_search_less_max(origin_geohash_list[0][0], 0, self.meta_page.size)
-        origin_geohash_list[0][0] = j
-        while i < size1:
-            if self.regular_pages[j].value > origin_geohash_list[i][0]:
-                origin_geohash_list[i][0] = j - 1
-                i += 1
-            else:
-                j += 1
-        # 3. group target geohash and max(position)
-        target_geohash_list = self.meta_page.geohash.groupby_and_max(origin_geohash_list)
-        # 4. compute distance from point and sort by distance
-        return sorted([[target_geohash,
-                        target_geohash_list[target_geohash],
-                        self.regular_pages[target_geohash].scope.get_min_distance_pow_by_point_list(point3)]
-                       for target_geohash in target_geohash_list], key=lambda x: x[2])
+        # 1. 通过geohash_int1/geohash_int2找到window对应的所有org_geohash和对应window的position
+        br_key1 = self.binary_search_less_max(point1, 0, self.meta_page.size)
+        br_key2 = self.binary_search_less_max(point2, br_key1, self.meta_page.size)
+        if br_key1 == br_key2:
+            return [[br_key1, 15, 0]]
+        else:
+            org_geohash_list = self.meta_page.geohash.ranges_by_int(point1, point2, self.meta_page.max_length)
+            # 2. 通过前缀匹配过滤org_geohash来找到tgt_geohash
+            # 3. 根据tgt_geohash分组并合并position
+            size = len(org_geohash_list) - 1
+            i = 1
+            tgt_geohash_dict = {br_key1: org_geohash_list[0][1],
+                                br_key2: org_geohash_list[-1][1]}
+            while i < size:
+                if self.regular_pages[br_key1].value > org_geohash_list[i][0]:
+                    tgt_geohash_dict[br_key1 - 1] = tgt_geohash_dict.get(br_key1 - 1, 0) | org_geohash_list[i][1]
+                    i += 1
+                else:
+                    br_key1 += 1
+            # 4. 计算每个tgt_geohash和point3的距离，并进行降序排序
+            return sorted([[tgt_geohash,
+                            tgt_geohash_dict[tgt_geohash],
+                            self.regular_pages[tgt_geohash].scope.get_min_distance_pow_by_point_list(point3)]
+                           for tgt_geohash in tgt_geohash_dict], key=lambda x: x[2])
 
     def binary_search_less_max(self, x, left, right):
         """
@@ -200,7 +207,7 @@ class SBRIN:
 
 class MetaPage:
     def __init__(self, version, pages_per_range, last_revmap_page,
-                 threshold_number, threshold_length, geohash, difflen, size):
+                 threshold_number, threshold_length, geohash, max_length, size):
         # BRIN
         self.version = version
         self.pages_per_range = pages_per_range
@@ -209,8 +216,8 @@ class MetaPage:
         self.threshold_number = threshold_number
         self.threshold_length = threshold_length
         self.geohash = geohash
+        self.max_length = max_length
         # For compute
-        self.difflen = difflen
         self.size = size
 
     @staticmethod
@@ -221,12 +228,12 @@ class MetaPage:
                         threshold_number=d['threshold_number'],
                         threshold_length=d['threshold_length'],
                         geohash=d['geohash'],
-                        difflen=d['difflen'],
+                        max_length=d['max_length'],
                         size=d['size'])
 
 
 class RegularPage:
-    def __init__(self, itemoffset, blknum, value, length, number, model, scope, index):
+    def __init__(self, itemoffset, blknum, value, length, number, model, scope, key):
         # BRIN
         self.itemoffset = itemoffset
         self.blknum = blknum
@@ -237,7 +244,7 @@ class RegularPage:
         self.model = model
         # For compute
         self.scope = scope
-        self.index = index
+        self.key = key
 
     @staticmethod
     def init_by_dict(d: dict):
@@ -248,4 +255,4 @@ class RegularPage:
                            number=d['number'],
                            model=d['model'],
                            scope=d['scope'],
-                           index=d['index'])
+                           key=d['key'])
