@@ -60,7 +60,7 @@ class TrainedNN:
         model.compile(optimizer=optimizer, loss=self.score)
         self.model = model
         early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss',
-                                                          patience=500,
+                                                          patience=50,
                                                           mode='min',
                                                           verbose=0)
         callbacks_list = [early_stopping]

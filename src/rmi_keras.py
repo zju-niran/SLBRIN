@@ -171,12 +171,12 @@ class TrainedNN:
                                                             mode='min',
                                                             save_freq='epoch')
             early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss',
-                                                              patience=500,
+                                                              patience=50,
                                                               mode='min',
                                                               verbose=0)
             reduce = tf.keras.callbacks.ReduceLROnPlateau(monitor='loss',
                                                           factor=0.5,
-                                                          patience=450,
+                                                          patience=45,
                                                           verbose=0,
                                                           mode='min',
                                                           min_lr=0.0001)
