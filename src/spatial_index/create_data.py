@@ -179,7 +179,40 @@ def geohash_and_sort(input_path, output_path, data_precision, region):
 
 
 def csv_to_npy(input_path, output_path):
-    np.save(output_path, pandas.read_csv(input_path, usecols=["x", "y"]).values)  # pd.read_csv->np.load:11->4，而且npy比csv小
+    np.save(output_path,
+            pandas.read_csv(input_path, usecols=["x", "y"]).values)  # pd.read_csv->np.load:11->4，而且npy比csv小
+
+
+def create_data(output_path, data_size, scope, data_precision, type):
+    if type == 'uniform':
+        x = np.around(np.random.uniform(scope[2], scope[3], size=data_size), decimals=data_precision)
+        y = np.around(np.random.uniform(scope[0], scope[1], size=data_size), decimals=data_precision)
+    elif type == 'normal':
+        x_redius = (scope[3] - scope[2]) / 2
+        y_redius = (scope[1] - scope[0]) / 2
+        x_center = (scope[3] + scope[2]) / 2
+        y_center = (scope[1] + scope[0]) / 2
+        x = np.random.normal(0, 1, size=data_size)
+        y = np.random.normal(0, 1, size=data_size)
+        x = np.around(x * x_redius / max(-x.min(), x.max()) + x_center, decimals=data_precision)
+        y = np.around(y * y_redius / max(-y.min(), y.max()) + y_center, decimals=data_precision)
+    else:
+        return
+    np.save(output_path, np.stack((x, y), axis=1))
+
+
+def plot_npy(input_path):
+    from matplotlib import pyplot as plt
+    data = np.load(input_path)
+    plt.scatter(data[:, 0], data[:, 1])
+    plt.legend()
+    plt.show()
+
+
+def create_distinct_data(input_path, output_path):
+    data = np.load(input_path)
+    distinct_data = np.unique(data, axis=0)
+    np.save(output_path, distinct_data)
 
 
 if __name__ == '__main__':
@@ -239,6 +272,17 @@ if __name__ == '__main__':
     # output_path = "../../data/trip_data_1_filter_sorted.npy"
     # geohash_and_sort(input_path, output_path, 6, Region(40, 42, -75, -73))
     # 7. 把csv转npy
-    input_path = "../../data/trip_data_1_filter.csv"
-    output_path = "../../data/trip_data_1_filter.npy"
-    csv_to_npy(input_path, output_path)
+    # input_path = "../../data/trip_data_1_filter.csv"
+    # output_path = "../../data/trip_data_1_filter.npy"
+    # csv_to_npy(input_path, output_path)
+    # 8. 生成uniform和normal的数据
+    output_path_uniform = "../../data/uniform_10000w.npy"
+    output_path_normal = "../../data/normal_10000w.npy"
+    create_data(output_path_uniform, 100000000, [0, 1, 0, 1], 10, 'uniform')
+    create_data(output_path_normal, 100000000, [0, 1, 0, 1], 10, 'normal')
+    # plot_npy(output_path_uniform)
+    # plot_npy(output_path_normal)
+    # 9. 生成不重复的数据
+    # input_path = "../../data/trip_data_1_10w.npy"
+    # output_path = "../../data/trip_data_1_10w_distinct.npy"
+    # create_distinct_data(input_path, output_path)
