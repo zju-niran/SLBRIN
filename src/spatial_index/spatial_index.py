@@ -31,3 +31,21 @@ class SpatialIndex:
     def test_knn_query(self, knns):
         for knn in knns:
             result = self.knn_query_single(knn)
+
+    def save(self):
+        """
+        save index into json file
+        """
+        return
+
+    def load(self):
+        """
+        load index from json file
+        """
+        return
+
+    def size(self):
+        """
+        get index file size
+        """
+        return

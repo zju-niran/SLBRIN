@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import sys
@@ -17,6 +18,7 @@ class RTree(SpatialIndex):
         super(RTree, self).__init__("RTree")
         self.model_path = model_path
         self.index = None
+        self.threshold_number = None
         logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
                             level=logging.INFO,
                             format="%(asctime)s - %(levelname)s - %(message)s",
@@ -30,10 +32,13 @@ class RTree(SpatialIndex):
         self.index.delete(point.key, (point.lng, point.lat))
 
     def build(self, data_list, threshold_number):
+        self.threshold_number = threshold_number
         p = index.Property()
         p.dimension = 2
         p.dat_extension = "data"
         p.idx_extension = "key"
+        p.storage = index.RT_Disk
+        p.pagesize = threshold_number
         p.leaf_capacity = threshold_number
         self.index = index.Index(os.path.join(self.model_path, 'rtree'), properties=p, overwrite=True)
         # self.index = index.RtreeContainer(properties=p)  # 没有直接Index来得快，range_query慢了一倍
@@ -61,24 +66,31 @@ class RTree(SpatialIndex):
         return list(self.index.nearest((knn[0], knn[1]), knn[2]))
 
     def save(self):
-        """
-        save index into file
-        :return: None
-        """
         if os.path.exists(self.model_path) is False:
             os.makedirs(self.model_path)
+        with open(self.model_path + 'rtree.json', "w") as f:
+            json.dump(self.threshold_number, f, ensure_ascii=False)
 
     def load(self):
-        """
-        load index from file
-        :return: None
-        """
+        with open(self.model_path + 'rtree.json', "r") as f:
+            threshold_number = json.load(f)
         p = index.Property()
         p.dimension = 2
         p.dat_extension = "data"
         p.idx_extension = "key"
+        p.storage = index.RT_Disk
+        p.pagesize = threshold_number
+        p.leaf_capacity = threshold_number
         self.index = index.Index(os.path.join(self.model_path, 'rtree'),
                                  interleaved=False, properties=p, overwrite=False)
+
+    def size(self):
+        """
+        size = rtree.data + rtree.key + rtree.json
+        """
+        return os.path.getsize(os.path.join(self.model_path, "rtree.data")) + \
+               os.path.getsize(os.path.join(self.model_path, "rtree.key")) + \
+               os.path.getsize(os.path.join(self.model_path, "rtree.json"))
 
 
 def main():
@@ -99,6 +111,7 @@ def main():
         build_time = end_time - start_time
         index.logging.info("Build time %s" % build_time)
         index.save()
+    logging.info("Index size: %s" % index.size())
     path = '../../data/trip_data_1_point_query.csv'
     point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
     point_query_list = point_query_df.drop("count", axis=1).values.tolist()

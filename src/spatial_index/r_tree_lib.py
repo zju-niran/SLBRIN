@@ -55,20 +55,10 @@ class RTree(SpatialIndex):
         return None
 
     def save(self):
-        """
-        save rtree into file
-        :return: None
-        """
         if os.path.exists(self.model_path) is False:
             os.makedirs(self.model_path)
-        # TODO
 
-    def load(self):
-        """
-        load rtree index from file
-        :return: None
-        """
-        # TODO
+    # def load(self):
 
 
 def main():

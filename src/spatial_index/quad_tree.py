@@ -347,10 +347,6 @@ class QuadTree(SpatialIndex):
         return [itr[1] for itr in point_heap]
 
     def save(self):
-        """
-        save index into json file
-        :return: None
-        """
         if os.path.exists(self.model_path) is False:
             os.makedirs(self.model_path)
         with open(self.model_path + 'quad_tree.json', "w") as f:
@@ -358,15 +354,14 @@ class QuadTree(SpatialIndex):
         np.save(self.model_path + 'data_list.npy', np.array(self.data_list))
 
     def load(self):
-        """
-        load index from json file
-        :return: None
-        """
         with open(self.model_path + 'quad_tree.json', "r") as f:
             quad_tree = json.load(f, cls=MyDecoder)
             self.root_node = quad_tree.root_node
             self.data_list = np.load(self.model_path + 'data_list.npy', allow_pickle=True).tolist()
             del quad_tree
+
+    def size(self):
+        return os.path.getsize(os.path.join(self.model_path, "quad_tree.json"))
 
     @staticmethod
     def init_by_dict(d: dict):
@@ -432,6 +427,7 @@ def main():
         build_time = end_time - start_time
         index.logging.info("Build time %s" % build_time)
         index.save()
+    logging.info("Index size: %s" % index.size())
     path = '../../data/trip_data_1_point_query.csv'
     point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
     point_query_list = point_query_df.drop("count", axis=1).values.tolist()

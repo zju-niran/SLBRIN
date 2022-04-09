@@ -57,6 +57,7 @@ if __name__ == '__main__':
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)
         index.save()
+        logging.info("Index size: %s" % index.size())
         model_num = index.sbrin.meta_page.size + 1
         logging.info("Model num: %s" % model_num)
         model_precisions = [(blk_range.model.max_err - blk_range.model.min_err)
@@ -93,6 +94,7 @@ if __name__ == '__main__':
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)
         index.save()
+        logging.info("Index size: %s" % index.size())
         model_num = index.sbrin.meta_page.size + 1
         logging.info("Model num: %s" % model_num)
         model_precisions = [(blk_range.model.max_err - blk_range.model.min_err)

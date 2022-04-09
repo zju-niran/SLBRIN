@@ -62,7 +62,8 @@ class ZMIndex(SpatialIndex):
                     labels = [int(k * divisor) for k in train_labels[i][j]]
                     # train model
                     self.build_single_thread(i, j, inputs, labels, use_thresholds[i], thresholds[i], cores[i],
-                                             train_steps[i], batch_sizes[i], learning_rates[i], retrain_time_limits[i])
+                                             train_steps[i], batch_sizes[i], learning_rates[i], retrain_time_limits[i],
+                                             weight)
                     # allocate data into training set for models in next stage
                     for ind in range(len(train_inputs[i][j])):
                         # pick model in next stage with output of this model
@@ -148,10 +149,6 @@ class ZMIndex(SpatialIndex):
         return pre, leaf_model.min_err, leaf_model.max_err
 
     def save(self):
-        """
-        save index into json file
-        :return: None
-        """
         if os.path.exists(self.model_path) is False:
             os.makedirs(self.model_path)
         with open(self.model_path + 'zm_index.json', "w") as f:
@@ -159,10 +156,6 @@ class ZMIndex(SpatialIndex):
         np.save(self.model_path + 'data_list.npy', np.array(self.data_list))
 
     def load(self):
-        """
-        load index from json file
-        :return: None
-        """
         with open(self.model_path + 'zm_index.json', "r") as f:
             zm_index = json.load(f, cls=MyDecoder)
             self.geohash = zm_index.geohash
@@ -171,6 +164,13 @@ class ZMIndex(SpatialIndex):
             self.rmi = zm_index.rmi
             self.data_list = np.load(self.model_path + 'data_list.npy', allow_pickle=True).tolist()
             del zm_index
+
+    def size(self):
+        """
+        size = zm_index.json + data_list.npy/3(xyg->g)
+        """
+        return os.path.getsize(os.path.join(self.model_path, "zm_index.json")) + os.path.getsize(
+            os.path.join(self.model_path, "data_list.npy")) / 3
 
     @staticmethod
     def init_by_dict(d: dict):
@@ -307,6 +307,7 @@ if __name__ == '__main__':
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)
         index.save()
+    logging.info("Index size: %s" % index.size())
     path = '../../data/trip_data_1_point_query.csv'
     point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
     point_query_list = point_query_df.drop("count", axis=1).values.tolist()

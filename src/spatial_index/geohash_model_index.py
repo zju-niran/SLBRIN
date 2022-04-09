@@ -131,10 +131,6 @@ class GeoHashModelIndex(SpatialIndex):
         tmp_dict[model_key] = abstract_index
 
     def save(self):
-        """
-        save index into json file
-        :return: None
-        """
         if os.path.exists(self.model_path) is False:
             os.makedirs(self.model_path)
         with open(self.model_path + 'sbrin.json', "w") as f:
@@ -142,15 +138,14 @@ class GeoHashModelIndex(SpatialIndex):
         np.save(self.model_path + 'data_list.npy', np.array(self.data_list))
 
     def load(self):
-        """
-        load index from json file
-        :return: None
-        """
         with open(self.model_path + 'sbrin.json', "r") as f:
             sbrin = json.load(f, cls=MyDecoder)
             self.sbrin = sbrin.sbrin
             self.data_list = np.load(self.model_path + 'data_list.npy', allow_pickle=True).tolist()
             del sbrin
+
+    def size(self):
+        return os.path.getsize(os.path.join(self.model_path, "sbrin.json"))
 
     @staticmethod
     def init_by_dict(d: dict):
@@ -584,6 +579,7 @@ def main():
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)
         index.save()
+    logging.info("Index size: %s" % index.size())
     path = '../../data/trip_data_1_point_query.csv'
     point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
     point_query_list = point_query_df.drop("count", axis=1).values.tolist()
