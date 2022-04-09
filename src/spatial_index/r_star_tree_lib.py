@@ -73,7 +73,7 @@ class RStarTree(SpatialIndex):
 
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data_path = '../../data/trip_data_1_100000_sorted.npy'
+    data_path = '../../data/trip_data_1_10w_sorted.npy'
     model_path = "model/r_star_tree_lib_10w/"
     index = RStarTree(model_path=model_path)
     index_name = index.name

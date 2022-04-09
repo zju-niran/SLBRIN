@@ -198,10 +198,10 @@ class ZMIndex(SpatialIndex):
         gh = self.geohash.encode(point[0], point[1])
         # 2. predict by geohash and create key scope [pre - min_err, pre + max_err]
         pre, min_err, max_err = self.predict(gh)
-        left_bound = max(round(pre - max_err), 0)
-        right_bound = min(round(pre - min_err), self.train_data_length)
+        l_bound = max(round(pre - max_err), 0)
+        r_bound = min(round(pre - min_err), self.train_data_length)
         # 3. binary search in scope
-        return biased_search(self.data_list, 2, gh, int(pre), left_bound, right_bound)
+        return biased_search(self.data_list, 2, gh, int(pre), l_bound, r_bound)
 
     def range_query_single(self, window):
         """
@@ -219,18 +219,18 @@ class ZMIndex(SpatialIndex):
         # if point not found, key_left = pre - min_err
         pre1, min_err1, max_err1 = self.predict(gh1)
         pre1_init = int(pre1)
-        left_bound1 = max(round(pre1 - max_err1), 0)
-        right_bound1 = min(round(pre1 - min_err1), self.train_data_length)
-        key_left = biased_search(self.data_list, 2, gh1, pre1_init, left_bound1, right_bound1)
-        key_left = left_bound1 if len(key_left) == 0 else min(key_left)
+        l_bound1 = max(round(pre1 - max_err1), 0)
+        r_bound1 = min(round(pre1 - min_err1), self.train_data_length)
+        key_left = biased_search(self.data_list, 2, gh1, pre1_init, l_bound1, r_bound1)
+        key_left = l_bound1 if len(key_left) == 0 else min(key_left)
         # 3. find key_right by point query
         # if point not found, key_right = pre - max_err
         pre2, min_err2, max_err2 = self.predict(gh2)
         pre2_init = int(pre2)
-        left_bound2 = max(round(pre2 - max_err2), 0)
-        right_bound2 = min(round(pre2 - min_err2), self.train_data_length)
-        key_right = biased_search(self.data_list, 2, gh2, pre2_init, left_bound2, right_bound2)
-        key_right = right_bound2 if len(key_right) == 0 else max(key_right)
+        l_bound2 = max(round(pre2 - max_err2), 0)
+        r_bound2 = min(round(pre2 - min_err2), self.train_data_length)
+        key_right = biased_search(self.data_list, 2, gh2, pre2_init, l_bound2, r_bound2)
+        key_right = r_bound2 if len(key_right) == 0 else max(key_right)
         # 4. filter all the point of scope[key1, key2] by range(x1/y1/x2/y2).contain(point)
         return [key for key in range(key_left, key_right + 1)
                 if region.contain_and_border_by_list(self.data_list[key])]
@@ -280,7 +280,7 @@ class MyDecoder(json.JSONDecoder):
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data_path = '../../data/trip_data_1_100000_sorted.npy'
+    data_path = '../../data/trip_data_1_10w_sorted.npy'
     model_path = "model/zm_index_10w/"
     index = ZMIndex(model_path=model_path)
     index_name = index.name

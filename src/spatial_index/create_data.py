@@ -139,7 +139,7 @@ def create_knn_from_csv(input_path, output_path, knn_point_limit, knn_n_limit):
 def check_knn():
     index_list = pd.read_csv(r'D:\Code\Paper\st-learned-index\src\spatial_index\model\gm_index_10w\point_list.csv',
                              float_precision='round_trip', header=None)
-    data_list = pd.read_csv(r'D:\Code\Paper\st-learned-index\data\trip_data_1_100000.csv', float_precision='round_trip')
+    data_list = pd.read_csv(r'D:\Code\Paper\st-learned-index\data\trip_data_1_10w.csv', float_precision='round_trip')
     gm_result_list = r'D:\Code\Paper\st-learned-index\src\spatial_index\model\gm_index_10w\knn_query_result.csv'
     r_result_list = r'D:\Code\Paper\st-learned-index\src\spatial_index\model\rtree_10w\knn_query_result.csv'
     with open(gm_result_list) as f1, open(r_result_list) as f2:
@@ -209,28 +209,28 @@ if __name__ == '__main__':
     # 40.016666, 41.933331, -74.990433, -73.000938
     # input_path = "../../data/trip_data_1_filter.csv"
     # get_region(input_path)
-    # 2. 生成100000的数据
+    # 2. 生成10w的数据
     # input_path = "../../data/trip_data_1_filter.csv"
-    # output_path_100000_sample = '../../data/trip_data_1_100000.csv'
-    # sample_from_csv(input_path, output_path_100000_sample, 100000, Region(40, 42, -75, -73))
+    # output_path_10w_sample = '../../data/trip_data_1_10w.csv'
+    # sample_from_csv(input_path, output_path_10w_sample, 100000, Region(40, 42, -75, -73))
     # 3. 生成point检索范围
-    # output_path_100000_sample = '../../data/trip_data_1_100000.csv'
+    # output_path_10w_sample = '../../data/trip_data_1_10w.csv'
     # output_path_point_query_csv = '../../data/trip_data_1_point_query.csv'
     # point_limit = 10000
-    # create_point_from_csv(output_path_100000_sample, output_path_point_query_csv, point_limit)
+    # create_point_from_csv(output_path_10w_sample, output_path_point_query_csv, point_limit)
     # 4. 生成range检索范围
-    # output_path_100000_sample = '../../data/trip_data_1_100000.csv'
+    # output_path_10w_sample = '../../data/trip_data_1_10w.csv'
     # output_path_range_query_csv = '../../data/trip_data_1_range_query.csv'
     # output_path_range_query_log = '../../data/trip_data_1_range_query.log'
     # window_limit = 100
-    # print_window_from_csv_to_log(output_path_100000_sample, output_path_range_query_log, window_limit, 6)
+    # print_window_from_csv_to_log(output_path_10w_sample, output_path_range_query_log, window_limit, 6)
     # create_window_from_log_to_csv(output_path_range_query_log, output_path_range_query_csv)
     # 5.生成knn检索范围
-    # output_path_100000_sample = '../../data/trip_data_1_100000.csv'
+    # output_path_10w_sample = '../../data/trip_data_1_10w.csv'
     # output_path_knn_query_csv = '../../data/trip_data_1_knn_query.csv'
     # knn_point_limit = 1000
     # knn_n_limit = 10
-    # create_knn_from_csv(output_path_100000_sample, output_path_knn_query_csv, knn_point_limit, knn_n_limit)
+    # create_knn_from_csv(output_path_10w_sample, output_path_knn_query_csv, knn_point_limit, knn_n_limit)
 
     # 确定knn找到的数据对不对
     # check_knn()

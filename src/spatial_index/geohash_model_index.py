@@ -230,18 +230,18 @@ class GeoHashModelIndex(SpatialIndex):
                     pre2 = model.predict(gh2)
                     min_err = model.min_err
                     max_err = model.max_err
-                    left_bound1 = max(round(pre1 - max_err), blk_range[1].key[0])
-                    right_bound1 = min(round(pre1 - min_err), blk_range[1].key[1])
-                    key_left = biased_search(self.data_list, 2, gh1, int(pre1), left_bound1, right_bound1)
+                    l_bound1 = max(round(pre1 - max_err), blk_range[1].key[0])
+                    r_bound1 = min(round(pre1 - min_err), blk_range[1].key[1])
+                    key_left = biased_search(self.data_list, 2, gh1, int(pre1), l_bound1, r_bound1)
                     if gh1 == gh2:
                         if len(key_left) > 0:
                             result.extend(key_left)
                     else:
-                        key_left = left_bound1 if len(key_left) == 0 else min(key_left)
-                        left_bound2 = max(round(pre2 - max_err), blk_range[1].key[0])
-                        right_bound2 = min(round(pre2 - min_err), blk_range[1].key[1])
-                        key_right = biased_search(self.data_list, 2, gh2, int(pre2), left_bound2, right_bound2)
-                        key_right = right_bound2 if len(key_right) == 0 else max(key_right)
+                        key_left = l_bound1 if len(key_left) == 0 else min(key_left)
+                        l_bound2 = max(round(pre2 - max_err), blk_range[1].key[0])
+                        r_bound2 = min(round(pre2 - min_err), blk_range[1].key[1])
+                        key_right = biased_search(self.data_list, 2, gh2, int(pre2), l_bound2, r_bound2)
+                        key_right = r_bound2 if len(key_right) == 0 else max(key_right)
                         # 3.2.3 filter all the point of scope[min_key/max_key] by range.contain(point)
                         result.extend([key for key in range(key_left, key_right + 1)
                                        if region.contain_and_border_by_list(self.data_list[key])])
@@ -266,7 +266,7 @@ class GeoHashModelIndex(SpatialIndex):
         gh1 = self.sbrin.meta_page.geohash.encode(window[2], window[0])
         gh2 = self.sbrin.meta_page.geohash.encode(window[3], window[1])
         # 2. get all relative blk ranges with key and relationship
-        blk_key_list = self.sbrin.range_query(gh1, gh2)
+        blk_list = self.sbrin.range_query(gh1, gh2)
         result = []
         # 3. get min_geohash and max_geohash of every blk range for different relation
         position_func_list = [lambda reg: (None, None, None),
@@ -330,14 +330,13 @@ class GeoHashModelIndex(SpatialIndex):
                                   gh1,
                                   gh2,
                                   lambda x: window[2] <= x[0] <= window[3] and window[0] <= x[1] <= window[1])]
-        for blk_key in blk_key_list:
+        for blk_key in blk_list:
             blk = self.sbrin.regular_pages[blk_key]
             if blk.model is None:  # blk range is None
                 continue
-            position = blk_key_list[blk_key]
-            blk_key = blk.key
+            position = blk_list[blk_key]
             if position == 0:  # window contain blk range
-                result.extend(list(range(blk_key[0], blk_key[1] + 1)))
+                result.extend(list(range(blk.key[0], blk.key[1] + 1)))
             else:
                 # if-elif-else->lambda, 30->4
                 gh_new1, gh_new2, compare_func = position_func_list[position](blk.scope)
@@ -347,22 +346,18 @@ class GeoHashModelIndex(SpatialIndex):
                 # 4 predict min_key/max_key by nn
                 if gh_new1 is not None:
                     pre1 = model.predict(gh_new1)
-                    left_bound1 = max(round(pre1 - max_err), blk_key[0])
-                    right_bound1 = min(round(pre1 - min_err), blk_key[1])
-                    key_left = min(biased_search_almost(self.data_list, 2, gh_new1, int(pre1), left_bound1,
-                                                        right_bound1))
-
+                    l_bound1 = max(round(pre1 - max_err), blk.key[0])
+                    r_bound1 = min(round(pre1 - min_err), blk.key[1])
+                    key_left = min(biased_search_almost(self.data_list, 2, gh_new1, int(pre1), l_bound1, r_bound1))
                 else:
-                    key_left = blk_key[0]
+                    key_left = blk.key[0]
                 if gh_new2 is not None:
                     pre2 = model.predict(gh_new2)
-                    left_bound2 = max(round(pre2 - max_err), blk_key[0])
-                    right_bound2 = min(round(pre2 - min_err), blk_key[1])
-                    key_right = max(biased_search_almost(self.data_list, 2, gh_new2, int(pre2), left_bound2,
-                                                         right_bound2))
-
+                    l_bound2 = max(round(pre2 - max_err), blk.key[0])
+                    r_bound2 = min(round(pre2 - min_err), blk.key[1])
+                    key_right = max(biased_search_almost(self.data_list, 2, gh_new2, int(pre2), l_bound2, r_bound2))
                 else:
-                    key_right = blk_key[1]
+                    key_right = blk.key[1]
                 # 5 filter all the point of scope[min_key/max_key] by range.contain(point)
                 # 优化: region.contain->compare_func不同位置的点做不同的判断: 638->474mil
                 result.extend([key for key in range(key_left, key_right + 1)
@@ -374,10 +369,10 @@ class GeoHashModelIndex(SpatialIndex):
         query key by x1/y1/n knn
         1. get the nearest key of query point
         2. get the nn points to create range query window
-        3 filter point by distance
+        3. filter point by distance
         主要耗时间：sbrin.knn_query.ranges_by_int/nn predict/精确过滤: 4.7mil/21mil/14.4mil
         """
-        n = knn[2]
+        k = knn[2]
         # 1. get the nearest key of query point
         qp_g = self.sbrin.meta_page.geohash.encode(knn[0], knn[1])
         qp_blk_key = self.sbrin.point_query(qp_g)
@@ -388,16 +383,16 @@ class GeoHashModelIndex(SpatialIndex):
         # if model is not None, qp_key = point_query(geohash)
         else:
             pre, min_err, max_err = qp_blk.model.predict(qp_g), qp_blk.model.min_err, qp_blk.model.max_err
-            left_bound = max(round(pre - max_err), qp_blk.key[0])
-            right_bound = min(round(pre - min_err), qp_blk.key[1])
-            query_point_key = biased_search_almost(self.data_list, 2, qp_g, int(pre), left_bound, right_bound)[0]
+            l_bound = max(round(pre - max_err), qp_blk.key[0])
+            r_bound = min(round(pre - min_err), qp_blk.key[1])
+            query_point_key = biased_search_almost(self.data_list, 2, qp_g, int(pre), l_bound, r_bound)[0]
         # 2. get the n points to create range query window
         # TODO: 两种策略，一种是左右找一半，但是如果跳跃了，window很大；还有一种是两边找n，减少跳跃，使window变小
         tp_list = [[Point.distance_pow_point_list(knn, self.data_list[query_point_key]), query_point_key]]
         cur_key = query_point_key + 1
         cur_block_key = qp_blk_key
         i = 0
-        while i < n - 1:
+        while i < k - 1:
             if self.data_list[cur_key] is None:
                 cur_block_key += 1
                 if cur_block_key > self.sbrin.meta_page.size:
@@ -410,7 +405,7 @@ class GeoHashModelIndex(SpatialIndex):
         cur_key = query_point_key - 1
         cur_block_key = qp_blk_key
         i = 0
-        while i < n - 1:
+        while i < k - 1:
             if self.data_list[cur_key] is None:
                 cur_block_key -= 1
                 if cur_block_key < 0:
@@ -420,7 +415,7 @@ class GeoHashModelIndex(SpatialIndex):
                 tp_list.append([Point.distance_pow_point_list(knn, self.data_list[cur_key]), cur_key])
                 cur_key -= 1
                 i += 1
-        tp_list = sorted(tp_list)[:n]
+        tp_list = sorted(tp_list)[:k]
         max_dist = tp_list[-1][0]
         if max_dist == 0:
             return [tp[1] for tp in tp_list]
@@ -483,25 +478,23 @@ class GeoHashModelIndex(SpatialIndex):
             max_err = model.max_err
             if gh_new1 is not None:
                 pre1 = model.predict(gh_new1)
-                left_bound1 = max(round(pre1 - max_err), blk_key[0])
-                right_bound1 = min(round(pre1 - min_err), blk_key[1])
-                key_left = min(biased_search_almost(self.data_list, 2, gh_new1, int(pre1), left_bound1,
-                                                    right_bound1))
+                l_bound1 = max(round(pre1 - max_err), blk_key[0])
+                r_bound1 = min(round(pre1 - min_err), blk_key[1])
+                key_left = min(biased_search_almost(self.data_list, 2, gh_new1, int(pre1), l_bound1, r_bound1))
             else:
                 key_left = blk_key[0]
             if gh_new2 is not None:
                 pre2 = model.predict(gh_new2)
-                left_bound2 = max(round(pre2 - max_err), blk_key[0])
-                right_bound2 = min(round(pre2 - min_err), blk_key[1])
-                key_right = max(biased_search_almost(self.data_list, 2, gh_new2, int(pre2), left_bound2,
-                                                     right_bound2))
+                l_bound2 = max(round(pre2 - max_err), blk_key[0])
+                r_bound2 = min(round(pre2 - min_err), blk_key[1])
+                key_right = max(biased_search_almost(self.data_list, 2, gh_new2, int(pre2), l_bound2, r_bound2))
 
             else:
                 key_right = blk_key[1]
-            # 3 filter point by distance
+            # 3. filter point by distance
             tp_list.extend([[Point.distance_pow_point_list(knn, self.data_list[i]), i]
                             for i in range(key_left, key_right + 1)])
-            tp_list = sorted(tp_list)[:n]
+            tp_list = sorted(tp_list)[:k]
             max_dist = tp_list[-1][0]
         return [tp[1] for tp in tp_list]
 
@@ -564,8 +557,8 @@ class MyDecoder(json.JSONDecoder):
 # @profile(precision=8)
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data_path = '../../data/trip_data_1_100000_sorted.npy'
-    model_path = "model/gm_index_10w/"
+    data_path = '../../data/trip_data_1_10w_sorted.npy'
+    model_path = "model/gm_index_10w_1/"
     index = GeoHashModelIndex(model_path=model_path)
     index_name = index.name
     load_index_from_json = False

@@ -59,15 +59,15 @@ class SBRIN:
                 child_list = [None] * 4
                 # 1. length生成
                 length = cur[1] + 2
-                right_bound = cur[0] + (0 << geohash.sum_bits - length)
+                r_bound = cur[0] + (0 << geohash.sum_bits - length)
                 for i in range(4):
                     # 2. value生成
-                    value = right_bound
+                    value = r_bound
                     # 3. 数据继承：number生成
                     # 计算right bound
-                    right_bound = cur[0] + (i + 1 << geohash.sum_bits - length)
-                    # 找到right_bound对应的key
-                    tmp_right_key = binary_search_less_max(data_list, 2, right_bound, tmp_left_key, right_key)
+                    r_bound = cur[0] + (i + 1 << geohash.sum_bits - length)
+                    # 找到r_bound对应的key
+                    tmp_right_key = binary_search_less_max(data_list, 2, r_bound, tmp_left_key, right_key)
                     child_list[i] = (value, length, tmp_right_key - tmp_left_key + 1,
                                      (tmp_left_key, tmp_right_key), child_region[i])
                     tmp_left_key = tmp_right_key + 1

@@ -25,7 +25,7 @@ if __name__ == '__main__':
                         format="%(asctime)s - %(levelname)s - %(message)s",
                         datefmt="%Y/%m/%d %H:%M:%S %p")
     # 1. 读取数据
-    path = '../../data/trip_data_1_100000_sorted.npy'
+    path = '../../data/trip_data_1_10w_sorted.npy'
     # path = '../../data/trip_data_1_filter_sorted.npy'
     data_list = np.load(path).tolist()
     # 2. 设置实验参数
