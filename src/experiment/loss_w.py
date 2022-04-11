@@ -4,7 +4,6 @@ import sys
 import time
 
 import numpy as np
-import pandas as pd
 
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.common_utils import Region
@@ -40,13 +39,13 @@ if __name__ == '__main__':
         logging.info("*************start %s************" % model_path)
         start_time = time.time()
         index.build(data_list=data_list, threshold_number=1000, data_precision=6, region=Region(40, 42, -75, -73),
-                    use_threshold=False,
+                    use_threshold=True,
                     threshold=20,
                     core=[1, 128, 1],
                     train_step=5000,
                     batch_size=1024,
                     learning_rate=0.01,
-                    retrain_time_limit=20,
+                    retrain_time_limit=2,
                     thread_pool_size=6,
                     save_nn=True,
                     weight=weight)

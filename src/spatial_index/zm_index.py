@@ -71,8 +71,7 @@ class ZMIndex(SpatialIndex):
                         train_inputs[i + 1][pre].append(train_inputs[i][j][ind])
                         train_labels[i + 1][pre].append(train_labels[i][j][ind])
         # 叶子节点使用线程池训练
-        multiprocessing.set_start_method('spawn',
-                                         force=True)  # 解决CUDA_ERROR_NOT_INITIALIZED报错  # 解决CUDA_ERROR_NOT_INITIALIZED报错
+        multiprocessing.set_start_method('spawn', force=True)
         pool = multiprocessing.Pool(processes=thread_pool_size)
         mp_dict = multiprocessing.Manager().dict()
         i = self.stage_length - 1
@@ -300,9 +299,9 @@ if __name__ == '__main__':
                     train_steps=[500, 500],
                     batch_sizes=[1024, 1024],
                     learning_rates=[0.01, 0.01],
-                    retrain_time_limits=[40, 20],
-                    thread_pool_size=5,
-                    weight=0.01)
+                    retrain_time_limits=[4, 2],
+                    thread_pool_size=1,
+                    weight=0.1)
         end_time = time.time()
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)

@@ -44,15 +44,15 @@ if __name__ == '__main__':
         start_time = time.time()
         index.build(data_list=data_list, threshold_number=n, data_precision=6, region=Region(40, 42, -75, -73),
                     use_threshold=False,
-                    threshold=20,
+                    threshold=200,
                     core=[1, 128, 1],
                     train_step=500,
                     batch_size=1024,
                     learning_rate=0.01,
-                    retrain_time_limit=20,
+                    retrain_time_limit=2,
                     thread_pool_size=6,
                     save_nn=False,
-                    weight=0.01)
+                    weight=0.1)
         end_time = time.time()
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)
@@ -81,15 +81,15 @@ if __name__ == '__main__':
         start_time = time.time()
         index.load()
         index.build_nn_multiprocess(use_threshold=True,
-                                    threshold=20,
+                                    threshold=200,
                                     core=[1, 128, 1],
-                                    train_step=500,
+                                    train_step=5000,
                                     batch_size=1024,
                                     learning_rate=0.01,
-                                    retrain_time_limit=20,
+                                    retrain_time_limit=2,
                                     thread_pool_size=6,
                                     save_nn=True,
-                                    weight=0.01)
+                                    weight=0.1)
         end_time = time.time()
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)
