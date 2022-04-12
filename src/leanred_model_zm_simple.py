@@ -8,8 +8,57 @@ import tensorflow as tf
 
 matplotlib.use('Agg')  # 解决_tkinter.TclError: couldn't connect to display "localhost:11.0"
 
-from src.spatial_index.common_utils import nparray_normalize, nparray_diff_normalize_reverse_arr, \
-    nparray_normalize_reverse_arr
+
+def normalize_input(na):
+    min_v = na.min(axis=0)
+    max_v = na.max(axis=0)
+    if max_v == min_v:
+        return na, min_v, max_v
+    else:
+        return (na - min_v) / (max_v - min_v) - 0.5, min_v, max_v
+
+
+def normalize_output(na):
+    min_v = na.min(axis=0)
+    max_v = na.max(axis=0)
+    if max_v == min_v:
+        return na, min_v, max_v
+    else:
+        return (na - min_v) / (max_v - min_v), min_v, max_v
+
+
+def normalize_input_minmax(value, min_v, max_v):
+    if max_v == min_v:
+        return value
+    else:
+        return (value - min_v) / (max_v - min_v)
+
+
+def denormalize_output_minmax(value, min_v, max_v):
+    if max_v == min_v:
+        return min_v
+    if value < 0:
+        return min_v
+    elif value > 1:
+        return max_v
+    return value * (max_v - min_v) + min_v
+
+
+def denormalize_diff_minmax(na1, na2, min_v, max_v):
+    if max_v == min_v:
+        return 0.0, 0.0
+    else:
+        f1 = np.frompyfunc(denormalize_diff_minmax_child, 4, 1)
+        result_na = f1(na1, na2, min_v, max_v).astype('float')
+        return result_na.min(), result_na.max()
+
+
+def denormalize_diff_minmax_child(num1, num2, min_v, max_v):
+    if num1 < 0:
+        num1 = 0
+    elif num1 > 1:
+        num1 = 1
+    return (num1 - num2) * (max_v - min_v)
 
 
 class TrainedNN:
@@ -22,8 +71,8 @@ class TrainedNN:
         self.train_step_nums = train_step_num
         self.batch_size = batch_size
         self.learning_rate = learning_rate
-        self.train_x, self.train_x_min, self.train_x_max = nparray_normalize(np.array(train_x).astype("float"))
-        self.train_y, self.train_y_min, self.train_y_max = nparray_normalize(np.array(train_y).astype("float"))
+        self.train_x, self.train_x_min, self.train_x_max = normalize_input(np.array(train_x).astype("float"))
+        self.train_y, self.train_y_min, self.train_y_max = normalize_output(np.array(train_y).astype("float"))
         self.model = None
         self.model_path = model_path
         self.model_key = model_key
@@ -88,8 +137,4 @@ class TrainedNN:
 
     def get_err(self):
         pres = self.model(self.train_x).numpy().flatten()
-        return nparray_diff_normalize_reverse_arr(pres, self.train_y, self.train_y_min, self.train_y_max)
-
-    def predict(self):
-        pres = self.model(self.train_x).numpy().flatten()
-        return nparray_normalize_reverse_arr(pres, self.train_y_min, self.train_y_max)
+        return denormalize_diff_minmax(pres, self.train_y, self.train_y_min, self.train_y_max)

@@ -12,8 +12,43 @@ import tensorflow as tf
 matplotlib.use('Agg')  # 解决_tkinter.TclError: couldn't connect to display "localhost:11.0"
 import matplotlib.pyplot as plt
 
-from src.spatial_index.common_utils import nparray_normalize, nparray_diff_normalize_reverse_arr, \
-    nparray_normalize_reverse_arr, nparray_normalize_reverse_num, normalize_minmax
+
+def normalize_input(na):
+    min_v = na.min(axis=0)
+    max_v = na.max(axis=0)
+    return (na - min_v) / (max_v - min_v) - 0.5, min_v, max_v
+
+
+def normalize_output(na):
+    min_v = na.min(axis=0)
+    max_v = na.max(axis=0)
+    return (na - min_v) / (max_v - min_v), min_v, max_v
+
+
+def normalize_input_minmax(value, min_v, max_v):
+    return (value - min_v) / (max_v - min_v)
+
+
+def denormalize_output_minmax(value, min_v, max_v):
+    if value < 0:
+        return min_v
+    elif value > 1:
+        return max_v
+    return value * (max_v - min_v) + min_v
+
+
+def denormalize_diff_minmax(na1, na2, min_v, max_v):
+    f1 = np.frompyfunc(denormalize_diff_minmax_child, 4, 1)
+    result_na = f1(na1, na2, min_v, max_v).astype('float')
+    return result_na.min(), result_na.max()
+
+
+def denormalize_diff_minmax_child(num1, num2, min_v, max_v):
+    if num1 < 0:
+        num1 = 0
+    elif num1 > 1:
+        num1 = 1
+    return (num1 - num2) * (max_v - min_v)
 
 
 # using cache
@@ -68,13 +103,13 @@ class AbstractNN:
         :param input_key:
         :return:
         """
-        y = normalize_minmax(input_key, self.input_min, self.input_max)
+        y = normalize_input_minmax(input_key, self.input_min, self.input_max)
         for i in range(len(self.core_nums) - 2):
             # sigmoid(w * x + b)
             y = AbstractNN.sigmoid(y * self.weights[i * 2] + self.weights[i * 2 + 1])
         y = y * self.weights[-2] + self.weights[-1]
         # clip到最大最小值之间
-        return nparray_normalize_reverse_num(y[0, 0], self.output_min, self.output_max)
+        return denormalize_output_minmax(y[0, 0], self.output_min, self.output_max)
 
     @staticmethod
     def init_by_dict(d: dict):
@@ -98,8 +133,8 @@ class TrainedNN:
         self.learning_rate = learning_rate
         # 当只有一个输入输出时，整数的key作为y_true会导致score中y_true-y_pred出现类型错误：
         # TypeError: Input 'y' of 'Sub' Op has type float32 that does not match type int32 of argument 'x'.
-        self.train_x, self.train_x_min, self.train_x_max = nparray_normalize(np.array(train_x).astype("float"))
-        self.train_y, self.train_y_min, self.train_y_max = nparray_normalize(np.array(train_y).astype("float"))
+        self.train_x, self.train_x_min, self.train_x_max = normalize_input(np.array(train_x).astype("float"))
+        self.train_y, self.train_y_min, self.train_y_max = normalize_output(np.array(train_y).astype("float"))
         self.use_threshold = use_threshold
         self.threshold = threshold
         self.model = None
@@ -174,15 +209,15 @@ class TrainedNN:
                                                               patience=50,
                                                               mode='min',
                                                               verbose=0)
-            reduce = tf.keras.callbacks.ReduceLROnPlateau(monitor='loss',
-                                                          factor=0.5,
-                                                          patience=45,
-                                                          verbose=0,
-                                                          mode='min',
-                                                          min_lr=0.0001)
-            tensorboard = tf.keras.callbacks.TensorBoard(log_dir=self.model_loss_file,
-                                                         histogram_freq=1)
-            callbacks_list = [checkpoint, reduce, early_stopping, tensorboard]
+            # reduce = tf.keras.callbacks.ReduceLROnPlateau(monitor='loss',
+            #                                               factor=0.5,
+            #                                               patience=45,
+            #                                               verbose=0,
+            #                                               mode='min',
+            #                                               min_lr=0.0001)
+            # tensorboard = tf.keras.callbacks.TensorBoard(log_dir=self.model_loss_file,
+            #                                              histogram_freq=1)
+            callbacks_list = [checkpoint, early_stopping]
             # fit and save model
             history = self.model.fit(self.train_x, self.train_y,
                                      epochs=self.train_step_nums,
@@ -242,12 +277,7 @@ class TrainedNN:
 
     def get_err(self):
         pres = self.model(self.train_x).numpy().flatten()
-        return nparray_diff_normalize_reverse_arr(pres, self.train_y, self.train_y_min, self.train_y_max)
-
-    def predict(self):
-        # model.predict会报错：6 out of the last 8 calls to <function Model.make_predict_function.<locals>.predict_function
-        pres = self.model(self.train_x).numpy().flatten()
-        return nparray_normalize_reverse_arr(pres, self.train_y_min, self.train_y_max)
+        return denormalize_diff_minmax(pres, self.train_y, self.train_y_min, self.train_y_max)
 
     def plot(self):
         pres = self.model(self.train_x).numpy().flatten()

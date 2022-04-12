@@ -13,7 +13,7 @@ sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.common_utils import Region, biased_search
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
-from src.rmi_keras import TrainedNN, AbstractNN
+from src.learned_model_zm import TrainedNN, AbstractNN
 
 
 class ZMIndex(SpatialIndex):

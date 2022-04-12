@@ -14,8 +14,8 @@ from src.sbrin import SBRIN, RegularPage, MetaPage
 from src.spatial_index.common_utils import Region, biased_search, Point, biased_search_almost
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
-from src.rmi_keras import TrainedNN, AbstractNN
-from src.rmi_keras_simple import TrainedNN as TrainedNN_Simple
+from src.learned_model_sbrin import TrainedNN, AbstractNN
+from src.learned_model_sbrin_simple import TrainedNN as TrainedNN_Simple
 
 """
 代码上和论文的diff:

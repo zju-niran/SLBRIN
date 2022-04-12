@@ -4,8 +4,6 @@ from itertools import chain
 from reprlib import repr
 from sys import getsizeof, stderr
 
-import numpy as np
-
 
 class Point:
     def __init__(self, lng, lat, geohash=None, key=None):
@@ -305,61 +303,6 @@ def is_sorted_list(lst):
     判断list是否有序
     """
     return sorted(lst) == lst or sorted(lst, reverse=True) == lst
-
-
-def nparray_normalize(na):
-    """
-    对np.array进行最大最小值归一化
-    """
-    min_v = na.min(axis=0)
-    max_v = na.max(axis=0)
-    if max_v == min_v:
-        return na, min_v, max_v
-    else:
-        return (na - min_v) / (max_v - min_v), min_v, max_v
-
-
-def normalize_minmax(value, min_v, max_v):
-    """
-    进行指定最大最小值归一化
-    """
-    if max_v == min_v:
-        return value
-    else:
-        return (value - min_v) / (max_v - min_v)
-
-
-def nparray_normalize_reverse_arr(na, min_v, max_v):
-    if max_v == min_v:
-        return min_v
-    return na * (max_v - min_v) + min_v
-
-
-def nparray_normalize_reverse_num(num, min_v, max_v):
-    if max_v == min_v:
-        return min_v
-    if num < 0:
-        return min_v
-    elif num > 1:
-        return max_v
-    return num * (max_v - min_v) + min_v
-
-
-def nparray_diff_normalize_reverse_arr(na1, na2, min_v, max_v):
-    if max_v == min_v:
-        return 0.0, 0.0
-    else:
-        f1 = np.frompyfunc(nparray_diff_normalize_reverse_num, 4, 1)
-        result_na = f1(na1, na2, min_v, max_v).astype('float')
-        return result_na.min(), result_na.max()
-
-
-def nparray_diff_normalize_reverse_num(num1, num2, min_v, max_v):
-    if num1 < 0:
-        num1 = 0
-    elif num1 > 1:
-        num1 = 1
-    return (num1 - num2) * (max_v - min_v)
 
 
 def binary_search_less_max(nums, field, x, left, right):
