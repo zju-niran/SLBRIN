@@ -1,4 +1,4 @@
-from src.spatial_index.common_utils import Region, binary_search_less_max
+from src.spatial_index.common_utils import Region, binary_search_less_max, get_nearest_none
 from src.spatial_index.geohash_utils import Geohash
 
 
@@ -104,6 +104,46 @@ class SBRIN:
             result_data_list.extend(data_list[regular_page.key[0]: regular_page.key[1] + 1])
             diff_length = self.meta_page.threshold_number - regular_page.number
             result_data_list.extend([None] * diff_length)
+            regular_page.key = [self.meta_page.threshold_number * (regular_page.itemoffset - 1),
+                                self.meta_page.threshold_number * (
+                                            regular_page.itemoffset - 1) + regular_page.number - 1]
+        return result_data_list
+
+    def reconstruct_data1(self, data_list):
+        """
+        把数据存在predict的地方，如果pre已有数据：
+        1. pre处数据的geohash==数据本身的geohash，说明数据重复，则找到离pre最近的[pre-maxerr, pre-minerr]范围内的None来存储
+        2. pre处数据的geohash!=数据本身的geohash，说明本该属于数据的位置被其他数据占用了，为了保持有序，找None的过程只往一边走
+        存在问题：这种重构相当于在存储数据的时候依旧保持数据分布的稀疏性，但是密集的地方后续往往更加密集，导致这些地方的数据存储位置更加紧张
+        这个问题往往在大数据量或误差大或分布不均匀的br更容易出现，即最后"超出边界"的报错
+        """
+        result_data_list = [None] * (self.meta_page.size + 1) * self.meta_page.threshold_number
+        for regular_page in self.regular_pages:
+            regular_page.model.output_min = self.meta_page.threshold_number * (regular_page.itemoffset - 1)
+            regular_page.model.output_max = self.meta_page.threshold_number * regular_page.itemoffset - 1
+            for i in range(regular_page.key[0], regular_page.key[1] + 1):
+                pre = round(regular_page.model.predict(data_list[i][2]))
+                if result_data_list[pre] is None:
+                    result_data_list[pre] = data_list[i]
+                else:
+                    # 重复数据处理：写入误差范围内离pre最近的None里
+                    if result_data_list[pre][2] == data_list[i][2]:
+                        l_bound = max(round(pre - regular_page.model.max_err), regular_page.model.output_min)
+                        r_bound = min(round(pre - regular_page.model.min_err), regular_page.model.output_max)
+                    else:  # 非重复数据，但是整型部分重复，或被重复数据取代了位置
+                        if result_data_list[pre][2] > data_list[i][2]:
+                            l_bound = max(round(pre - regular_page.model.max_err), regular_page.model.output_min)
+                            r_bound = pre
+                        else:
+                            l_bound = pre
+                            r_bound = min(round(pre - regular_page.model.min_err), regular_page.model.output_max)
+                    key = get_nearest_none(result_data_list, pre, l_bound, r_bound)
+                    if key is None:
+                        # 超出边界是因为大量的数据相互占用导致误差放大
+                        print("超出边界")
+                    else:
+                        result_data_list[key] = data_list[i]
+        return result_data_list
 
     def point_query(self, point):
         """

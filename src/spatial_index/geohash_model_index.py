@@ -11,7 +11,7 @@ import pandas as pd
 
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.sbrin import SBRIN, RegularPage, MetaPage
-from src.spatial_index.common_utils import Region, biased_search, Point, biased_search_almost, get_nearest_none
+from src.spatial_index.common_utils import Region, biased_search, Point, biased_search_almost
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 from src.learned_model_sbrin import TrainedNN, AbstractNN
@@ -70,36 +70,6 @@ class GeoHashModelIndex(SpatialIndex):
                                    retrain_time_limit, thread_pool_size, save_nn, weight)
         end_time = time.time()
         self.logging.info("Create learned model: %s" % (end_time - start_time))
-        # result_data_list = [None] * (self.sbrin.meta_page.size + 1) * self.sbrin.meta_page.threshold_number
-        # for regular_page in self.sbrin.regular_pages:
-        #     if regular_page.model is None:  # TODO model为none的判断都得删了，model不可能会none了
-        #         continue
-        #     regular_page.model.output_min = self.sbrin.meta_page.threshold_number * (regular_page.itemoffset - 1)
-        #     regular_page.model.output_max = self.sbrin.meta_page.threshold_number * regular_page.itemoffset - 1
-        #     for i in range(regular_page.key[0], regular_page.key[1] + 1):
-        #         pre = round(regular_page.model.predict(data_list[i][2]))
-        #         if pre == 13000:
-        #             print("")
-        #         if result_data_list[pre] is None:
-        #             result_data_list[pre] = data_list[i]
-        #         else:
-        #             # 重复数据处理：写入误差范围内离pre最近的None里
-        #             if result_data_list[pre] == data_list[i]:
-        #                 l_bound = max(pre - regular_page.model.max_err, regular_page.model.output_min)
-        #                 r_bound = min(pre - regular_page.model.min_err, regular_page.model.output_max)
-        #             else:  # 非重复数据，但是整型部分重复，或被重复数据取代了位置
-        #                 if result_data_list[pre] > data_list[i]:
-        #                     l_bound = max(pre - regular_page.model.max_err, regular_page.model.output_min)
-        #                     r_bound = pre
-        #                 else:
-        #                     l_bound = pre
-        #                     r_bound = min(pre - regular_page.model.min_err, regular_page.model.output_max)
-        #             key = get_nearest_none(result_data_list, pre, l_bound, r_bound)
-        #             if key is None:
-        #                 print("超出边界")
-        #             else:
-        #                 result_data_list[key] = data_list[i]
-        # self.logging.info("Reconstruct data: %s" % (end_time - start_time))
 
     def build_nn_multiprocess(self, use_threshold, threshold, core, train_step, batch_size, learning_rate,
                               retrain_time_limit, thread_pool_size, save_nn, weight):
@@ -113,10 +83,6 @@ class GeoHashModelIndex(SpatialIndex):
             max_input = self.sbrin.regular_pages[i + 1].value \
                 if i < self.sbrin.meta_page.size else (1 << self.sbrin.meta_page.geohash.sum_bits)
             inputs.append(max_input)
-            # 生成[br_start:br_end]的长度为number+2的等差数列
-            labels_len = self.sbrin.regular_pages[i].number + 2
-            labels = [(j / (labels_len - 1) + i) * self.sbrin.meta_page.threshold_number
-                      for j in range(labels_len)]
             pool.apply_async(self.build_nn, (i, inputs, labels, use_threshold,
                                              threshold, core, train_step, batch_size, learning_rate,
                                              retrain_time_limit, save_nn, weight, mp_dict))
