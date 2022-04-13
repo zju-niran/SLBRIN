@@ -1,6 +1,7 @@
 import gc
 import json
 import logging
+import math
 import multiprocessing
 import os
 import sys
@@ -10,10 +11,11 @@ import numpy as np
 import pandas as pd
 
 sys.path.append('/home/zju/wlj/st-learned-index')
-from src.spatial_index.common_utils import Region, biased_search
+from src.spatial_index.common_utils import Region, biased_search, normalize_input_minmax, denormalize_output_minmax, \
+    sigmoid
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
-from src.learned_model_zm import TrainedNN, AbstractNN
+from src.learned_model import TrainedNN
 
 
 class ZMIndex(SpatialIndex):
@@ -112,8 +114,8 @@ class ZMIndex(SpatialIndex):
                                     tmp_index.train_x_max,
                                     tmp_index.train_y_min,
                                     tmp_index.train_y_max,
-                                    tmp_index.min_err,
-                                    tmp_index.max_err)
+                                    math.floor(tmp_index.min_err),
+                                    math.ceil(tmp_index.max_err))
         del tmp_index
         gc.collect()
         if tmp_dict is not None:
@@ -145,7 +147,7 @@ class ZMIndex(SpatialIndex):
         # 3. predict the key by leaf_model
         leaf_model = self.rmi[-1][leaf_model_key]
         pre = leaf_model.predict(key)
-        return pre, leaf_model.min_err, leaf_model.max_err
+        return round(pre), leaf_model.min_err, leaf_model.max_err
 
     def save(self):
         if os.path.exists(self.model_path) is False:
@@ -197,10 +199,10 @@ class ZMIndex(SpatialIndex):
         gh = self.geohash.encode(point[0], point[1])
         # 2. predict by geohash and create key scope [pre - min_err, pre + max_err]
         pre, min_err, max_err = self.predict(gh)
-        l_bound = max(round(pre - max_err), 0)
-        r_bound = min(round(pre - min_err), self.train_data_length)
+        l_bound = max(pre - max_err, 0)
+        r_bound = min(pre - min_err, self.train_data_length)
         # 3. binary search in scope
-        return biased_search(self.data_list, 2, gh, int(pre), l_bound, r_bound)
+        return biased_search(self.data_list, 2, gh, pre, l_bound, r_bound)
 
     def range_query_single(self, window):
         """
@@ -217,22 +219,52 @@ class ZMIndex(SpatialIndex):
         # 2. find key_left by point query
         # if point not found, key_left = pre - min_err
         pre1, min_err1, max_err1 = self.predict(gh1)
-        pre1_init = int(pre1)
-        l_bound1 = max(round(pre1 - max_err1), 0)
-        r_bound1 = min(round(pre1 - min_err1), self.train_data_length)
-        key_left = biased_search(self.data_list, 2, gh1, pre1_init, l_bound1, r_bound1)
+        l_bound1 = max(pre1 - max_err1, 0)
+        r_bound1 = min(pre1 - min_err1, self.train_data_length)
+        key_left = biased_search(self.data_list, 2, gh1, pre1, l_bound1, r_bound1)
         key_left = l_bound1 if len(key_left) == 0 else min(key_left)
         # 3. find key_right by point query
         # if point not found, key_right = pre - max_err
         pre2, min_err2, max_err2 = self.predict(gh2)
-        pre2_init = int(pre2)
-        l_bound2 = max(round(pre2 - max_err2), 0)
-        r_bound2 = min(round(pre2 - min_err2), self.train_data_length)
-        key_right = biased_search(self.data_list, 2, gh2, pre2_init, l_bound2, r_bound2)
+        l_bound2 = max(pre2 - max_err2, 0)
+        r_bound2 = min(pre2 - min_err2, self.train_data_length)
+        key_right = biased_search(self.data_list, 2, gh2, pre2, l_bound2, r_bound2)
         key_right = r_bound2 if len(key_right) == 0 else max(key_right)
         # 4. filter all the point of scope[key1, key2] by range(x1/y1/x2/y2).contain(point)
         return [key for key in range(key_left, key_right + 1)
                 if region.contain_and_border_by_list(self.data_list[key])]
+
+
+class AbstractNN:
+    def __init__(self, weights, core_nums, input_min, input_max, output_min, output_max, min_err, max_err):
+        self.weights = weights
+        self.core_nums = core_nums
+        self.input_min = input_min
+        self.input_max = input_max
+        self.output_min = output_min
+        self.output_max = output_max
+        self.min_err = min_err
+        self.max_err = max_err
+
+    # @memoize
+    # model.predict有小偏差，可能是exp的e和elu的e不一致
+    def predict(self, input_key):
+        """
+        单个key的矩阵计算
+        """
+        y = normalize_input_minmax(input_key, self.input_min, self.input_max)
+        for i in range(len(self.core_nums) - 2):
+            # sigmoid(w * x + b)
+            y = sigmoid(y * self.weights[i * 2] + self.weights[i * 2 + 1])
+        y = y * self.weights[-2] + self.weights[-1]
+        # clip到最大最小值之间
+        return denormalize_output_minmax(y[0, 0], self.output_min, self.output_max)
+
+    @staticmethod
+    def init_by_dict(d: dict):
+        weights_mat = [np.mat(weight) for weight in d['weights']]
+        return AbstractNN(weights_mat, d['core_nums'], d['input_min'], d['input_max'], d['output_min'], d['output_max'],
+                          d['min_err'], d['max_err'], )
 
 
 class MyEncoder(json.JSONEncoder):
@@ -260,10 +292,7 @@ class MyDecoder(json.JSONDecoder):
         json.JSONDecoder.__init__(self, object_hook=self.dict_to_object)
 
     def dict_to_object(self, d):
-        t = None
-        if len(d.keys()) == 8 and d.__contains__("weights") and d.__contains__("core_nums") \
-                and d.__contains__("input_min") and d.__contains__("input_max") and d.__contains__("output_min") \
-                and d.__contains__("output_max") and d.__contains__("min_err") and d.__contains__("max_err"):
+        if d.__contains__("weights") and d.__contains__("min_err") and d.__contains__("max_err"):
             t = AbstractNN.init_by_dict(d)
         elif len(d.keys()) == 4 and d.__contains__("bottom") and d.__contains__("up") \
                 and d.__contains__("left") and d.__contains__("right"):

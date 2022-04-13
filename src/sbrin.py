@@ -1,4 +1,6 @@
-from src.spatial_index.common_utils import Region, binary_search_less_max, get_nearest_none
+import numpy as np
+
+from src.spatial_index.common_utils import Region, binary_search_less_max, get_nearest_none, sigmoid
 from src.spatial_index.geohash_utils import Geohash
 
 
@@ -92,13 +94,20 @@ class SBRIN:
                                           model=None,
                                           scope=Region.up_right_less_region(result_list[i][4],
                                                                             pow(10, -data_precision - 1)),
-                                          key=result_list[i][3])
+                                          key=result_list[i][3],
+                                          next_value=None)
                               for i in range(len(result_list))]
+        for i in range(len(result_list) - 1):
+            self.regular_pages[i].next_value = result_list[i + 1][0]
+        self.regular_pages[-1].next_value = 1 << self.meta_page.geohash.sum_bits
         # revmap_pages理论上要记录每个regular的磁盘位置
         # 5. 重构数据，每个blk range对应threshold_number的数据空间，移到外面做
         # 移到外面做
 
     def reconstruct_data(self, data_list):
+        """
+        把属于br的数据存储在br的范围内
+        """
         result_data_list = []
         for regular_page in self.regular_pages:
             result_data_list.extend(data_list[regular_page.key[0]: regular_page.key[1] + 1])
@@ -106,10 +115,10 @@ class SBRIN:
             result_data_list.extend([None] * diff_length)
             regular_page.key = [self.meta_page.threshold_number * (regular_page.itemoffset - 1),
                                 self.meta_page.threshold_number * (
-                                            regular_page.itemoffset - 1) + regular_page.number - 1]
+                                        regular_page.itemoffset - 1) + regular_page.number - 1]
         return result_data_list
 
-    def reconstruct_data1(self, data_list):
+    def reconstruct_data_old(self, data_list):
         """
         把数据存在predict的地方，如果pre已有数据：
         1. pre处数据的geohash==数据本身的geohash，说明数据重复，则找到离pre最近的[pre-maxerr, pre-minerr]范围内的None来存储
@@ -273,7 +282,7 @@ class MetaPage:
 
 
 class RegularPage:
-    def __init__(self, itemoffset, blknum, value, length, number, model, scope, key):
+    def __init__(self, itemoffset, blknum, value, length, number, model, scope, key, next_value):
         # BRIN
         self.itemoffset = itemoffset
         self.blknum = blknum
@@ -285,6 +294,7 @@ class RegularPage:
         # For compute
         self.scope = scope
         self.key = key
+        self.next_value = next_value
 
     @staticmethod
     def init_by_dict(d: dict):
@@ -295,4 +305,33 @@ class RegularPage:
                            number=d['number'],
                            model=d['model'],
                            scope=d['scope'],
-                           key=d['key'])
+                           key=d['key'],
+                           next_value=d['next_value'])
+
+    def model_predict(self, x):
+        x = int(self.model.predict((x - self.value) / (self.next_value - self.value) - 0.5) * self.number)
+        if x <= 0:
+            return self.key[0]
+        elif x >= self.number:
+            return self.key[1]
+        return self.key[0] + x
+
+
+class AbstractNN:
+    def __init__(self, weights, hl_nums, min_err, max_err):
+        self.weights = weights
+        self.hl_nums = hl_nums
+        self.min_err = min_err
+        self.max_err = max_err
+
+    # @memoize
+    # model.predict有小偏差，可能是exp的e和elu的e不一致
+    def predict(self, x):
+        for i in range(self.hl_nums):
+            x = sigmoid(x * self.weights[i * 2] + self.weights[i * 2 + 1])
+        return (x * self.weights[-2] + self.weights[-1])[0, 0]
+
+    @staticmethod
+    def init_by_dict(d: dict):
+        weights_mat = [np.mat(weight) for weight in d['weights']]
+        return AbstractNN(weights_mat, d['hl_nums'], d['min_err'], d['max_err'])

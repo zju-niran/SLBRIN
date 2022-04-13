@@ -4,6 +4,8 @@ from itertools import chain
 from reprlib import repr
 from sys import getsizeof, stderr
 
+import numpy as np
+
 
 class Point:
     def __init__(self, lng, lat, geohash=None, key=None):
@@ -445,4 +447,71 @@ def get_nearest_none(lt, pre, left, right):
         if left_free + right_free == -2:
             return None
         offset += 1
+
+
+def normalize_input(na):
+    min_v = na.min(axis=0)
+    max_v = na.max(axis=0)
+    if max_v == min_v:
+        return na, min_v, max_v
+    else:
+        return (na - min_v) / (max_v - min_v) - 0.5, min_v, max_v
+
+
+def normalize_output(na):
+    min_v = na.min(axis=0)
+    max_v = na.max(axis=0)
+    if max_v == min_v:
+        return na, min_v, max_v
+    else:
+        return (na - min_v) / (max_v - min_v), min_v, max_v
+
+
+def normalize_input_minmax(value, min_v, max_v):
+    if max_v == min_v:
+        return value
+    else:
+        return (value - min_v) / (max_v - min_v) - 0.5
+
+
+def denormalize_output_minmax(value, min_v, max_v):
+    if max_v == min_v:
+        return min_v
+    if value < 0:
+        return min_v
+    elif value > 1:
+        return max_v
+    return value * (max_v - min_v) + min_v
+
+
+def denormalize_diff_minmax(na1, na2, min_v, max_v):
+    if max_v == min_v:
+        return 0.0, 0.0
+    else:
+        f1 = np.frompyfunc(denormalize_diff_minmax_child, 4, 1)
+        result_na = f1(na1, na2, min_v, max_v).astype('float')
+        return result_na.min(), result_na.max()
+
+
+def denormalize_diff_minmax_child(num1, num2, min_v, max_v):
+    if num1 < 0:
+        num1 = 0
+    elif num1 > 1:
+        num1 = 1
+    return (num1 - num2) * (max_v - min_v)
+
+
+def relu(x):
+    return np.maximum(0, x)
+
+
+def elu(x, alpha=1):
+    a = x[x > 0]
+    b = alpha * (np.exp(x[x < 0]) - 1)
+    result = np.concatenate((b, a), axis=0)
+    return result
+
+
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
 

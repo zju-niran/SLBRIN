@@ -1,6 +1,7 @@
 import gc
 import json
 import logging
+import math
 import multiprocessing
 import os
 import sys
@@ -10,12 +11,12 @@ import numpy as np
 import pandas as pd
 
 sys.path.append('/home/zju/wlj/st-learned-index')
-from src.sbrin import SBRIN, RegularPage, MetaPage
+from src.sbrin import SBRIN, RegularPage, MetaPage, AbstractNN
 from src.spatial_index.common_utils import Region, biased_search, Point, biased_search_almost
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
-from src.learned_model_sbrin import TrainedNN, AbstractNN
-from src.learned_model_sbrin_simple import TrainedNN as TrainedNN_Simple
+from src.learned_model import TrainedNN
+from src.learned_model_simple import TrainedNN as TrainedNN_Simple
 
 """
 代码上和论文的diff:
@@ -62,8 +63,10 @@ class GeoHashModelIndex(SpatialIndex):
         end_time = time.time()
         self.logging.info("Create SBRIN: %s" % (end_time - start_time))
         # reconstruct data
-        self.data_list = data_list
-        # self.logging.info("Reconstruct data: %s" % (end_time - start_time))
+        start_time = time.time()
+        self.data_list = self.sbrin.reconstruct_data(data_list)
+        end_time = time.time()
+        self.logging.info("Reconstruct data: %s" % (end_time - start_time))
         # 3. in every part data, create learned model
         start_time = time.time()
         self.build_nn_multiprocess(use_threshold, threshold, core, train_step, batch_size, learning_rate,
@@ -78,11 +81,11 @@ class GeoHashModelIndex(SpatialIndex):
         mp_dict = multiprocessing.Manager().dict()
         for i in range(self.sbrin.meta_page.size + 1):
             key_bound = self.sbrin.regular_pages[i].key
+            # 训练数据为左下角点+分区数据+右上角点
             inputs = [j[2] for j in self.data_list[key_bound[0]:key_bound[1] + 1]]
             inputs.insert(0, self.sbrin.regular_pages[i].value)
-            max_input = self.sbrin.regular_pages[i + 1].value \
-                if i < self.sbrin.meta_page.size else (1 << self.sbrin.meta_page.geohash.sum_bits)
-            inputs.append(max_input)
+            inputs.append(self.sbrin.regular_pages[i].next_value)
+            labels = list(range(self.sbrin.regular_pages[i].number + 2))
             pool.apply_async(self.build_nn, (i, inputs, labels, use_threshold,
                                              threshold, core, train_step, batch_size, learning_rate,
                                              retrain_time_limit, save_nn, weight, mp_dict))
@@ -111,13 +114,9 @@ class GeoHashModelIndex(SpatialIndex):
             tmp_index.train()
         # get parameters in model (weight matrix and bias matrix)
         abstract_index = AbstractNN(tmp_index.weights,
-                                    core,
-                                    tmp_index.train_x_min,
-                                    tmp_index.train_x_max,
-                                    tmp_index.train_y_min,
-                                    tmp_index.train_y_max,
-                                    tmp_index.min_err,
-                                    tmp_index.max_err)
+                                    len(core) - 2,
+                                    math.floor(tmp_index.min_err),
+                                    math.ceil(tmp_index.max_err))
         del tmp_index
         gc.collect()
         tmp_dict[model_key] = abstract_index
@@ -155,23 +154,22 @@ class GeoHashModelIndex(SpatialIndex):
         query key by x/y point
         1. compute geohash from x/y of points
         2. find blk range within geohash by sbrin.point_query
-        3. predict by leaf model and create key scope [pre - min_err, pre + max_err]
-        4. binary search in scope
+        3. predict by leaf model
+        4. biased search in scope [pre - max_err, pre + min_err]
         """
         # 1. compute geohash from x/y of point
         gh = self.sbrin.meta_page.geohash.encode(point[0], point[1])
         # 2. find blk range within geohash by sbrin.point_query
         blk_range = self.sbrin.regular_pages[self.sbrin.point_query(gh)]
-        if blk_range.model is None:
+        if blk_range.number == 0:
             return None
         else:
-            # 3. predict by leaf model and create key scope [pre - min_err, pre + max_err]
-            pre, min_err, max_err = blk_range.model.predict(gh), blk_range.model.min_err, blk_range.model.max_err
-            # 4. binary search in scope
-            # 优化: round->int:2->1
-            return biased_search(self.data_list, 2, gh, int(pre),
-                                 max(round(pre - max_err), blk_range.key[0]),
-                                 min(round(pre - min_err), blk_range.key[1]))
+            # 3. predict by leaf model
+            pre = blk_range.model_predict(gh)
+            # 4. biased search in scope [pre - max_err, pre + min_err]
+            return biased_search(self.data_list, 2, gh, pre,
+                                 max(pre - blk_range.model.max_err, blk_range.key[0]),
+                                 min(pre - blk_range.model.min_err, blk_range.key[1]))
 
     def range_query_single_old(self, window):
         """
@@ -200,7 +198,7 @@ class GeoHashModelIndex(SpatialIndex):
             if blk_range[0][0] == 0:  # no relation
                 continue
             else:
-                if blk_range[1].model is None:  # blk range is None
+                if blk_range[1].number == 0:  # blk range is None
                     continue
                 # 3.1 if window contain the blk range, add all the items into results
                 if blk_range[0][0] == 2:  # window contain blk range
@@ -208,26 +206,25 @@ class GeoHashModelIndex(SpatialIndex):
                 # 3.2 if window intersect or within the blk range
                 else:
                     # 3.2.1 get the min_geohash/max_geohash of intersect part
-                    model = blk_range[1].model
                     if blk_range[0][0] == 1:  # intersect
                         gh1 = self.sbrin.meta_page.geohash.encode(blk_range[0][1].left, blk_range[0][1].bottom)
                         gh2 = self.sbrin.meta_page.geohash.encode(blk_range[0][1].right, blk_range[0][1].up)
                     # 3.2.2 get the min_key/max_key by nn predict and biased search
-                    pre1 = model.predict(gh1)
-                    pre2 = model.predict(gh2)
-                    min_err = model.min_err
-                    max_err = model.max_err
-                    l_bound1 = max(round(pre1 - max_err), blk_range[1].key[0])
-                    r_bound1 = min(round(pre1 - min_err), blk_range[1].key[1])
-                    key_left = biased_search(self.data_list, 2, gh1, int(pre1), l_bound1, r_bound1)
+                    pre1 = blk_range[1].model_predict(gh1)
+                    pre2 = blk_range[1].model_predict(gh2)
+                    min_err = blk_range[1].model.min_err
+                    max_err = blk_range[1].model.max_err
+                    l_bound1 = max(pre1 - max_err, blk_range[1].key[0])
+                    r_bound1 = min(pre1 - min_err, blk_range[1].key[1])
+                    key_left = biased_search(self.data_list, 2, gh1, pre1, l_bound1, r_bound1)
                     if gh1 == gh2:
                         if len(key_left) > 0:
                             result.extend(key_left)
                     else:
                         key_left = l_bound1 if len(key_left) == 0 else min(key_left)
-                        l_bound2 = max(round(pre2 - max_err), blk_range[1].key[0])
-                        r_bound2 = min(round(pre2 - min_err), blk_range[1].key[1])
-                        key_right = biased_search(self.data_list, 2, gh2, int(pre2), l_bound2, r_bound2)
+                        l_bound2 = max(pre2 - max_err, blk_range[1].key[0])
+                        r_bound2 = min(pre2 - min_err, blk_range[1].key[1])
+                        key_right = biased_search(self.data_list, 2, gh2, pre2, l_bound2, r_bound2)
                         key_right = r_bound2 if len(key_right) == 0 else max(key_right)
                         # 3.2.3 filter all the point of scope[min_key/max_key] by range.contain(point)
                         result.extend([key for key in range(key_left, key_right + 1)
@@ -319,7 +316,7 @@ class GeoHashModelIndex(SpatialIndex):
                                   lambda x: window[2] <= x[0] <= window[3] and window[0] <= x[1] <= window[1])]
         for blk_key in blk_list:
             blk = self.sbrin.regular_pages[blk_key]
-            if blk.model is None:  # blk range is None
+            if blk.number == 0:  # blk range is None
                 continue
             position = blk_list[blk_key]
             if position == 0:  # window contain blk range
@@ -327,22 +324,19 @@ class GeoHashModelIndex(SpatialIndex):
             else:
                 # if-elif-else->lambda, 30->4
                 gh_new1, gh_new2, compare_func = position_func_list[position](blk.scope)
-                model = blk.model
-                min_err = model.min_err
-                max_err = model.max_err
                 # 4 predict min_key/max_key by nn
                 if gh_new1 is not None:
-                    pre1 = model.predict(gh_new1)
-                    l_bound1 = max(round(pre1 - max_err), blk.key[0])
-                    r_bound1 = min(round(pre1 - min_err), blk.key[1])
-                    key_left = min(biased_search_almost(self.data_list, 2, gh_new1, int(pre1), l_bound1, r_bound1))
+                    pre1 = blk.model_predict(gh_new1)
+                    l_bound1 = max(pre1 - blk.model.max_err, blk.key[0])
+                    r_bound1 = min(pre1 - blk.model.min_err, blk.key[1])
+                    key_left = min(biased_search_almost(self.data_list, 2, gh_new1, pre1, l_bound1, r_bound1))
                 else:
                     key_left = blk.key[0]
                 if gh_new2 is not None:
-                    pre2 = model.predict(gh_new2)
-                    l_bound2 = max(round(pre2 - max_err), blk.key[0])
-                    r_bound2 = min(round(pre2 - min_err), blk.key[1])
-                    key_right = max(biased_search_almost(self.data_list, 2, gh_new2, int(pre2), l_bound2, r_bound2))
+                    pre2 = blk.model_predict(gh_new2)
+                    l_bound2 = max(pre2 - blk.model.max_err, blk.key[0])
+                    r_bound2 = min(pre2 - blk.model.min_err, blk.key[1])
+                    key_right = max(biased_search_almost(self.data_list, 2, gh_new2, pre2, l_bound2, r_bound2))
                 else:
                     key_right = blk.key[1]
                 # 5 filter all the point of scope[min_key/max_key] by range.contain(point)
@@ -365,14 +359,14 @@ class GeoHashModelIndex(SpatialIndex):
         qp_blk_key = self.sbrin.point_query(qp_g)
         qp_blk = self.sbrin.regular_pages[qp_blk_key]
         # if blk range is None, qp_key = the max key of the last blk range
-        if qp_blk.model is None:
+        if qp_blk.number == 0:
             query_point_key = qp_blk.key[1]
         # if model is not None, qp_key = point_query(geohash)
         else:
-            pre, min_err, max_err = qp_blk.model.predict(qp_g), qp_blk.model.min_err, qp_blk.model.max_err
-            l_bound = max(round(pre - max_err), qp_blk.key[0])
-            r_bound = min(round(pre - min_err), qp_blk.key[1])
-            query_point_key = biased_search_almost(self.data_list, 2, qp_g, int(pre), l_bound, r_bound)[0]
+            pre = qp_blk.model_predict(qp_g)
+            l_bound = max(pre - qp_blk.model.max_err, qp_blk.key[0])
+            r_bound = min(pre - qp_blk.model.min_err, qp_blk.key[1])
+            query_point_key = biased_search_almost(self.data_list, 2, qp_g, pre, l_bound, r_bound)[0]
         # 2. get the n points to create range query window
         # TODO: 两种策略，一种是左右找一半，但是如果跳跃了，window很大；还有一种是两边找n，减少跳跃，使window变小
         tp_list = [[Point.distance_pow_point_list(knn, self.data_list[query_point_key]), query_point_key]]
@@ -456,25 +450,22 @@ class GeoHashModelIndex(SpatialIndex):
             if tp_window_blk[2] > max_dist:
                 break
             blk = self.sbrin.regular_pages[tp_window_blk[0]]
-            model = blk.model
-            if model is None:  # blk range is None
+            if blk.number == 0:  # blk range is None
                 continue
             blk_key = blk.key
             gh_new1, gh_new2 = position_func_list[tp_window_blk[1]](blk.scope)
-            min_err = model.min_err
-            max_err = model.max_err
             if gh_new1 is not None:
-                pre1 = model.predict(gh_new1)
-                l_bound1 = max(round(pre1 - max_err), blk_key[0])
-                r_bound1 = min(round(pre1 - min_err), blk_key[1])
-                key_left = min(biased_search_almost(self.data_list, 2, gh_new1, int(pre1), l_bound1, r_bound1))
+                pre1 = blk.model_predict(gh_new1)
+                l_bound1 = max(pre1 - blk.model.max_err, blk_key[0])
+                r_bound1 = min(pre1 - blk.model.min_err, blk_key[1])
+                key_left = min(biased_search_almost(self.data_list, 2, gh_new1, pre1, l_bound1, r_bound1))
             else:
                 key_left = blk_key[0]
             if gh_new2 is not None:
-                pre2 = model.predict(gh_new2)
-                l_bound2 = max(round(pre2 - max_err), blk_key[0])
-                r_bound2 = min(round(pre2 - min_err), blk_key[1])
-                key_right = max(biased_search_almost(self.data_list, 2, gh_new2, int(pre2), l_bound2, r_bound2))
+                pre2 = blk.model_predict(gh_new2)
+                l_bound2 = max(pre2 - blk.model.max_err, blk_key[0])
+                r_bound2 = min(pre2 - blk.model.min_err, blk_key[1])
+                key_right = max(biased_search_almost(self.data_list, 2, gh_new2, pre2, l_bound2, r_bound2))
 
             else:
                 key_right = blk_key[1]
@@ -519,9 +510,7 @@ class MyDecoder(json.JSONDecoder):
         json.JSONDecoder.__init__(self, object_hook=self.dict_to_object)
 
     def dict_to_object(self, d):
-        if len(d.keys()) == 8 and d.__contains__("weights") and d.__contains__("core_nums") \
-                and d.__contains__("input_min") and d.__contains__("input_max") and d.__contains__("output_min") \
-                and d.__contains__("output_max") and d.__contains__("min_err") and d.__contains__("max_err"):
+        if d.__contains__("weights") and d.__contains__("min_err") and d.__contains__("max_err"):
             t = AbstractNN.init_by_dict(d)
         elif len(d.keys()) == 4 and d.__contains__("bottom") and d.__contains__("up") \
                 and d.__contains__("left") and d.__contains__("right"):
