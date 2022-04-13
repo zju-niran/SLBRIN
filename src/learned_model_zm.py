@@ -35,7 +35,7 @@ def normalize_input_minmax(value, min_v, max_v):
     if max_v == min_v:
         return value
     else:
-        return (value - min_v) / (max_v - min_v)
+        return (value - min_v) / (max_v - min_v) - 0.5
 
 
 def denormalize_output_minmax(value, min_v, max_v):

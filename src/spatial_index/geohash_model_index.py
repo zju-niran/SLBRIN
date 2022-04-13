@@ -11,7 +11,7 @@ import pandas as pd
 
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.sbrin import SBRIN, RegularPage, MetaPage
-from src.spatial_index.common_utils import Region, biased_search, Point, biased_search_almost
+from src.spatial_index.common_utils import Region, biased_search, Point, biased_search_almost, get_nearest_none
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 from src.learned_model_sbrin import TrainedNN, AbstractNN
@@ -62,36 +62,62 @@ class GeoHashModelIndex(SpatialIndex):
         end_time = time.time()
         self.logging.info("Create SBRIN: %s" % (end_time - start_time))
         # reconstruct data
-        start_time = time.time()
-        result_data_list = []
-        for regular_page in self.sbrin.regular_pages:
-            result_data_list.extend(data_list[regular_page.key[0]: regular_page.key[1] + 1])
-            diff_length = threshold_number - regular_page.number
-            result_data_list.extend([None] * diff_length)
-            regular_page.key = [threshold_number * (regular_page.itemoffset - 1),
-                                threshold_number * (regular_page.itemoffset - 1) + regular_page.number - 1]
-        self.data_list = result_data_list
-        end_time = time.time()
-        self.logging.info("Reconstruct data: %s" % (end_time - start_time))
+        self.data_list = data_list
+        # self.logging.info("Reconstruct data: %s" % (end_time - start_time))
         # 3. in every part data, create learned model
         start_time = time.time()
         self.build_nn_multiprocess(use_threshold, threshold, core, train_step, batch_size, learning_rate,
                                    retrain_time_limit, thread_pool_size, save_nn, weight)
         end_time = time.time()
         self.logging.info("Create learned model: %s" % (end_time - start_time))
+        # result_data_list = [None] * (self.sbrin.meta_page.size + 1) * self.sbrin.meta_page.threshold_number
+        # for regular_page in self.sbrin.regular_pages:
+        #     if regular_page.model is None:  # TODO model为none的判断都得删了，model不可能会none了
+        #         continue
+        #     regular_page.model.output_min = self.sbrin.meta_page.threshold_number * (regular_page.itemoffset - 1)
+        #     regular_page.model.output_max = self.sbrin.meta_page.threshold_number * regular_page.itemoffset - 1
+        #     for i in range(regular_page.key[0], regular_page.key[1] + 1):
+        #         pre = round(regular_page.model.predict(data_list[i][2]))
+        #         if pre == 13000:
+        #             print("")
+        #         if result_data_list[pre] is None:
+        #             result_data_list[pre] = data_list[i]
+        #         else:
+        #             # 重复数据处理：写入误差范围内离pre最近的None里
+        #             if result_data_list[pre] == data_list[i]:
+        #                 l_bound = max(pre - regular_page.model.max_err, regular_page.model.output_min)
+        #                 r_bound = min(pre - regular_page.model.min_err, regular_page.model.output_max)
+        #             else:  # 非重复数据，但是整型部分重复，或被重复数据取代了位置
+        #                 if result_data_list[pre] > data_list[i]:
+        #                     l_bound = max(pre - regular_page.model.max_err, regular_page.model.output_min)
+        #                     r_bound = pre
+        #                 else:
+        #                     l_bound = pre
+        #                     r_bound = min(pre - regular_page.model.min_err, regular_page.model.output_max)
+        #             key = get_nearest_none(result_data_list, pre, l_bound, r_bound)
+        #             if key is None:
+        #                 print("超出边界")
+        #             else:
+        #                 result_data_list[key] = data_list[i]
+        # self.logging.info("Reconstruct data: %s" % (end_time - start_time))
 
     def build_nn_multiprocess(self, use_threshold, threshold, core, train_step, batch_size, learning_rate,
                               retrain_time_limit, thread_pool_size, save_nn, weight):
         multiprocessing.set_start_method('spawn', force=True)  # 解决CUDA_ERROR_NOT_INITIALIZED报错
         pool = multiprocessing.Pool(processes=thread_pool_size)
         mp_dict = multiprocessing.Manager().dict()
-        for regular_page in self.sbrin.regular_pages:
-            key_bound = regular_page.key
-            if regular_page.number == 0:  # blk range is None
-                continue
-            inputs = [i[2] for i in self.data_list[key_bound[0]:key_bound[1] + 1]]
-            labels = list(range(key_bound[0], key_bound[1] + 1))
-            pool.apply_async(self.build_nn, (regular_page.itemoffset - 1, inputs, labels, use_threshold,
+        for i in range(self.sbrin.meta_page.size + 1):
+            key_bound = self.sbrin.regular_pages[i].key
+            inputs = [j[2] for j in self.data_list[key_bound[0]:key_bound[1] + 1]]
+            inputs.insert(0, self.sbrin.regular_pages[i].value)
+            max_input = self.sbrin.regular_pages[i + 1].value \
+                if i < self.sbrin.meta_page.size else (1 << self.sbrin.meta_page.geohash.sum_bits)
+            inputs.append(max_input)
+            # 生成[br_start:br_end]的长度为number+2的等差数列
+            labels_len = self.sbrin.regular_pages[i].number + 2
+            labels = [(j / (labels_len - 1) + i) * self.sbrin.meta_page.threshold_number
+                      for j in range(labels_len)]
+            pool.apply_async(self.build_nn, (i, inputs, labels, use_threshold,
                                              threshold, core, train_step, batch_size, learning_rate,
                                              retrain_time_limit, save_nn, weight, mp_dict))
         pool.close()
@@ -568,13 +594,13 @@ def main():
                     use_threshold=False,
                     threshold=20,
                     core=[1, 128, 1],
-                    train_step=500,
-                    batch_size=1024,
-                    learning_rate=0.01,
-                    retrain_time_limit=20,
-                    thread_pool_size=1,
+                    train_step=5000,
+                    batch_size=64,
+                    learning_rate=0.1,
+                    retrain_time_limit=2,
+                    thread_pool_size=10,
                     save_nn=True,
-                    weight=0.01)
+                    weight=0.1)
         end_time = time.time()
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)

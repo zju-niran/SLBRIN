@@ -22,7 +22,7 @@ def normalize_output(na):
 
 
 def normalize_input_minmax(value, min_v, max_v):
-    return (value - min_v) / (max_v - min_v)
+    return (value - min_v) / (max_v - min_v) - 0.5
 
 
 def denormalize_output_minmax(value, min_v, max_v):

@@ -296,11 +296,11 @@ if __name__ == '__main__':
                     thresholds=[30, 200],
                     stages=[1, 100],
                     cores=[[1, 128, 1], [1, 128, 1]],
-                    train_steps=[500, 500],
-                    batch_sizes=[1024, 1024],
-                    learning_rates=[0.01, 0.01],
+                    train_steps=[5000, 5000],
+                    batch_sizes=[64, 64],
+                    learning_rates=[0.1, 0.1],
                     retrain_time_limits=[4, 2],
-                    thread_pool_size=1,
+                    thread_pool_size=6,
                     weight=0.1)
         end_time = time.time()
         build_time = end_time - start_time

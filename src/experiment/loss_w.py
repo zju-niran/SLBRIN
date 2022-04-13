@@ -9,14 +9,9 @@ sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.common_utils import Region
 from src.spatial_index.geohash_model_index import GeoHashModelIndex
 
-"""
-1. 读取数据
-2. 设置实验参数
-3. 开始实验
-"""
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    parent_path = "model/gm_index"
+    parent_path = "model/gm_index/loss_w"
     if not os.path.exists(parent_path):
         os.makedirs(parent_path)
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
@@ -31,7 +26,7 @@ if __name__ == '__main__':
     weights = [0.00001, 0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000]
     # 3. 开始实验
     for weight in weights:
-        model_path = "model/gm_index/loss_w_%s/" % weight
+        model_path = "model/gm_index/loss_w/w_%s/" % weight
         if not os.path.exists(model_path):
             os.makedirs(model_path)
         index = GeoHashModelIndex(model_path=model_path)
@@ -43,8 +38,8 @@ if __name__ == '__main__':
                     threshold=20,
                     core=[1, 128, 1],
                     train_step=5000,
-                    batch_size=1024,
-                    learning_rate=0.01,
+                    batch_size=64,
+                    learning_rate=0.1,
                     retrain_time_limit=2,
                     thread_pool_size=6,
                     save_nn=True,
