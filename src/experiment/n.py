@@ -8,7 +8,7 @@ import pandas as pd
 
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.common_utils import Region
-from src.spatial_index.geohash_model_index import GeoHashModelIndex
+from src.spatial_index.sbrin import SBRIN
 
 """
 1. 读取数据
@@ -19,7 +19,7 @@ from src.spatial_index.geohash_model_index import GeoHashModelIndex
 """
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    parent_path = "model/gm_index"
+    parent_path = "model/sbrin"
     if not os.path.exists(parent_path):
         os.makedirs(parent_path)
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
@@ -35,10 +35,10 @@ if __name__ == '__main__':
     # 3. 开始实验
     # 3.1 快速构建精度低的
     for n in n_list:
-        model_path = "model/gm_index/n_" + str(n) + "/"
+        model_path = "model/sbrin/n_" + str(n) + "/"
         if not os.path.exists(model_path):
             os.makedirs(model_path)
-        index = GeoHashModelIndex(model_path=model_path)
+        index = SBRIN(model_path=model_path)
         index_name = index.name
         logging.info("*************start %s************" % model_path)
         start_time = time.time()
@@ -58,10 +58,10 @@ if __name__ == '__main__':
         logging.info("Build time: %s" % build_time)
         index.save()
         logging.info("Index size: %s" % index.size())
-        model_num = index.sbrin.meta_page.size + 1
+        model_num = index.meta.first_tmp_br
         logging.info("Model num: %s" % model_num)
         model_precisions = [(blk_range.model.max_err - blk_range.model.min_err)
-                            for blk_range in index.sbrin.regular_pages if blk_range.model is not None]
+                            for blk_range in index.block_ranges if blk_range.model is not None]
         model_precisions_avg = sum(model_precisions) / model_num
         logging.info("Model precision avg: %s" % model_precisions_avg)
         path = '../../data/trip_data_1_point_query.csv'
@@ -74,8 +74,8 @@ if __name__ == '__main__':
         logging.info("Point query time: %s" % search_time)
     # 3.2 重新训练提高精度
     for n in n_list:
-        model_path = "model/gm_index/n_" + str(n) + "/"
-        index = GeoHashModelIndex(model_path=model_path)
+        model_path = "model/sbrin/n_" + str(n) + "/"
+        index = SBRIN(model_path=model_path)
         index_name = index.name
         logging.info("*************start %s************" % model_path)
         start_time = time.time()
@@ -95,10 +95,10 @@ if __name__ == '__main__':
         logging.info("Build time: %s" % build_time)
         index.save()
         logging.info("Index size: %s" % index.size())
-        model_num = index.sbrin.meta_page.size + 1
+        model_num = index.meta.first_tmp_br
         logging.info("Model num: %s" % model_num)
         model_precisions = [(blk_range.model.max_err - blk_range.model.min_err)
-                            for blk_range in index.sbrin.regular_pages if blk_range.model is not None]
+                            for blk_range in index.block_ranges if blk_range.model is not None]
         model_precisions_avg = sum(model_precisions) / model_num
         logging.info("Model precision avg: %s" % model_precisions_avg)
         path = '../../data/trip_data_1_point_query.csv'

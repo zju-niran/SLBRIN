@@ -136,10 +136,10 @@ def create_knn_from_csv(input_path, output_path, knn_point_limit, knn_n_limit):
 
 
 def check_knn():
-    index_list = pd.read_csv(r'D:\Code\Paper\st-learned-index\src\spatial_index\model\gm_index_10w\point_list.csv',
+    index_list = pd.read_csv(r'D:\Code\Paper\st-learned-index\src\spatial_index\model\sbrin_10w\point_list.csv',
                              float_precision='round_trip', header=None)
     data_list = pd.read_csv(r'D:\Code\Paper\st-learned-index\data\trip_data_1_10w.csv', float_precision='round_trip')
-    gm_result_list = r'D:\Code\Paper\st-learned-index\src\spatial_index\model\gm_index_10w\knn_query_result.csv'
+    gm_result_list = r'D:\Code\Paper\st-learned-index\src\spatial_index\model\sbrin_10w\knn_query_result.csv'
     r_result_list = r'D:\Code\Paper\st-learned-index\src\spatial_index\model\rtree_10w\knn_query_result.csv'
     with open(gm_result_list) as f1, open(r_result_list) as f2:
         list1 = []

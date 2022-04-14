@@ -416,11 +416,30 @@ def partition(nums, field, left, right):
 
 
 def quick_sort(nums, field, left, right):
-    if right - left <= 1:
-        return
-    m = partition(nums, field, left, right)
-    quick_sort(nums, field, left, m - 1)
-    quick_sort(nums, field, m + 1, right)
+    """
+    快速排序
+    """
+    if left < right:
+        m = partition(nums, field, left, right)
+        quick_sort(nums, field, left, m - 1)
+        quick_sort(nums, field, m + 1, right)
+
+
+def merge_sorted_array(nums1, field, left, right, nums2):
+    """
+    合并有序数组nums2到有序数组nums的[left, right]之后，并重新排序
+    """
+    size = len(nums2)
+    j = 0
+    while j < size:
+        if nums1[left][field] >= nums2[j][field]:
+            nums1.insert(left, nums2[j])
+            j += 1
+        left += 1
+    while j < size:
+        nums1.append(nums2[j])
+    new_right = right + size + 1
+    del nums1[new_right:new_right + size]
 
 
 def get_min_max(lt):
@@ -535,6 +554,6 @@ def sigmoid(x):
 
 
 if __name__ == '__main__':
-    a = [[5, 5, 5], [1, 1, 1], [2, 2, 2], [4, 4, 4], [3, 3, 3], [0, 0, 0]]
-    quick_sort(a, 2, 0, 5)
+    a = [[5, 5, 5], [1, 1, 1], [2, 2, 2], [5, 5, 5], [4, 4, 4], [3, 3, 3], [0, 0, 0], [5, 5, 5]]
+    quick_sort(a, 2, 0, 7)
     print(a)

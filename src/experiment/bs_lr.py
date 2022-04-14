@@ -7,11 +7,11 @@ import numpy as np
 
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.common_utils import Region
-from src.spatial_index.geohash_model_index import GeoHashModelIndex
+from src.spatial_index.sbrin import SBRIN
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    parent_path = "model/gm_index/bs_lr"
+    parent_path = "model/sbrin/lr_bn"
     if not os.path.exists(parent_path):
         os.makedirs(parent_path)
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
@@ -32,7 +32,7 @@ if __name__ == '__main__':
             model_path = "model/gm_index/bs_lr/%s_%s/" % (bs, lr)
             if not os.path.exists(model_path):
                 os.makedirs(model_path)
-            index = GeoHashModelIndex(model_path=model_path)
+            index = SBRIN(model_path=model_path)
             index_name = index.name
             logging.info("*************start %s************" % model_path)
             start_time = time.time()
@@ -51,9 +51,9 @@ if __name__ == '__main__':
             build_time = end_time - start_time
             logging.info("Build time: %s" % build_time)
             index.save()
-            model_num = index.sbrin.meta_page.size + 1
+            model_num = index.meta.first_tmp_br
             logging.info("Model num: %s" % model_num)
             model_precisions = [(blk_range.model.max_err - blk_range.model.min_err)
-                                for blk_range in index.sbrin.regular_pages if blk_range.model is not None]
+                                for blk_range in index.block_ranges if blk_range.model is not None]
             model_precisions_avg = sum(model_precisions) / model_num
             logging.info("Model precision avg: %s" % model_precisions_avg)
