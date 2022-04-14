@@ -1,6 +1,5 @@
 import os
 
-import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.layers import Dense
@@ -26,7 +25,7 @@ x_data_max = x_data.max()
 # y_data = data[2].values
 y_data_min = y_data.min()
 y_data_max = y_data.max()
-x_data = (x_data - x_data_min) / (x_data_max - x_data_min)
+x_data = (x_data - x_data_min) / (x_data_max - x_data_min) - 0.5
 y_data = (y_data - y_data_min) / (y_data_max - y_data_min)
 
 
@@ -37,7 +36,7 @@ def my_score(y_true, y_pred):
     range_loss = tf.keras.backend.max(diff_clip) - tf.keras.backend.min(diff_clip)
     diff = y_true - y_pred
     mse_loss = tf.keras.backend.mean(tf.keras.backend.square(diff), axis=-1)
-    return 0.1 * range_loss + mse_loss
+    return 1 * range_loss + mse_loss
 
 
 def mae_score(y_true, y_pred):
@@ -57,7 +56,7 @@ def ce_score(y_true, y_pred):
                                 (1 - y_true) * tf.keras.backend.log(1 - y_pred))
 
 
-def train(batch_size, lr):
+def train(batch_size, lr, loss):
     # 构建模型
     model = Sequential()
     # 1-10-1，添加一个隐藏层
@@ -65,7 +64,7 @@ def train(batch_size, lr):
     model.add(Dense(units=1))
 
     model.compile(optimizer=tf.optimizers.Adam(learning_rate=lr),
-                  loss=my_score)
+                  loss=loss)
     # 定义早停
     early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss',
                                                       patience=50,
@@ -84,20 +83,24 @@ def train(batch_size, lr):
     return model, history.epoch[-1]
 
 
-lrs = [0.1, 0.01, 0.001, 0.0001]
-batch_sizes = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]
+# lrs = [0.1, 0.01, 0.001, 0.0001]
+lrs = [0.1]
+# batch_sizes = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]
+batch_sizes = [64]
+losses = [my_score, mse_score, mae_score, tf.keras.losses.log_cosh]
 for lr in lrs:
     for batch_size in batch_sizes:
-        model, epoch = train(batch_size, lr)
-        # 打印pred和y
-        # y_pred = model.predict(x_data)
-        # plt.scatter(x_data, y_data, label="y_data")
-        # plt.plot(x_data, y_pred, 'r-', lw=3, label="y_pred")  # r-表示红色的线，lw表示线宽
-        # plt.legend()
-        # plt.show()
-        # 计算极值
-        y_pred = model.predict(x_data).flatten()
-        diff = y_data - y_pred
-        diff_length = diff.max() - diff.min()
-        print("lr: %s, batch_size: %s, diff: %s, epoch: %s" %
-              (lr, batch_size, diff_length, epoch))
+        for loss in losses:
+            model, epoch = train(batch_size, lr, loss)
+            # 打印pred和y
+            # y_pred = model.predict(x_data)
+            # plt.scatter(x_data, y_data, label="y_data")
+            # plt.plot(x_data, y_pred, 'r-', lw=3, label="y_pred")  # r-表示红色的线，lw表示线宽
+            # plt.legend()
+            # plt.show()
+            # 计算极值
+            y_pred = model.predict(x_data).flatten()
+            diff = y_data - y_pred
+            diff_length = diff.max() - diff.min()
+            print("lr: %s, batch_size: %s, diff: %s, epoch: %s" %
+                  (lr, batch_size, diff_length, epoch))
