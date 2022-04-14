@@ -104,15 +104,15 @@ class TrainedNN:
                                                               patience=50,
                                                               mode='min',
                                                               verbose=0)
-            reduce = tf.keras.callbacks.ReduceLROnPlateau(monitor='loss',
-                                                          factor=0.5,
-                                                          patience=45,
-                                                          verbose=0,
-                                                          mode='min',
-                                                          min_lr=0.0001)
-            tensorboard = tf.keras.callbacks.TensorBoard(log_dir=self.model_loss_file,
-                                                         histogram_freq=1)
-            callbacks_list = [checkpoint, reduce, early_stopping, tensorboard]
+            # reduce = tf.keras.callbacks.ReduceLROnPlateau(monitor='loss',
+            #                                               factor=0.5,
+            #                                               patience=45,
+            #                                               verbose=0,
+            #                                               mode='min',
+            #                                               min_lr=0.0001)
+            # tensorboard = tf.keras.callbacks.TensorBoard(log_dir=self.model_loss_file,
+            #                                              histogram_freq=1)
+            callbacks_list = [checkpoint, early_stopping]
             # fit and save model
             history = self.model.fit(self.train_x, self.train_y,
                                      epochs=self.train_step_nums,

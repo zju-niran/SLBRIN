@@ -8,7 +8,7 @@ import numpy as np
 import pandas
 import pandas as pd
 
-from src.spatial_index.common_utils import Point, Region
+from src.spatial_index.common_utils import Point, Region, quick_sort
 from src.spatial_index.geohash_utils import Geohash
 
 
@@ -170,11 +170,12 @@ def check_knn():
 
 def geohash_and_sort(input_path, output_path, data_precision, region):
     geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
-    df = pandas.read_csv(input_path, usecols=["x", "y"])
-    df["g"] = df.apply(lambda t: geohash.encode(t.x, t.y), 1)
-    df.sort_values(by=["g"], ascending=True, inplace=True)
-    df.reset_index(drop=True, inplace=True)
-    np.save(output_path, df.values)
+    data = np.load(input_path).tolist()
+    data = [[t[0], t[1], geohash.encode(t[0], t[1])] for t in data]
+    import sys
+    sys.setrecursionlimit(5000)
+    quick_sort(data, 2, 0, len(data) - 1)
+    np.save(output_path, data)
 
 
 def csv_to_npy(input_path, output_path):
@@ -230,12 +231,14 @@ if __name__ == '__main__':
                'pickup_latitude',
                'dropoff_longitude',
                'dropoff_latitude']
+    # 1. 生成数据
     # 数据来源：从http://www.andresmh.com/nyctaxitrips/下载trip_data.7z，拿到其中的一月份数据csv
     # 数据总记录数：14776616，region内14507253
     # csv文件size：2459600863字节=2.29GB
     # input_path = "../../data/trip_data_1.csv"
+    # input_path = "../../data/trip_data_2.csv"
     # output_path = "../../data/trip_data_1_filter.csv"
-    # 1. 生成数据
+    # output_path = "../../data/trip_data_2_filter.csv"
     # filter_row_from_csv(input_path, output_path, None, Region(40, 42, -75, -73))
     # 输出数据spatial scope
     # 40.016666, 41.933331, -74.990433, -73.000938
@@ -267,7 +270,7 @@ if __name__ == '__main__':
     # 确定knn找到的数据对不对
     # check_knn()
     # 6. Geohash排序数据
-    # input_path = "../../data/trip_data_1_filter.csv"
+    # input_path = "../../data/trip_data_1_filter.npy"
     # output_path = "../../data/trip_data_1_filter_sorted.npy"
     # geohash_and_sort(input_path, output_path, 6, Region(40, 42, -75, -73))
     # 7. 把csv转npy

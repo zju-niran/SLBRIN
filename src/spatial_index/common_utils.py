@@ -405,6 +405,24 @@ def biased_search(nums, field, x, mid, left, right):
     return result
 
 
+def partition(nums, field, left, right):
+    pivot, j = nums[left][field], left
+    for i in range(left + 1, right + 1):
+        if nums[i][field] <= pivot:
+            j += 1
+            nums[j], nums[i] = nums[i], nums[j]
+    nums[left], nums[j] = nums[j], nums[left]
+    return j
+
+
+def quick_sort(nums, field, left, right):
+    if right - left <= 1:
+        return
+    m = partition(nums, field, left, right)
+    quick_sort(nums, field, left, m - 1)
+    quick_sort(nums, field, m + 1, right)
+
+
 def get_min_max(lt):
     if len(lt) == 0:
         return None, None
@@ -515,3 +533,8 @@ def elu(x, alpha=1):
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
+
+if __name__ == '__main__':
+    a = [[5, 5, 5], [1, 1, 1], [2, 2, 2], [4, 4, 4], [3, 3, 3], [0, 0, 0]]
+    quick_sort(a, 2, 0, 5)
+    print(a)
