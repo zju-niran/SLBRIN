@@ -60,7 +60,7 @@ class PRQuadTree(SpatialIndex):
         for i in range(len(points)):
             self.insert(Point(points[i][0], points[i][1], key=i))
 
-    def insert_node(self, point, node=None):
+    def insert_node(self, point, node):
         """
         插入元素
         1.判断是否已分裂，已分裂的选择适合的子节点，插入；
@@ -403,7 +403,7 @@ class MyDecoder(json.JSONDecoder):
 # @profile(precision=8)
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data_path = '../../data/trip_data_1_10w_sorted.npy'
+    data_path = '../../data/trip_data_1_10w.npy'
     model_path = "model/quadtree_10w/"
     index = PRQuadTree(model_path=model_path)
     index_name = index.name

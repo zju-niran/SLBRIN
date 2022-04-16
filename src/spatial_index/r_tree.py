@@ -111,7 +111,7 @@ class RTree(SpatialIndex):
 
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data_path = '../../data/trip_data_1_10w_sorted.npy'
+    data_path = '../../data/trip_data_1_10w.npy'
     model_path = "model/rtree_10w/"
     index = RTree(model_path=model_path)
     index_name = index.name
