@@ -2,6 +2,9 @@ class SpatialIndex:
     def __init__(self, name):
         self.name = name
 
+    def insert(self, point):
+        return
+
     def point_query_single(self, point):
         return None
 
@@ -10,7 +13,7 @@ class SpatialIndex:
 
     def test_point_query(self, points):
         for point in points:
-            result = self.point_query_single(point)
+            self.point_query_single(point)
 
     def range_query_single(self, window):
         return None
@@ -20,7 +23,7 @@ class SpatialIndex:
 
     def test_range_query(self, windows):
         for window in windows:
-            result = self.range_query_single(window)
+            self.range_query_single(window)
 
     def knn_query_single(self, knn):
         return None
@@ -30,7 +33,7 @@ class SpatialIndex:
 
     def test_knn_query(self, knns):
         for knn in knns:
-            result = self.knn_query_single(knn)
+            self.knn_query_single(knn)
 
     def save(self):
         """

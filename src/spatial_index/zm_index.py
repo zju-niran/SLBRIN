@@ -343,7 +343,7 @@ if __name__ == '__main__':
     results = index.point_query(point_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(point_query_list)
-    print("Point query time ", search_time)
+    logging.info("Point query time:  %s" % search_time)
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     path = '../../data/trip_data_1_range_query.csv'
     range_query_df = pd.read_csv(path, usecols=[1, 2, 3, 4, 5])
@@ -352,6 +352,6 @@ if __name__ == '__main__':
     results = index.range_query(range_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(range_query_list)
-    print("Range query time ", search_time)
+    logging.info("Range query time:  %s" % search_time)
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     print("*************end %s************" % index_name)
