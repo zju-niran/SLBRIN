@@ -18,7 +18,9 @@ class RTree(SpatialIndex):
         super(RTree, self).__init__("RTree")
         self.model_path = model_path
         self.index = None
-        self.threshold_number = None
+        self.leaf_node_capacity = None
+        self.internal_node_capacity = None
+        self.buffering_capacity = None
         logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
                             level=logging.INFO,
                             format="%(asctime)s - %(levelname)s - %(message)s",
@@ -31,15 +33,20 @@ class RTree(SpatialIndex):
     def delete(self, point):
         self.index.delete(point.key, (point.lng, point.lat))
 
-    def build(self, data_list, threshold_number):
-        self.threshold_number = threshold_number
+    def build(self, data_list, leaf_node_capacity, internal_node_capacity, buffering_capacity):
+        self.leaf_node_capacity = leaf_node_capacity
+        self.internal_node_capacity = internal_node_capacity
+        self.buffering_capacity = buffering_capacity
         p = index.Property()
         p.dimension = 2
         p.dat_extension = "data"
         p.idx_extension = "key"
         p.storage = index.RT_Disk
-        p.pagesize = threshold_number
-        p.leaf_capacity = threshold_number
+        # TODO: 增大buffer可以提高查询效率，而且10w数据下build和insert影响不大，当前单位Byte
+        p.buffering_capacity = buffering_capacity
+        # sys.getsizeof(0) * 4表示一个MBR的内存大小，也可以通过sys.getsizeof(index.bounds)获取
+        p.pagesize = internal_node_capacity * sys.getsizeof(0) * 4
+        p.leaf_capacity = leaf_node_capacity
         self.index = index.Index(os.path.join(self.model_path, 'rtree'), properties=p, overwrite=True)
         # self.index = index.RtreeContainer(properties=p)  # 没有直接Index来得快，range_query慢了一倍
         for i in range(len(data_list)):
@@ -69,18 +76,24 @@ class RTree(SpatialIndex):
         if os.path.exists(self.model_path) is False:
             os.makedirs(self.model_path)
         with open(self.model_path + 'rtree.json', "w") as f:
-            json.dump(self.threshold_number, f, ensure_ascii=False)
+            rtree_meta_json = {
+                "leaf_node_capacity": self.leaf_node_capacity,
+                "internal_node_capacity": self.internal_node_capacity,
+                "buffering_capacity": self.buffering_capacity
+            }
+            json.dump(rtree_meta_json, f, ensure_ascii=False)
 
     def load(self):
         with open(self.model_path + 'rtree.json', "r") as f:
-            threshold_number = json.load(f)
+            rtree_meta_json = json.load(f)
         p = index.Property()
         p.dimension = 2
         p.dat_extension = "data"
         p.idx_extension = "key"
         p.storage = index.RT_Disk
-        p.pagesize = threshold_number
-        p.leaf_capacity = threshold_number
+        p.pagesize = rtree_meta_json["internal_node_capacity"] * sys.getsizeof(0) * 4
+        p.leaf_capacity = rtree_meta_json["leaf_node_capacity"]
+        p.buffering_capacity = rtree_meta_json["buffering_capacity"]
         self.index = index.Index(os.path.join(self.model_path, 'rtree'),
                                  interleaved=False, properties=p, overwrite=False)
 
@@ -106,7 +119,10 @@ def main():
         data_list = np.load(data_path).tolist()
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        index.build(data_list=data_list, threshold_number=100)
+        index.build(data_list=data_list,
+                    leaf_node_capacity=100,
+                    internal_node_capacity=100,
+                    buffering_capacity=1024)
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time %s" % build_time)
