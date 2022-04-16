@@ -1,3 +1,4 @@
+import math
 import os
 import sys
 import time
@@ -61,12 +62,15 @@ if __name__ == '__main__':
     y_data = (y_data - y_data_min) / (y_data_max - y_data_min)
     # 2. 设置实验参数
     loss_funcs = [my_score, tf.keras.losses.mse, tf.keras.losses.mae, tf.keras.losses.log_cosh]
-    batch_sizes = [512, 256, 128, 64, 32, 16, 8, 4, 2]
+    batch_nums = [1, 2, 4, 8, 16, 32, 64, 128, 256, 1024]
     # 3. 开始实验
     for loss_func in loss_funcs:
-        for bs in batch_sizes:
+        for batch_num in batch_nums:
             start_time = time.time()
-            model, epoch = train(bs, 0.1, loss_func)
+            batch_size = 2 ** math.ceil(math.log(len(x_data) / batch_num, 2))
+            if batch_size < 1:
+                batch_size = 1
+            model, epoch = train(batch_size, 0.1, loss_func)
             end_time = time.time()
             y_pred = model.predict(x_data).flatten()
             diff = y_data - y_pred

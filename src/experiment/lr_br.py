@@ -19,17 +19,17 @@ if __name__ == '__main__':
                         format="%(asctime)s - %(levelname)s - %(message)s",
                         datefmt="%Y/%m/%d %H:%M:%S %p")
     # 1. 读取数据
-    path = '../../data/trip_data_1_10w_sorted.npy'
-    # path = '../../data/trip_data_1_filter_sorted.npy'
+    # path = '../../data/trip_data_1_10w_sorted.npy'
+    path = '../../data/trip_data_1_filter_sorted.npy'
     data_list = np.load(path).tolist()
     # 2. 设置实验参数
     # lrs = [0.1, 0.01, 0.001, 0.0001]
-    lrs = [0.1, 0.01]
-    batch_sizes = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]
+    lrs = [0.1]
+    batch_nums = [8, 16, 32, 64, 128, 256, 512, 1024]
     # 3. 开始实验
     for lr in lrs:
-        for bs in batch_sizes:
-            model_path = "model/gm_index/bs_lr/%s_%s/" % (bs, lr)
+        for batch_num in batch_nums:
+            model_path = "model/sbrin/lr_bn/%s_%s/" % (lr, batch_num)
             if not os.path.exists(model_path):
                 os.makedirs(model_path)
             index = SBRIN(model_path=model_path)
@@ -38,18 +38,18 @@ if __name__ == '__main__':
             start_time = time.time()
             index.build(data_list=data_list,
                         block_size=100,
-                        threshold_number=1000,
-                        data_precision=6,region=Region(40, 42, -75, -73),
+                        threshold_number=160000,
+                        data_precision=6, region=Region(40, 42, -75, -73),
                         use_threshold=True,
-                        threshold=20,
+                        threshold=0,
                         core=[1, 128, 1],
                         train_step=5000,
-                        batch_size=bs,
+                        batch_num=batch_num,
                         learning_rate=lr,
-                        retrain_time_limit=2,
-                        thread_pool_size=6,
+                        retrain_time_limit=0,
+                        thread_pool_size=12,
                         save_nn=True,
-                        weight=0.1)
+                        weight=1)
             end_time = time.time()
             build_time = end_time - start_time
             logging.info("Build time: %s" % build_time)

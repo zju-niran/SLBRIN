@@ -330,7 +330,7 @@ if __name__ == '__main__':
                     learning_rates=[0.1, 0.1],
                     retrain_time_limits=[4, 2],
                     thread_pool_size=6,
-                    weight=0.1)
+                    weight=1)
         end_time = time.time()
         build_time = end_time - start_time
         print("Build %s time " % index_name, build_time)

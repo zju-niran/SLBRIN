@@ -23,7 +23,7 @@ if __name__ == '__main__':
     # path = '../../data/trip_data_1_filter_sorted.npy'
     data_list = np.load(path).tolist()
     # 2. 设置实验参数
-    weights = [0.00001, 0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000]
+    weights = [0.01, 0.1, 1, 10, 100, 1000]
     # 3. 开始实验
     for weight in weights:
         model_path = "model/sbrin/loss_w/w_%s/" % weight
@@ -39,13 +39,13 @@ if __name__ == '__main__':
                     data_precision=6,
                     region=Region(40, 42, -75, -73),
                     use_threshold=True,
-                    threshold=20,
+                    threshold=0,
                     core=[1, 128, 1],
                     train_step=5000,
-                    batch_size=64,
+                    batch_num=64,
                     learning_rate=0.1,
-                    retrain_time_limit=2,
-                    thread_pool_size=6,
+                    retrain_time_limit=3,
+                    thread_pool_size=10,
                     save_nn=True,
                     weight=weight)
         end_time = time.time()

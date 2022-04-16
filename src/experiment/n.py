@@ -51,12 +51,12 @@ if __name__ == '__main__':
                     threshold=200,
                     core=[1, 128, 1],
                     train_step=5000,
-                    batch_size=64,
+                    batch_num=64,
                     learning_rate=0.1,
                     retrain_time_limit=2,
                     thread_pool_size=6,
                     save_nn=False,
-                    weight=0.1)
+                    weight=1)
         end_time = time.time()
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)
@@ -88,12 +88,12 @@ if __name__ == '__main__':
                                     threshold=200,
                                     core=[1, 128, 1],
                                     train_step=5000,
-                                    batch_size=64,
+                                    batch_num=64,
                                     learning_rate=0.1,
                                     retrain_time_limit=2,
                                     thread_pool_size=6,
                                     save_nn=True,
-                                    weight=0.1)
+                                    weight=1)
         end_time = time.time()
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)
