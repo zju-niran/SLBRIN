@@ -42,7 +42,11 @@ if __name__ == '__main__':
         index_name = index.name
         logging.info("*************start %s************" % model_path)
         start_time = time.time()
-        index.build(data_list=data_list, threshold_number=n, data_precision=6, region=Region(40, 42, -75, -73),
+        index.build(data_list=data_list,
+                    block_size=100,
+                    threshold_number=n,
+                    data_precision=6,
+                    region=Region(40, 42, -75, -73),
                     use_threshold=False,
                     threshold=200,
                     core=[1, 128, 1],

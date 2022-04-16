@@ -113,7 +113,7 @@ class SBRIN(SpatialIndex):
         for point in points:
             self.insert(point)
 
-    def build(self, data_list, threshold_number, data_precision, region, use_threshold, threshold, core,
+    def build(self, data_list, block_size, threshold_number, data_precision, region, use_threshold, threshold, core,
               train_step, batch_num, learning_rate, retrain_time_limit, thread_pool_size, save_nn, weight):
         """
         构建SBRIN
@@ -134,7 +134,6 @@ class SBRIN(SpatialIndex):
         tmp_stack = [(0, 0, n, (0, n - 1), region)]
         result_list = []
         geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
-        block_size = 100
         threshold_length = region.get_max_depth_by_region_and_precision(precision=data_precision) * 2
         # 2.2. blk range分裂
         while len(tmp_stack):
@@ -928,7 +927,11 @@ def main():
         print("*************start %s************" % index_name)
         print("Start Build")
         start_time = time.time()
-        index.build(data_list=data_list, threshold_number=1000, data_precision=6, region=Region(40, 42, -75, -73),
+        index.build(data_list=data_list,
+                    block_size=100,
+                    threshold_number=1000,
+                    data_precision=6,
+                    region=Region(40, 42, -75, -73),
                     use_threshold=False,
                     threshold=20,
                     core=[1, 128, 1],
