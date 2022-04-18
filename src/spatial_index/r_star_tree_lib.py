@@ -54,58 +54,57 @@ class RStarTree(SpatialIndex):
         """
         return None
 
-    def save(self):
-        if os.path.exists(self.model_path) is False:
-            os.makedirs(self.model_path)
-
-    # def load(self):
-
 
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data_path = '../../data/trip_data_1_10w.npy'
+    data_path = '../../data/table/trip_data_1_10w.npy'
     model_path = "model/r_star_tree_lib_10w/"
+    if os.path.exists(model_path) is False:
+        os.makedirs(model_path)
     index = RStarTree(model_path=model_path)
     index_name = index.name
     load_index_from_json = False
     if load_index_from_json:
         index.load()
     else:
-        data_list = np.load(data_path).tolist()
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
+        data_list = np.load(data_path, allow_pickle=True)[:, 10:12]
         index.build(data_list=data_list, threshold_number=100)
+        index.save()
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
-        index.save()
-    path = '../../data/trip_data_1_point_query.csv'
+    logging.info("Index size: %s" % index.size())
+    path = '../../data/query/trip_data_1_point_query.csv'
     point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
     point_query_list = point_query_df.drop("count", axis=1).values.tolist()
     start_time = time.time()
-    results = index.point_query(point_query_list)
+    index.test_point_query(point_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(point_query_list)
-    logging.info("Point query time:  %s" % search_time)
-    np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/trip_data_1_range_query.csv'
+    logging.info("Point query time: %s" % search_time)
+    path = '../../data/query/trip_data_1_range_query.csv'
     range_query_df = pd.read_csv(path, usecols=[1, 2, 3, 4, 5])
     range_query_list = range_query_df.drop("count", axis=1).values.tolist()
     start_time = time.time()
-    results = index.range_query(range_query_list)
+    index.test_range_query(range_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(range_query_list)
     logging.info("Range query time:  %s" % search_time)
-    np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/trip_data_1_knn_query.csv'
+    path = '../../data/query/trip_data_1_knn_query.csv'
     knn_query_df = pd.read_csv(path, usecols=[1, 2, 3], dtype={"n": int})
     knn_query_list = [[value[0], value[1], int(value[2])] for value in knn_query_df.values]
     start_time = time.time()
-    results = index.knn_query(knn_query_list)
+    index.test_knn_query(knn_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time:  %s" % search_time)
-    np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    insert_data_list = np.load("../../data/table/trip_data_2_filter.npy", allow_pickle=True)[:, 10:12]
+    start_time = time.time()
+    index.insert_batch(insert_data_list)
+    end_time = time.time()
+    logging.info("Insert time: %s" % (end_time - start_time))
 
 
 if __name__ == '__main__':

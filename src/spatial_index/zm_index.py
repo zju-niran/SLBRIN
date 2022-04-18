@@ -1,5 +1,4 @@
 import gc
-import json
 import logging
 import math
 import multiprocessing
@@ -16,6 +15,7 @@ from src.spatial_index.common_utils import Region, biased_search, normalize_inpu
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 from src.learned_model import TrainedNN
+from src.learned_model_simple import TrainedNN as TrainedNN_Simple
 
 
 class ZMIndex(SpatialIndex):
@@ -25,7 +25,7 @@ class ZMIndex(SpatialIndex):
         self.train_data_length = train_data_length
         self.stage_length = stage_length
         self.rmi = rmi
-        self.data_list = None
+        self.geohash_index = None
         self.model_path = model_path
         logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
                             level=logging.INFO,
@@ -34,23 +34,23 @@ class ZMIndex(SpatialIndex):
         self.logging = logging.getLogger(self.name)
 
     def build(self, data_list, data_precision, region, use_thresholds, thresholds, stages, cores, train_steps,
-              batch_sizes, learning_rates, retrain_time_limits, thread_pool_size, weight):
+              batch_nums, learning_rates, retrain_time_limits, thread_pool_size, save_nn, weight):
         """
-        build index by multi threads
-        1. init train geohash->key data from x/y data
-        2. create rmi for train geohash->key data
+        build index
+        1. ordering x/y point by geohash
+        2. create rmi to train geohash->key data
         """
         self.geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
         self.stage_length = len(stages)
         train_inputs = [[[] for i in range(stages[i])] for i in range(self.stage_length)]
         train_labels = [[[] for i in range(stages[i])] for i in range(self.stage_length)]
         self.rmi = [[None for i in range(stages[i])] for i in range(self.stage_length)]
-        # 1. init train geohash->key data from x/y data
-        self.data_list = data_list
-        self.train_data_length = len(self.data_list) - 1
-        train_inputs[0][0] = [i[2] for i in self.data_list]
+        # 1. ordering x/y point by geohash
+        self.geohash_index = data_list
+        self.train_data_length = len(self.geohash_index) - 1
+        train_inputs[0][0] = [data[2] for data in data_list]
         train_labels[0][0] = list(range(0, self.train_data_length + 1))
-        # 2. create rmi for train geohash->key data
+        # 2. create rmi to train geohash->key data
         # 构建stage_nums结构的树状NNs
         for i in range(self.stage_length - 1):
             for j in range(stages[i]):
@@ -63,9 +63,9 @@ class ZMIndex(SpatialIndex):
                     divisor = stages[i + 1] * 1.0 / (self.train_data_length + 1)
                     labels = [int(k * divisor) for k in train_labels[i][j]]
                     # train model
-                    self.build_single_thread(i, j, inputs, labels, use_thresholds[i], thresholds[i], cores[i],
-                                             train_steps[i], batch_sizes[i], learning_rates[i], retrain_time_limits[i],
-                                             weight)
+                    self.build_nn(i, j, inputs, labels, use_thresholds[i], thresholds[i], cores[i],
+                                  train_steps[i], batch_nums[i], learning_rates[i], retrain_time_limits[i],
+                                  save_nn, weight)
                     # allocate data into training set for models in next stage
                     for ind in range(len(train_inputs[i][j])):
                         # pick model in next stage with output of this model
@@ -83,31 +83,29 @@ class ZMIndex(SpatialIndex):
             labels = train_labels[i][j]
             if labels is None or len(labels) == 0:
                 continue
-            pool.apply_async(self.build_single_thread,
+            pool.apply_async(self.build_nn,
                              (i, j, inputs, labels, use_thresholds[i], thresholds[i], cores[i], train_steps[i],
-                              batch_sizes[i], learning_rates[i], retrain_time_limits[i], weight, mp_dict))
+                              batch_nums[i], learning_rates[i], retrain_time_limits[i], save_nn, weight, mp_dict))
         pool.close()
         pool.join()
         for (key, value) in mp_dict.items():
             self.rmi[i][key] = value
 
-    def build_single_thread(self, curr_stage, current_stage_step, inputs, labels, use_threshold, threshold,
-                            core, train_step, batch_size, learning_rate, retrain_time_limit, weight, tmp_dict=None):
-        # train model
+    def build_nn(self, curr_stage, current_stage_step, inputs, labels, use_threshold, threshold, core,
+                 train_step, batch_num, learning_rate, retrain_time_limit, save_nn, weight, tmp_dict=None):
+        batch_size = 2 ** math.ceil(math.log(len(inputs) / batch_num, 2))
+        if batch_size < 1:
+            batch_size = 1
         i = curr_stage
         j = current_stage_step
         model_key = str(i) + "_" + str(j)
-        tmp_index = TrainedNN(self.model_path, model_key, inputs, labels,
-                              use_threshold,
-                              threshold,
-                              core,
-                              train_step,
-                              batch_size,
-                              learning_rate,
-                              retrain_time_limit,
-                              weight)
+        if save_nn is False:
+            tmp_index = TrainedNN_Simple(self.model_path, model_key, inputs, labels, core, train_step, batch_size,
+                                         learning_rate, weight)
+        else:
+            tmp_index = TrainedNN(self.model_path, model_key, inputs, labels, use_threshold, threshold, core,
+                                  train_step, batch_size, learning_rate, retrain_time_limit, weight)
         tmp_index.train()
-        # get parameters in model (weight matrix and bias matrix)
         abstract_index = AbstractNN(tmp_index.get_weights(),
                                     core,
                                     tmp_index.train_x_min,
@@ -150,43 +148,37 @@ class ZMIndex(SpatialIndex):
         return round(pre), leaf_model.min_err, leaf_model.max_err
 
     def save(self):
-        if os.path.exists(self.model_path) is False:
-            os.makedirs(self.model_path)
-        with open(self.model_path + 'zm_index.json', "w") as f:
-            json.dump(self, f, cls=MyEncoder, ensure_ascii=False)
-        np.save(self.model_path + 'data_list.npy', np.array(self.data_list))
+        zmin_meta = np.array((self.geohash.data_precision,
+                              self.geohash.region.bottom, self.geohash.region.up,
+                              self.geohash.region.left, self.geohash.region.right,
+                              self.stage_length, self.train_data_length),
+                             dtype=[("0", 'i4'),
+                                    ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8'),
+                                    ("5", 'i4'), ("6", 'i4')])
+        np.save(self.model_path + 'zmin_meta.npy', zmin_meta)
+        np.save(self.model_path + 'zmin_rmi.npy', self.rmi)
+        np.save(self.model_path + 'geohash_index.npy', self.geohash_index)
 
     def load(self):
-        with open(self.model_path + 'zm_index.json', "r") as f:
-            zm_index = json.load(f, cls=MyDecoder)
-            self.geohash = zm_index.geohash
-            self.train_data_length = zm_index.train_data_length
-            self.stage_length = zm_index.stage_length
-            self.rmi = zm_index.rmi
-            self.data_list = np.load(self.model_path + 'data_list.npy', allow_pickle=True).tolist()
-            del zm_index
+        zmin_rmi = np.load(self.model_path + 'zmin_rmi.npy', allow_pickle=True)
+        zmin_meta = np.load(self.model_path + 'zmin_meta.npy', allow_pickle=True).item()
+        geohash_index = np.load(self.model_path + 'geohash_index.npy', allow_pickle=True)
+        region = Region(zmin_meta[1], zmin_meta[2], zmin_meta[3], zmin_meta[4])
+        self.geohash = Geohash.init_by_precision(data_precision=zmin_meta[0], region=region)
+        self.stage_length = zmin_meta[5]
+        self.train_data_length = zmin_meta[6]
+        self.rmi = zmin_rmi.tolist()
+        self.geohash_index = geohash_index
 
     def size(self):
         """
-        size = zm_index.json + data_list.npy/3(xyg->g)
+        size = zmin_rmi.npy + zmin_meta.npy + geohash_index.npy
         """
-        return os.path.getsize(os.path.join(self.model_path, "zm_index.json")) + os.path.getsize(
-            os.path.join(self.model_path, "data_list.npy")) / 3
-
-    @staticmethod
-    def init_by_dict(d: dict):
-        return ZMIndex(model_path=d['model_path'], geohash=d['geohash'], train_data_length=d['train_data_length'],
-                       stage_length=d['stage_length'], rmi=d['rmi'])
-
-    def save_to_dict(self):
-        return {
-            'name': self.name,
-            'geohash': self.geohash,
-            'train_data_length': self.train_data_length,
-            'stage_length': self.stage_length,
-            'rmi': self.rmi,
-            'model_path': self.model_path
-        }
+        # 实际上：os.path.getsize(os.path.join(self.model_path, "zmin_meta.npy")) - 128 - 64
+        # 理论上：只存geohash_length/stage_length/train_data_length三个int即可
+        return os.path.getsize(os.path.join(self.model_path, "zmin_rmi.npy")) - 128 + \
+               4 * 3 + \
+               os.path.getsize(os.path.join(self.model_path, "geohash_index.npy")) - 128
 
     def point_query_single(self, point):
         """
@@ -202,7 +194,8 @@ class ZMIndex(SpatialIndex):
         l_bound = max(pre - max_err, 0)
         r_bound = min(pre - min_err, self.train_data_length)
         # 3. binary search in scope
-        return biased_search(self.data_list, 2, gh, pre, l_bound, r_bound)
+        geohash_keys = biased_search(self.geohash_index, 2, gh, pre, l_bound, r_bound)
+        return [self.geohash_index[key][3] for key in geohash_keys]
 
     def range_query_single(self, window):
         """
@@ -221,18 +214,18 @@ class ZMIndex(SpatialIndex):
         pre1, min_err1, max_err1 = self.predict(gh1)
         l_bound1 = max(pre1 - max_err1, 0)
         r_bound1 = min(pre1 - min_err1, self.train_data_length)
-        key_left = biased_search(self.data_list, 2, gh1, pre1, l_bound1, r_bound1)
+        key_left = biased_search(self.geohash_index, 2, gh1, pre1, l_bound1, r_bound1)
         key_left = l_bound1 if len(key_left) == 0 else min(key_left)
         # 3. find key_right by point query
         # if point not found, key_right = pre - max_err
         pre2, min_err2, max_err2 = self.predict(gh2)
         l_bound2 = max(pre2 - max_err2, 0)
         r_bound2 = min(pre2 - min_err2, self.train_data_length)
-        key_right = biased_search(self.data_list, 2, gh2, pre2, l_bound2, r_bound2)
+        key_right = biased_search(self.geohash_index, 2, gh2, pre2, l_bound2, r_bound2)
         key_right = r_bound2 if len(key_right) == 0 else max(key_right)
         # 4. filter all the point of scope[key1, key2] by range(x1/y1/x2/y2).contain(point)
-        return [key for key in range(key_left, key_right + 1)
-                if region.contain_and_border_by_list(self.data_list[key])]
+        return [self.geohash_index[key][3] for key in range(key_left, key_right + 1)
+                if region.contain_and_border_by_list(self.geohash_index[key])]
 
 
 class AbstractNN:
@@ -254,98 +247,62 @@ class AbstractNN:
         """
         y = normalize_input_minmax(input_key, self.input_min, self.input_max)
         for i in range(len(self.core_nums) - 2):
-            # sigmoid(w * x + b)
             y = sigmoid(y * self.weights[i * 2] + self.weights[i * 2 + 1])
         y = y * self.weights[-2] + self.weights[-1]
-        # clip到最大最小值之间
         return denormalize_output_minmax(y[0, 0], self.output_min, self.output_max)
-
-    @staticmethod
-    def init_by_dict(d: dict):
-        weights_mat = [np.mat(weight) for weight in d['weights']]
-        return AbstractNN(weights_mat, d['core_nums'], d['input_min'], d['input_max'], d['output_min'], d['output_max'],
-                          d['min_err'], d['max_err'], )
-
-
-class MyEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.int64):
-            return int(obj)
-        elif isinstance(obj, np.int32):
-            return int(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        elif isinstance(obj, Region):
-            return obj.__dict__
-        elif isinstance(obj, Geohash):
-            return obj.save_to_dict()
-        elif isinstance(obj, ZMIndex):
-            return obj.save_to_dict()
-        elif isinstance(obj, AbstractNN):
-            return obj.__dict__
-        else:
-            return super(MyEncoder, self).default(obj)
-
-
-class MyDecoder(json.JSONDecoder):
-    def __init__(self):
-        json.JSONDecoder.__init__(self, object_hook=self.dict_to_object)
-
-    def dict_to_object(self, d):
-        if d.__contains__("weights") and d.__contains__("min_err") and d.__contains__("max_err"):
-            t = AbstractNN.init_by_dict(d)
-        elif len(d.keys()) == 4 and d.__contains__("bottom") and d.__contains__("up") \
-                and d.__contains__("left") and d.__contains__("right"):
-            t = Region.init_by_dict(d)
-        elif d.__contains__("name") and d["name"] == "Geohash":
-            t = Geohash.init_by_dict(d)
-        elif d.__contains__("name") and d["name"] == "ZM Index":
-            t = ZMIndex.init_by_dict(d)
-        else:
-            t = d
-        return t
 
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data_path = '../../data/trip_data_1_10w_sorted.npy'
+    # data_path = '../../data/table/trip_data_1_filter_10w.npy'
+    data_path = '../../data/index/trip_data_1_filter_10w_sorted.npy'
     model_path = "model/zm_index_10w/"
+    if os.path.exists(model_path) is False:
+        os.makedirs(model_path)
     index = ZMIndex(model_path=model_path)
     index_name = index.name
-    load_index_from_json = False
+    load_index_from_json = True
     if load_index_from_json:
         index.load()
     else:
-        data_list = np.load(data_path).tolist()
-        print("*************start %s************" % index_name)
-        print("Start Build")
+        index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        index.build(data_list=data_list, data_precision=6, region=Region(40, 42, -75, -73),
+        # data_list = np.load(data_path, allow_pickle=True)[:, 10:12]
+        data_list = np.load(data_path, allow_pickle=True)
+        # 按照pagesize=4096, size(pointer)=4, size(x/y/g)=8, meta单独一个page, rmi(2375大小)每个模型1个page
+        # 因为精确过滤是否需要xy判断，因此geohash索引相当于存储x/y/g/key四个值=8+8+8+4=28
+        # 10w数据，[1, 100]参数下：
+        # 单次扫描IO为读取meta(和rmi连续存所以忽略)+读取每个stage的rmi+读取叶stage对应geohash数据=2+1
+        # 索引体积为geohash索引+rmi=28*10w+4096*(1+100)
+        index.build(data_list=data_list,
+                    data_precision=6,
+                    region=Region(40, 42, -75, -73),
                     use_thresholds=[False, False],
-                    thresholds=[30, 200],
+                    thresholds=[5, 20],
                     stages=[1, 100],
                     cores=[[1, 128, 1], [1, 128, 1]],
                     train_steps=[5000, 5000],
-                    batch_sizes=[64, 64],
+                    batch_nums=[64, 64],
                     learning_rates=[0.1, 0.1],
                     retrain_time_limits=[4, 2],
                     thread_pool_size=6,
+                    save_nn=True,
                     weight=1)
+        index.save()
         end_time = time.time()
         build_time = end_time - start_time
-        print("Build %s time " % index_name, build_time)
-        index.save()
+        index.logging.info("Build time: %s" % build_time)
     logging.info("Index size: %s" % index.size())
-    path = '../../data/trip_data_1_point_query.csv'
+    path = '../../data/query/trip_data_1_point_query.csv'
     point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
     point_query_list = point_query_df.drop("count", axis=1).values.tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(point_query_list)
-    logging.info("Point query time:  %s" % search_time)
+    logging.info("Point query time: %s" % search_time)
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/trip_data_1_range_query.csv'
+    path = '../../data/query/trip_data_1_range_query.csv'
     range_query_df = pd.read_csv(path, usecols=[1, 2, 3, 4, 5])
     range_query_list = range_query_df.drop("count", axis=1).values.tolist()
     start_time = time.time()
@@ -354,4 +311,3 @@ if __name__ == '__main__':
     search_time = (end_time - start_time) / len(range_query_list)
     logging.info("Range query time:  %s" % search_time)
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    print("*************end %s************" % index_name)

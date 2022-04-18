@@ -135,7 +135,7 @@ dmypy.json
 performance
 store_performance
 data/test.graph
-data/*.csv
-data/*.npy
+**/*.csv
+**/*.npy
 **/model*
 **/*.v2

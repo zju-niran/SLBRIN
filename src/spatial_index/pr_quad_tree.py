@@ -1,5 +1,4 @@
 import heapq
-import json
 import logging
 import os
 import sys
@@ -33,17 +32,11 @@ class QuadTreeNode:
             self.LU.get_all_items(result)
             self.RU.get_all_items(result)
 
-    @staticmethod
-    def init_by_dict(d: dict):
-        return QuadTreeNode(depth=d['depth'], is_leaf=d['is_leaf'], region=d['region'],
-                            LB=d['LB'], RB=d['RB'], LU=d['LU'], RU=d['RU'], items=d['items'])
-
 
 class PRQuadTree(SpatialIndex):
     def __init__(self, model_path=None, root_node=None):
         super(PRQuadTree, self).__init__("PRQuadTree")
         self.root_node = root_node
-        self.data_list = None
         self.threshold_number = None
         self.max_depth = None
         self.model_path = model_path
@@ -109,7 +102,7 @@ class PRQuadTree(SpatialIndex):
             self.insert_node(item, node)
 
         # 清空父节点的element
-        node.items = None
+        node.items = []
 
     def create_child_node(self, node, bottom, up, left, right):
         depth = node.depth + 1
@@ -208,7 +201,6 @@ class PRQuadTree(SpatialIndex):
                 return self.search_node(point, node.RU)
 
     def build(self, data_list, region, threshold_number, data_precision):
-        self.data_list = data_list
         self.threshold_number = threshold_number
         self.max_depth = region.get_max_depth_by_region_and_precision(precision=data_precision)
         self.root_node = QuadTreeNode(region=region)
@@ -222,7 +214,7 @@ class PRQuadTree(SpatialIndex):
         """
         return self.search(Point(point[0], point[1]))
 
-    def range_search(self, region, node=None, result: list = []):
+    def range_search(self, region, result, node=None):
         node = self.root_node if node is None else node
         if node.region == region:
             node.get_all_items(result)
@@ -234,30 +226,30 @@ class PRQuadTree(SpatialIndex):
             if node.LB.region.contain(Point(region.left, region.bottom)):
                 self.range_search(Region(region.bottom, min(node.LB.region.up, region.up),
                                          region.left, min(node.LB.region.right, region.right)),
-                                  node.LB, result)
+                                  result, node.LB)
             if node.RB.region.contain(Point(region.right, region.bottom)) \
                     or (region.bottom < node.RB.region.up and region.right == node.RB.region.right):
                 self.range_search(Region(region.bottom, min(node.LB.region.up, region.up),
                                          max(node.RU.region.left, region.left), region.right),
-                                  node.RB, result)
+                                  result, node.RB)
             if node.LU.region.contain(Point(region.left, region.up)) \
                     or (region.left < node.LU.region.right and region.up == node.LU.region.up):
                 self.range_search(Region(max(node.RU.region.bottom, region.bottom), region.up,
                                          region.left, min(node.LB.region.right, region.right)),
-                                  node.LU, result)
+                                  result, node.LU)
             if node.RU.region.contain(Point(region.right, region.up)) \
                     or (region.right > node.RU.region.left and region.up == node.RU.region.up) \
                     or (region.up > node.RU.region.bottom and region.right == node.RU.region.right):
                 self.range_search(Region(max(node.RU.region.bottom, region.bottom), region.up,
                                          max(node.RU.region.left, region.left), region.right),
-                                  node.RU, result)
+                                  result, node.RU)
 
     def range_query_single(self, window):
         """
         query key by x1/y1/x2/y2 window
         """
         result = []
-        self.range_search(region=Region(window[0], window[1], window[2], window[3]), node=None, result=result)
+        self.range_search(region=Region(window[0], window[1], window[2], window[3]), result=result, node=None)
         return result
 
     def knn_query_single_old(self, knn):
@@ -338,92 +330,109 @@ class PRQuadTree(SpatialIndex):
                     stack.extend([cur.LB, cur.RB, cur.LU, cur.RU])
         return [itr[1] for itr in point_heap]
 
+    def tree_to_list(self, node, node_list, item_list):
+        if node is None:
+            return
+        old_item_len = len(item_list)
+        item_list.extend([(item.lng, item.lat, item.key) for item in node.items])
+        item_len = len(item_list)
+        node_list.append([0, 0, 0, 0, node.depth, node.is_leaf, old_item_len, item_len,
+                          node.region.bottom, node.region.up, node.region.left, node.region.right])
+        parent_key = len(node_list) - 1
+        if node.LB is not None:
+            node_list[parent_key][0] = len(node_list)
+            self.tree_to_list(node.LB, node_list, item_list)
+        if node.LU is not None:
+            node_list[parent_key][1] = len(node_list)
+            self.tree_to_list(node.LU, node_list, item_list)
+        if node.RB is not None:
+            node_list[parent_key][2] = len(node_list)
+            self.tree_to_list(node.RB, node_list, item_list)
+        if node.RU is not None:
+            node_list[parent_key][3] = len(node_list)
+            self.tree_to_list(node.RU, node_list, item_list)
+
+    def list_to_tree(self, node_list, item_list, key=None):
+        if key is None:
+            key = 0
+        item = node_list[key]
+        region = Region(item[8], item[9], item[10], item[11])
+        items = [Point(point[0], point[1], key=point[2]) for point in item_list[item[6]:item[7]]]
+        node = QuadTreeNode(region, item[4], item[5], None, None, None, None, items)
+        if item[0] != 0:
+            node.LB = self.list_to_tree(node_list, item_list, item[0])
+        if item[1] != 0:
+            node.LU = self.list_to_tree(node_list, item_list, item[1])
+        if item[2] != 0:
+            node.RB = self.list_to_tree(node_list, item_list, item[2])
+        if item[3] != 0:
+            node.RU = self.list_to_tree(node_list, item_list, item[3])
+        return node
+
     def save(self):
-        if os.path.exists(self.model_path) is False:
-            os.makedirs(self.model_path)
-        with open(self.model_path + 'quad_tree.json', "w") as f:
-            json.dump(self, f, cls=MyEncoder, ensure_ascii=False)
-        np.save(self.model_path + 'data_list.npy', np.array(self.data_list))
+        node_list = []
+        item_list = []
+        self.tree_to_list(self.root_node, node_list, item_list)
+        prqt_tree = np.array([tuple(node) for node in node_list],
+                             dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'), ("3", 'i4'), ("4", 'i4'), ("5", 'i4'),
+                                    ("6", 'i4'), ("7", 'i4'), ("8", 'f8'), ("9", 'f8'), ("10", 'f8'), ("11", 'f8')])
+        prqt_item = np.array(item_list, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i4')])
+        prqt_meta = np.array([self.max_depth, self.threshold_number], dtype=np.int)
+        np.save(self.model_path + 'prquadtree_tree.npy', prqt_tree)
+        np.save(self.model_path + 'prquadtree_item.npy', prqt_item)
+        np.save(self.model_path + 'prquadtree_meta.npy', prqt_meta)
 
     def load(self):
-        with open(self.model_path + 'quad_tree.json', "r") as f:
-            quad_tree = json.load(f, cls=MyDecoder)
-            self.root_node = quad_tree.root_node
-            self.data_list = np.load(self.model_path + 'data_list.npy', allow_pickle=True).tolist()
-            del quad_tree
+        prqt_tree = np.load(self.model_path + 'prquadtree_tree.npy', allow_pickle=True)
+        prqt_item = np.load(self.model_path + 'prquadtree_item.npy', allow_pickle=True)
+        prqt_meta = np.load(self.model_path + 'prquadtree_meta.npy')
+        self.root_node = self.list_to_tree(prqt_tree, prqt_item)
+        self.max_depth = prqt_meta[0]
+        self.threshold_number = prqt_meta[1]
 
     def size(self):
-        return os.path.getsize(os.path.join(self.model_path, "quad_tree.json"))
-
-    @staticmethod
-    def init_by_dict(d: dict):
-        return PRQuadTree(model_path=d['model_path'], root_node=d['root_node'])
-
-    def save_to_dict(self):
-        return {
-            'name': self.name,
-            'root_node': self.root_node,
-            'model_path': self.model_path
-        }
-
-
-class MyEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, Region):
-            return obj.__dict__
-        if isinstance(obj, Point):
-            return obj.__dict__
-        elif isinstance(obj, QuadTreeNode):
-            return obj.__dict__
-        elif isinstance(obj, PRQuadTree):
-            return obj.save_to_dict()
-        else:
-            return super(MyEncoder, self).default(obj)
-
-
-class MyDecoder(json.JSONDecoder):
-    def __init__(self):
-        json.JSONDecoder.__init__(self, object_hook=self.dict_to_object)
-
-    def dict_to_object(self, d):
-        if len(d.keys()) == 4 and d.__contains__("bottom") and d.__contains__("up") \
-                and d.__contains__("left") and d.__contains__("right"):
-            t = Region.init_by_dict(d)
-        elif d.__contains__("lng") and d.__contains__("lat"):
-            t = Point.init_by_dict(d)
-        elif d.__contains__("name") and d["name"] == "PRQuadTree":
-            t = PRQuadTree.init_by_dict(d)
-        elif d.__contains__("LB"):
-            t = QuadTreeNode.init_by_dict(d)
-        else:
-            t = d
-        return t
+        """
+        size = prquadtree_tree.npy + prquadtree_item.npy + prquadtree_meta.npy
+        """
+        return os.path.getsize(os.path.join(self.model_path, "prquadtree_tree.npy")) - 128 + \
+               os.path.getsize(os.path.join(self.model_path, "prquadtree_item.npy")) - 128 + \
+               os.path.getsize(os.path.join(self.model_path, "prquadtree_meta.npy")) - 128
 
 
 # @profile(precision=8)
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data_path = '../../data/trip_data_1_10w.npy'
-    model_path = "model/quadtree_10w/"
+    data_path = '../../data/table/trip_data_1_filter_10w.npy'
+    model_path = "model/prquadtree_10w/"
+    if os.path.exists(model_path) is False:
+        os.makedirs(model_path)
     index = PRQuadTree(model_path=model_path)
     index_name = index.name
     load_index_from_json = False
     if load_index_from_json:
         index.load()
     else:
-        data_list = np.load(data_path).tolist()
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
+        data_list = np.load(data_path, allow_pickle=True)[:, 10:12]
+        # 按照pagesize=4096, size(pointer)=4, size(x/y)=8, node和data按照DFS的顺序密集存储在page中
+        # node存放深度、是否叶节点、region、四节点指针和data的始末指针:
+        # node size=4+4+8*4+4*4+4*2=64，一个page能存放pagesize/size(node)=64个node
+        # data存放xy数据
+        # 单个node的data size=(8*2+4)*N=20N
+        # 10w数据，[1000]参数下：
+        # 叶节点平均数据约为0.5*1000=500，叶节点约有10w/500=200个，非叶节点数量由数据分布决定，节点大约280个
+        # 单次扫描IO为读取全部node+读取node数据=1+1=2，索引体积约为280/64*4096+20*10w
         index.build(data_list=data_list,
                     region=Region(40, 42, -75, -73),
                     threshold_number=1000,
                     data_precision=6)
+        index.save()
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
-        index.save()
     logging.info("Index size: %s" % index.size())
-    path = '../../data/trip_data_1_point_query.csv'
+    path = '../../data/query/trip_data_1_point_query.csv'
     point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
     point_query_list = point_query_df.drop("count", axis=1).values.tolist()
     start_time = time.time()
@@ -432,7 +441,7 @@ def main():
     search_time = (end_time - start_time) / len(point_query_list)
     logging.info("Point query time: %s" % search_time)
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/trip_data_1_range_query.csv'
+    path = '../../data/query/trip_data_1_range_query.csv'
     range_query_df = pd.read_csv(path, usecols=[1, 2, 3, 4, 5])
     range_query_list = range_query_df.drop("count", axis=1).values.tolist()
     start_time = time.time()
@@ -441,7 +450,7 @@ def main():
     search_time = (end_time - start_time) / len(range_query_list)
     logging.info("Range query time:  %s" % search_time)
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/trip_data_1_knn_query.csv'
+    path = '../../data/query/trip_data_1_knn_query.csv'
     knn_query_df = pd.read_csv(path, usecols=[1, 2, 3], dtype={"n": int})
     knn_query_list = [[value[0], value[1], int(value[2])] for value in knn_query_df.values]
     start_time = time.time()
@@ -450,7 +459,7 @@ def main():
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time:  %s" % search_time)
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    insert_data_list = np.load("../../data/trip_data_2_10w.npy").tolist()
+    insert_data_list = np.load("../../data/table/trip_data_2_filter_10w.npy", allow_pickle=True)[:, 10:12]
     start_time = time.time()
     index.insert_batch(insert_data_list)
     end_time = time.time()

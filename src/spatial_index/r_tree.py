@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import sys
@@ -18,8 +17,9 @@ class RTree(SpatialIndex):
         super(RTree, self).__init__("RTree")
         self.model_path = model_path
         self.index = None
+        self.fill_factor = None
         self.leaf_node_capacity = None
-        self.internal_node_capacity = None
+        self.non_leaf_node_capacity = None
         self.buffering_capacity = None
         logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
                             level=logging.INFO,
@@ -37,20 +37,22 @@ class RTree(SpatialIndex):
     def delete(self, point):
         self.index.delete(point.key, (point.lng, point.lat))
 
-    def build(self, data_list, leaf_node_capacity, internal_node_capacity, buffering_capacity):
+    def build(self, data_list, fill_factor, leaf_node_capacity, non_leaf_node_capacity, buffering_capacity):
         self.leaf_node_capacity = leaf_node_capacity
-        self.internal_node_capacity = internal_node_capacity
+        self.non_leaf_node_capacity = non_leaf_node_capacity
         self.buffering_capacity = buffering_capacity
         p = index.Property()
         p.dimension = 2
         p.dat_extension = "data"
-        p.idx_extension = "key"
+        p.idx_extension = "key"  # key文件好像是缓存文件，并非索引文件
         p.storage = index.RT_Disk
         # TODO: 增大buffer可以提高查询效率，而且10w数据下build和insert影响不大，当前单位Byte
-        p.buffering_capacity = buffering_capacity
-        # sys.getsizeof(0) * 4表示一个MBR的内存大小，也可以通过sys.getsizeof(index.bounds)获取
-        p.pagesize = internal_node_capacity * sys.getsizeof(0) * 4
+        if buffering_capacity is not None:
+            p.buffering_capacity = buffering_capacity
+        p.pagesize = 4096
+        p.fill_factor = fill_factor
         p.leaf_capacity = leaf_node_capacity
+        p.index_capacity = non_leaf_node_capacity
         self.index = index.Index(os.path.join(self.model_path, 'rtree'), properties=p, overwrite=True)
         # self.index = index.RtreeContainer(properties=p)  # 没有直接Index来得快，range_query慢了一倍
         self.insert_batch(data_list)
@@ -76,62 +78,70 @@ class RTree(SpatialIndex):
         return list(self.index.nearest((knn[0], knn[1]), knn[2]))[:knn[2]]
 
     def save(self):
-        if os.path.exists(self.model_path) is False:
-            os.makedirs(self.model_path)
-        with open(self.model_path + 'rtree.json', "w") as f:
-            rtree_meta_json = {
-                "leaf_node_capacity": self.leaf_node_capacity,
-                "internal_node_capacity": self.internal_node_capacity,
-                "buffering_capacity": self.buffering_capacity
-            }
-            json.dump(rtree_meta_json, f, ensure_ascii=False)
+        rtree_meta = [self.fill_factor, self.leaf_node_capacity, self.non_leaf_node_capacity]
+        if self.buffering_capacity is not None:
+            rtree_meta.append(self.buffering_capacity)
+        np.save(self.model_path + 'rtree_meta.npy', np.array(rtree_meta))
 
     def load(self):
-        with open(self.model_path + 'rtree.json', "r") as f:
-            rtree_meta_json = json.load(f)
+        rtree_meta = np.load(self.model_path + 'rtree_meta.npy')
         p = index.Property()
         p.dimension = 2
         p.dat_extension = "data"
         p.idx_extension = "key"
         p.storage = index.RT_Disk
-        p.pagesize = rtree_meta_json["internal_node_capacity"] * sys.getsizeof(0) * 4
-        p.leaf_capacity = rtree_meta_json["leaf_node_capacity"]
-        p.buffering_capacity = rtree_meta_json["buffering_capacity"]
-        self.index = index.Index(os.path.join(self.model_path, 'rtree'),
-                                 interleaved=False, properties=p, overwrite=False)
+        p.pagesize = 4096
+        p.fill_factor = rtree_meta[0]
+        p.leaf_capacity = rtree_meta[1]
+        p.index_capacity = rtree_meta[2]
+        if rtree_meta.size == 4:
+            p.buffering_capacity = rtree_meta[3]
+        self.index = index.Index(os.path.join(self.model_path, 'rtree'), interleaved=False, properties=p,
+                                 overwrite=False)
 
     def size(self):
         """
-        size = rtree.data + rtree.key + rtree.json
+        size = rtree.data + rtree_meta.npy
         """
         return os.path.getsize(os.path.join(self.model_path, "rtree.data")) + \
-               os.path.getsize(os.path.join(self.model_path, "rtree.key")) + \
-               os.path.getsize(os.path.join(self.model_path, "rtree.json"))
+               os.path.getsize(os.path.join(self.model_path, "rtree_meta.npy")) - 128
 
 
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data_path = '../../data/trip_data_1_10w.npy'
+    data_path = '../../data/table/trip_data_1_filter_10w.npy'
     model_path = "model/rtree_10w/"
+    if os.path.exists(model_path) is False:
+        os.makedirs(model_path)
     index = RTree(model_path=model_path)
     index_name = index.name
     load_index_from_json = False
     if load_index_from_json:
         index.load()
     else:
-        data_list = np.load(data_path).tolist()
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
+        data_list = np.load(data_path, allow_pickle=True)[:, 10:12]
+        # 按照pagesize=4096, size(pointer)=4, size(x/y)=8, 一个page存放一个node的规则计算node capacity
+        # leaf node存放xy数据、数据指针、指向下一个leaf node的指针
+        # leaf_node_capacity=(pagesize-size(pointer))/(size(x)*2+size(pointer))=(4096-4)/(8*2+4)=204
+        # non leaf node存放MBR、指向MBR对应子节点的指针
+        # non_leaf_node_capacity = pagesize/(size(x)*4+size(pointer))=4096/(8*4+4)=113
+        # 由于fill_factor的存在，leaf node的数据量在[leaf_node_capacity*fill_factor, leaf_node_capacity]之间
+        # 10w数据，[0.7, 204, 113]参数下：
+        # 叶节点平均数据约为0.85*204=173，叶节点约有10w/173=578个，则树高四层1-113-578-578
+        # 单次扫描IO=树高=4，索引体积约=(1+113+578+578)*4096
         index.build(data_list=data_list,
-                    leaf_node_capacity=100,
-                    internal_node_capacity=100,
-                    buffering_capacity=1024)
+                    fill_factor=0.7,
+                    leaf_node_capacity=204,
+                    non_leaf_node_capacity=113,
+                    buffering_capacity=None)
+        index.save()
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
-        index.save()
     logging.info("Index size: %s" % index.size())
-    path = '../../data/trip_data_1_point_query.csv'
+    path = '../../data/query/trip_data_1_point_query.csv'
     point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
     point_query_list = point_query_df.drop("count", axis=1).values.tolist()
     start_time = time.time()
@@ -140,7 +150,7 @@ def main():
     search_time = (end_time - start_time) / len(point_query_list)
     logging.info("Point query time: %s" % search_time)
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/trip_data_1_range_query.csv'
+    path = '../../data/query/trip_data_1_range_query.csv'
     range_query_df = pd.read_csv(path, usecols=[1, 2, 3, 4, 5])
     range_query_list = range_query_df.drop("count", axis=1).values.tolist()
     start_time = time.time()
@@ -149,7 +159,7 @@ def main():
     search_time = (end_time - start_time) / len(range_query_list)
     logging.info("Range query time:  %s" % search_time)
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/trip_data_1_knn_query.csv'
+    path = '../../data/query/trip_data_1_knn_query.csv'
     knn_query_df = pd.read_csv(path, usecols=[1, 2, 3], dtype={"n": int})
     knn_query_list = [[value[0], value[1], int(value[2])] for value in knn_query_df.values]
     start_time = time.time()
@@ -158,7 +168,7 @@ def main():
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time:  %s" % search_time)
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    insert_data_list = np.load("../../data/trip_data_2_10w.npy").tolist()
+    insert_data_list = np.load("../../data/table/trip_data_2_filter_10w.npy", allow_pickle=True)[:, 10:12]
     start_time = time.time()
     index.insert_batch(insert_data_list)
     end_time = time.time()
