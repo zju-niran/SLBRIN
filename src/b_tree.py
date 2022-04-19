@@ -299,7 +299,7 @@ class Item():
 # For Test
 def b_tree_main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    path = '../data/trip_data_1_10w_sorted.npy'
+    path = '../data/index/trip_data_1_filter_10w_sorted.npy'
     data_list = np.load(path).tolist()
     b = BTree(2)
     l = len(data_list)

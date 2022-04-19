@@ -889,7 +889,7 @@ def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     # data_path = '../../data/table/trip_data_1_filter_10w.npy'
     data_path = '../../data/index/trip_data_1_filter_10w_sorted.npy'
-    model_path = "model/sbrin_10w_1/"
+    model_path = "model/sbrin_10w/"
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
     index = SBRIN(model_path=model_path)
