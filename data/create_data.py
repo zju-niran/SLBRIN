@@ -8,7 +8,7 @@ import numpy as np
 import pandas
 import pandas as pd
 
-from src.spatial_index.common_utils import Point, Region, quick_sort
+from src.spatial_index.common_utils import Point, Region
 from src.spatial_index.geohash_utils import Geohash
 
 
@@ -158,11 +158,8 @@ def check_knn():
 def geohash_and_sort(input_path, output_path, data_precision, region):
     geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
     data = np.load(input_path, allow_pickle=True)[:, 10:12]
-    data_len = len(data)
-    data = [(data[i][0], data[i][1], geohash.encode(data[i][0], data[i][1]), i) for i in range(data_len)]
-    import sys
-    sys.setrecursionlimit(5000)
-    quick_sort(data, 2, 0, data_len - 1)
+    data = [(data[i][0], data[i][1], geohash.encode(data[i][0], data[i][1]), i) for i in range(len(data))]
+    data = sorted(data, key=lambda x: x[2])
     np.save(output_path, np.array(data, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')]))
 
 
@@ -254,7 +251,6 @@ if __name__ == '__main__':
     input_path = "./table/trip_data_1_filter.npy"
     output_path = "./index/trip_data_1_filter_sorted.npy"
     geohash_and_sort(input_path, output_path, 6, Region(40, 42, -75, -73))
-
     # 1. 生成point检索范围
     # output_path_10w_sample = './trip_data_1_10w.csv'
     # output_path_point_query_csv = './trip_data_1_point_query.csv'

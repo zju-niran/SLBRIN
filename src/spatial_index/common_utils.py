@@ -1,9 +1,12 @@
+import copy
 import math
+import os
 from collections import deque
 from itertools import chain
 from reprlib import repr
 from sys import getsizeof, stderr
 
+import line_profiler
 import numpy as np
 
 
@@ -425,6 +428,18 @@ def quick_sort(nums, field, left, right):
         quick_sort(nums, field, m + 1, right)
 
 
+def quick_sort_n(nums, field, n, left, right):
+    """
+    快速排序使得前n个数为最小数
+    """
+    if left < right:
+        m = partition(nums, field, left, right)
+        if m > n:
+            quick_sort_n(nums, field, n, left, m - 1)
+        else:
+            quick_sort_n(nums, field, n, m + 1, n)
+
+
 def merge_sorted_array(nums1, field, left, right, nums2):
     """
     合并有序数组nums2到有序数组nums的[left, right]之后，并重新排序
@@ -553,7 +568,30 @@ def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
 
+def fun100(data):
+    a = data.tolist()
+    k = 100
+    b = copy.deepcopy(a)
+    quick_sort(b, 0, 0, len(data) - 1)
+    b = b[:k]
+    d = copy.deepcopy(a)
+    quick_sort_n(d, 0, k, 0, len(data) - 1)
+    d = d[:k]
+    c = sorted(a)[:k]
+    print(b)
+    print(d)
+    print(c)
+    for i in d:
+        if i not in c:
+            print(i)
+
+
 if __name__ == '__main__':
-    a = [[5, 5, 5], [1, 1, 1], [2, 2, 2], [5, 5, 5], [4, 4, 4], [3, 3, 3], [0, 0, 0], [5, 5, 5]]
-    quick_sort(a, 2, 0, 7)
-    print(a)
+    os.chdir(os.path.dirname(os.path.realpath(__file__)))
+    data = np.load("../data/table/trip_data_1_filter_10w.npy", allow_pickle=True)[:, 10:12]
+    profile = line_profiler.LineProfiler(fun100)
+    profile.enable()
+    # quick_sort:quick_sort_n:sorted=>14:2:1
+    fun100(data)
+    profile.disable()
+    profile.print_stats()
