@@ -174,8 +174,8 @@ class SBRIN(SpatialIndex):
         result_data_list = []
         for i in range(result_len):
             br = self.block_ranges[i]
-            result_data_list.extend(data_list[br.key[0]: br.key[1] + 1])
-            result_data_list.extend([None] * (self.meta.threshold_number - br.number))
+            result_data_list.extend(tuple(data_list[br.key[0]: br.key[1] + 1]))
+            result_data_list.extend([(0, 0, 0, 0)] * (self.meta.threshold_number - br.number))
             br_first_key = self.meta.threshold_number * i
             br.key = (br_first_key, br_first_key + br.number - 1)
         self.geohash_index = result_data_list
@@ -367,7 +367,7 @@ class SBRIN(SpatialIndex):
             i = 1
             tgt_geohash_dict = {br_key1: org_geohash_list[0][1],
                                 br_key2: org_geohash_list[-1][1]}
-            while i < size:
+            while i < size and br_key1 < self.meta.first_tmp_br:
                 if self.block_ranges[br_key1].value > org_geohash_list[i][0]:
                     tgt_geohash_dict[br_key1 - 1] = tgt_geohash_dict.get(br_key1 - 1, 0) | org_geohash_list[i][1]
                     i += 1
@@ -397,7 +397,7 @@ class SBRIN(SpatialIndex):
             i = 1
             tgt_geohash_dict = {br_key1: org_geohash_list[0][1],
                                 br_key2: org_geohash_list[-1][1]}
-            while i < size:
+            while i < size and br_key1 < self.meta.first_tmp_br:
                 if self.block_ranges[br_key1].value > org_geohash_list[i][0]:
                     tgt_geohash_dict[br_key1 - 1] = tgt_geohash_dict.get(br_key1 - 1, 0) | org_geohash_list[i][1]
                     i += 1
@@ -459,7 +459,7 @@ class SBRIN(SpatialIndex):
         3.2.2 get the min_key/max_key by nn predict and biased search
         3.2.3 filter all the point of scope[min_key/max_key] by range.contain(point)
         主要耗时间：两次geohash, predict和最后的精确过滤，0.1, 0.1 , 0.6
-        # TODO: 由于build sbrin的时候region移动了，导致这里的查询不准确了
+        # TODO: 由于build sbrin的时候region移动了，导致这里的查询不准确
         """
         region = Region(window[0], window[1], window[2], window[3])
         # 1. compute geohash of window_left and window_right
@@ -474,7 +474,7 @@ class SBRIN(SpatialIndex):
             if blk_range[0][0] == 0:  # no relation
                 continue
             else:
-                if blk_range[1].number == 0:  # blk range is None
+                if blk_range[1].number == 0:  # blk range is empty
                     continue
                 # 3.1 if window contain the blk range, add all the items into results
                 if blk_range[0][0] == 2:  # window contain blk range
@@ -592,7 +592,7 @@ class SBRIN(SpatialIndex):
                                   lambda x: window[2] <= x[0] <= window[3] and window[0] <= x[1] <= window[1])]
         for br_key in br_list:
             br = self.block_ranges[br_key]
-            if br.number == 0:  # blk range is None
+            if br.number == 0:  # blk range is empty
                 continue
             position = br_list[br_key]
             if position == 0:  # window contain blk range
@@ -634,7 +634,7 @@ class SBRIN(SpatialIndex):
         qp_g = self.meta.geohash.encode(knn[0], knn[1])
         qp_blk_key = self.point_query_br(qp_g)
         qp_blk = self.block_ranges[qp_blk_key]
-        # if blk range is None, qp_key = the max key of the last blk range
+        # if blk range is empty, qp_key = the max key of the last blk range
         if qp_blk.number == 0:
             query_point_key = qp_blk.key[1]
         # if model is not None, qp_key = point_query(geohash)
@@ -644,14 +644,15 @@ class SBRIN(SpatialIndex):
             r_bound = min(pre - qp_blk.model.min_err, qp_blk.key[1])
             query_point_key = biased_search_almost(self.geohash_index, 2, qp_g, pre, l_bound, r_bound)[0]
         # 2. get the n points to create range query window
-        # TODO: 两种策略，一种是左右找一半，但是如果跳跃了，window很大；还有一种是两边找n，减少跳跃，使window变小
+        # TODO: 两种策略，一种是左右找一半，但是如果跳跃了，window很大；
+        #  还有一种是两边找n，减少跳跃，使window变小，当前是第二种
         tp_list = [[Point.distance_pow_point_list(knn, self.geohash_index[query_point_key]),
                     self.geohash_index[query_point_key][3]]]
         cur_key = query_point_key + 1
         cur_block_key = qp_blk_key
         i = 0
         while i < k - 1:
-            if self.geohash_index[cur_key] is None:
+            if self.geohash_index[cur_key][2] == 0:
                 cur_block_key += 1
                 if cur_block_key > self.meta.last_br:
                     break
@@ -665,11 +666,11 @@ class SBRIN(SpatialIndex):
         cur_block_key = qp_blk_key
         i = 0
         while i < k - 1:
-            if self.geohash_index[cur_key] is None:
+            if self.geohash_index[cur_key][2] == 0:
                 cur_block_key -= 1
                 if cur_block_key < 0:
                     break
-                cur_key = self.block_ranges[qp_blk_key].key[1]
+                cur_key = self.block_ranges[cur_block_key].key[1]
             else:
                 tp_list.append([Point.distance_pow_point_list(knn, self.geohash_index[cur_key]),
                                 self.geohash_index[cur_key][3]])
@@ -729,7 +730,7 @@ class SBRIN(SpatialIndex):
             if tp_window_blk[2] > max_dist:
                 break
             blk = self.block_ranges[tp_window_blk[0]]
-            if blk.number == 0:  # blk range is None
+            if blk.number == 0:  # blk range is empty
                 continue
             blk_key = blk.key
             gh_new1, gh_new2 = position_func_list[tp_window_blk[1]](blk.scope)
@@ -780,7 +781,8 @@ class SBRIN(SpatialIndex):
         np.save(self.model_path + 'sbrin_meta.npy', sbrin_meta)
         np.save(self.model_path + 'sbrin_br.npy', sbrin_br)
         np.save(self.model_path + 'sbrin_br_model.npy', sbrin_br_model)
-        np.save(self.model_path + 'geohash_index.npy', np.array(self.geohash_index))
+        geohash_index = np.array(self.geohash_index, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')])
+        np.save(self.model_path + 'geohash_index.npy', geohash_index)
 
     def load(self):
         sbrin_meta = np.load(self.model_path + 'sbrin_meta.npy', allow_pickle=True).item()
@@ -809,14 +811,21 @@ class SBRIN(SpatialIndex):
         """
         # 实际上：meta+br+br_model+geohash_index
         # meta为os.path.getsize(os.path.join(self.model_path, "sbrin_br_model.npy"))-128-64*3=4*10+8*4=72
-        # br为os.path.getsize(os.path.join(self.model_path, "sbrin_br_model.npy"))-118-64*2=287*(4*5+8*6)=287*68
+        # br为os.path.getsize(os.path.join(self.model_path, "sbrin_br_model.npy"))-128-64*2=meta.size*(4*5+8*6)=287*68
+        # revmap为none
+        # geohash_index为os.path.getsize(os.path.join(self.model_path, "geohash_index.npy"))-128
+        # =meta.size*meta.threashold_number*(8*3+4)
         # 理论上：
         # meta只存version/pages_per_range/last_revmap_page/ts_number/ts_length/max_length/first_tmp_br=4*7=28
         # br只存blknum/value/length/number=287*(4*3+8)=287*20
+        # revmap存br id/pointer=287*(4+4)
+        # geohash_index为data_len*(8*3+4)
+        data_len = len([geohash for geohash in self.geohash_index if geohash[2] != 0])
         return 28 + \
                20 * self.meta.size + \
+               8 * self.meta.size + \
                os.path.getsize(os.path.join(self.model_path, "sbrin_br_model.npy")) - 128 + \
-               os.path.getsize(os.path.join(self.model_path, "geohash_index.npy")) - 128
+               28 * data_len
 
 
 class Meta:
@@ -902,9 +911,13 @@ def main():
         data_list = np.load(data_path, allow_pickle=True)
         # 按照pagesize=4096, size(pointer)=4, size(x/y/g)=8, sbrin整体连续存, meta一个page, br分页存，model(2009大小)单独存
         # 因为精确过滤是否需要xy判断，因此geohash索引相当于存储x/y/g/key四个值=8+8+8+4=28
-        # br体积=blknum/value/length/number=4*3+8=20，一个page存204个
-        # 10w数据，[1000]参数下：
-        # 单次扫描IO为读取sbrin的meta和brs+读取对应model+读取model对应geohash数据=1+1+1
+        # br体积=blknum/value/length/number=4*3+8=20，一个page存204个br
+        # revmap体积=brid+br指针=4+4=8，一个page存512个br
+        # model体积=2009，一个page存2个model
+        # data体积=x/y/g/key=8*3+4=28，一个page存146个data
+        # 10w数据，[1000]参数下：大约有286个br
+        # 1meta page，286/243=2regular page，286/512=1revmap page，286/2=143model page，10w/146=685data page
+        # 单次扫描IO为读取sbrin的meta和brs+读取对应model+读取model对应geohash数据=1+1+误差范围/4096
         # 索引体积为geohash索引+models+meta+brs=28*10w+4096*(n+1+n/28)
         index.build(data_list=data_list,
                     block_size=100,
