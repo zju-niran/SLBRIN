@@ -4,7 +4,6 @@ import sys
 import time
 
 import numpy as np
-import pandas as pd
 from rtree import index
 
 sys.path.append('/home/zju/wlj/st-learned-index')
@@ -123,17 +122,18 @@ def main():
         start_time = time.time()
         data_list = np.load(data_path, allow_pickle=True)[:, 10:12]
         # 按照pagesize=4096, size(pointer)=4, size(x/y)=8, 一个page存放一个node的规则计算node capacity
-        # leaf node存放xy数据、数据指针、指向下一个leaf node的指针
-        # leaf_node_capacity=(pagesize-size(pointer))/(size(x)*2+size(pointer))=(4096-4)/(8*2+4)=204
+        # leaf node存放xyxy数据、数据指针、指向下一个leaf node的指针
+        # leaf_node_capacity=(pagesize-size(pointer))/(size(x)*4+size(pointer))=(4096-4)/(8*4+4)=113
         # non leaf node存放MBR、指向MBR对应子节点的指针
         # non_leaf_node_capacity = pagesize/(size(x)*4+size(pointer))=4096/(8*4+4)=113
-        # 由于fill_factor的存在，leaf node的数据量在[leaf_node_capacity*fill_factor, leaf_node_capacity]之间
+        # 由于fill_factor的存在，非叶节点数据量在[node_capacity*fill_factor, node_capacity]之间，根节点和叶节点数据量不受约束
         # 10w数据，[0.7, 204, 113]参数下：
-        # 叶节点平均数据约为0.85*204=173，叶节点约有10w/173=578个，则树高四层1-113-578-578
-        # 单次扫描IO=树高=4，索引体积约=(1+113+578+578)*4096
+        # 非叶节点平均数据约为0.85*113=96，数高三层为1-96-leaf，叶节点最多113*113=12769个，最少1*79=79个
+        # 假设数据极端聚集，则叶节点为10w/113个=885，数据均匀分布则10w/113*2=1770
+        # 单次扫描IO=树高=3，索引体积约=(1+96+叶节点数据量)*4096
         index.build(data_list=data_list,
                     fill_factor=0.7,
-                    leaf_node_capacity=204,
+                    leaf_node_capacity=113,
                     non_leaf_node_capacity=113,
                     buffering_capacity=None)
         index.save()
@@ -141,38 +141,35 @@ def main():
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
     logging.info("Index size: %s" % index.size())
-    path = '../../data/query/trip_data_1_point_query.csv'
-    point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
-    point_query_list = point_query_df.drop("count", axis=1).values.tolist()
+    path = '../../data/query/point_query_10w.npy'
+    point_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(point_query_list)
     logging.info("Point query time: %s" % search_time)
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/query/trip_data_1_range_query.csv'
-    range_query_df = pd.read_csv(path, usecols=[1, 2, 3, 4, 5])
-    range_query_list = range_query_df.drop("count", axis=1).values.tolist()
+    path = '../../data/query/range_query_10w.npy'
+    range_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()
     results = index.range_query(range_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(range_query_list)
     logging.info("Range query time:  %s" % search_time)
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/query/trip_data_1_knn_query.csv'
-    knn_query_df = pd.read_csv(path, usecols=[1, 2, 3], dtype={"n": int})
-    knn_query_list = [[value[0], value[1], int(value[2])] for value in knn_query_df.values]
+    path = '../../data/query/knn_query_10w.npy'
+    knn_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()
     results = index.knn_query(knn_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time:  %s" % search_time)
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    insert_data_list = np.load("../../data/table/trip_data_2_filter_10w.npy", allow_pickle=True)[:, 10:12]
-    start_time = time.time()
-    index.insert_batch(insert_data_list)
-    end_time = time.time()
-    logging.info("Insert time: %s" % (end_time - start_time))
+    # insert_data_list = np.load("../../data/table/trip_data_2_filter_10w.npy", allow_pickle=True)[:, 10:12]
+    # start_time = time.time()
+    # index.insert_batch(insert_data_list)
+    # end_time = time.time()
+    # logging.info("Insert time: %s" % (end_time - start_time))
 
 
 if __name__ == '__main__':

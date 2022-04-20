@@ -7,7 +7,6 @@ import sys
 import time
 
 import numpy as np
-import pandas as pd
 
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.common_utils import Region, biased_search, normalize_input_minmax, denormalize_output_minmax, \
@@ -252,7 +251,8 @@ class AbstractNN:
         return denormalize_output_minmax(y[0, 0], self.output_min, self.output_max)
 
 
-if __name__ == '__main__':
+# @profile(precision=8)
+def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     # data_path = '../../data/table/trip_data_1_filter_10w.npy'
     data_path = '../../data/index/trip_data_1_filter_10w_sorted.npy'
@@ -293,21 +293,36 @@ if __name__ == '__main__':
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
     logging.info("Index size: %s" % index.size())
-    path = '../../data/query/trip_data_1_point_query.csv'
-    point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
-    point_query_list = point_query_df.drop("count", axis=1).values.tolist()
+    path = '../../data/query/point_query_10w.npy'
+    point_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(point_query_list)
     logging.info("Point query time: %s" % search_time)
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/query/trip_data_1_range_query.csv'
-    range_query_df = pd.read_csv(path, usecols=[1, 2, 3, 4, 5])
-    range_query_list = range_query_df.drop("count", axis=1).values.tolist()
+    path = '../../data/query/range_query_10w.npy'
+    range_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()
     results = index.range_query(range_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(range_query_list)
     logging.info("Range query time:  %s" % search_time)
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    # path = '../../data/query/knn_query_10w.npy'
+    # knn_query_list = np.load(path, allow_pickle=True).tolist()
+    # start_time = time.time()
+    # results = index.knn_query(knn_query_list)
+    # end_time = time.time()
+    # search_time = (end_time - start_time) / len(knn_query_list)
+    # logging.info("KNN query time:  %s" % search_time)
+    # np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    # insert_data_list = np.load("../../data/table/trip_data_2_filter_10w.npy", allow_pickle=True)[:, 10:12]
+    # start_time = time.time()
+    # index.insert_batch(insert_data_list)
+    # end_time = time.time()
+    # logging.info("Insert time: %s" % (end_time - start_time))
+
+
+if __name__ == '__main__':
+    main()

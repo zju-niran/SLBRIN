@@ -377,7 +377,7 @@ class PRQuadTree(SpatialIndex):
                              dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'), ("3", 'i4'), ("4", 'i4'), ("5", 'i4'),
                                     ("6", 'i4'), ("7", 'i4'), ("8", 'f8'), ("9", 'f8'), ("10", 'f8'), ("11", 'f8')])
         prqt_item = np.array(item_list, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i4')])
-        prqt_meta = np.array([self.max_depth, self.threshold_number], dtype=np.int)
+        prqt_meta = np.array([self.max_depth, self.threshold_number], dtype=np.int32)
         np.save(self.model_path + 'prquadtree_tree.npy', prqt_tree)
         np.save(self.model_path + 'prquadtree_item.npy', prqt_item)
         np.save(self.model_path + 'prquadtree_meta.npy', prqt_meta)
@@ -432,38 +432,35 @@ def main():
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
     logging.info("Index size: %s" % index.size())
-    path = '../../data/query/trip_data_1_point_query.csv'
-    point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
-    point_query_list = point_query_df.drop("count", axis=1).values.tolist()
+    path = '../../data/query/point_query_10w.npy'
+    point_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(point_query_list)
     logging.info("Point query time: %s" % search_time)
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/query/trip_data_1_range_query.csv'
-    range_query_df = pd.read_csv(path, usecols=[1, 2, 3, 4, 5])
-    range_query_list = range_query_df.drop("count", axis=1).values.tolist()
+    path = '../../data/query/range_query_10w.npy'
+    range_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()
     results = index.range_query(range_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(range_query_list)
     logging.info("Range query time:  %s" % search_time)
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/query/trip_data_1_knn_query.csv'
-    knn_query_df = pd.read_csv(path, usecols=[1, 2, 3], dtype={"n": int})
-    knn_query_list = [[value[0], value[1], int(value[2])] for value in knn_query_df.values]
+    path = '../../data/query/knn_query_10w.npy'
+    knn_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()
     results = index.knn_query(knn_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time:  %s" % search_time)
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    insert_data_list = np.load("../../data/table/trip_data_2_filter_10w.npy", allow_pickle=True)[:, 10:12]
-    start_time = time.time()
-    index.insert_batch(insert_data_list)
-    end_time = time.time()
-    logging.info("Insert time: %s" % (end_time - start_time))
+    # insert_data_list = np.load("../../data/table/trip_data_2_filter_10w.npy", allow_pickle=True)[:, 10:12]
+    # start_time = time.time()
+    # index.insert_batch(insert_data_list)
+    # end_time = time.time()
+    # logging.info("Insert time: %s" % (end_time - start_time))
 
 
 if __name__ == '__main__':

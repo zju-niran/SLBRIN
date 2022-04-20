@@ -68,7 +68,7 @@ if __name__ == '__main__':
                             for blk_range in index.block_ranges if blk_range.model is not None]
         model_precisions_avg = sum(model_precisions) / model_num
         logging.info("Model precision avg: %s" % model_precisions_avg)
-        path = '../../data/query/trip_data_1_point_query.csv'
+        path = '../../data/query/point_query.csv'
         point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
         point_query_list = point_query_df.drop("count", axis=1).values.tolist()
         start_time = time.time()
@@ -105,7 +105,7 @@ if __name__ == '__main__':
                             for blk_range in index.block_ranges if blk_range.model is not None]
         model_precisions_avg = sum(model_precisions) / model_num
         logging.info("Model precision avg: %s" % model_precisions_avg)
-        path = '../../data/query/trip_data_1_point_query.csv'
+        path = '../../data/query/point_query.csv'
         point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
         point_query_list = point_query_df.drop("count", axis=1).values.tolist()
         start_time = time.time()

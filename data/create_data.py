@@ -1,15 +1,18 @@
 import csv
-import json
-import logging
-import multiprocessing
 import os
 
 import numpy as np
 import pandas
 import pandas as pd
 
-from src.spatial_index.common_utils import Point, Region
+from src.spatial_index.common_utils import Point
 from src.spatial_index.geohash_utils import Geohash
+
+
+class MyError(Exception):
+
+    def __init__(self, message):
+        self.message = message
 
 
 def csv_to_npy(input_path, output_path):
@@ -39,87 +42,58 @@ def get_region(input_path):
 
 def sample(input_path, output_path, lines_limit):
     data_list = np.load(input_path, allow_pickle=True)
-    df = pd.DataFrame(data_list)
-    df = df.sample(n=lines_limit, random_state=1)
-    df = df.reset_index()
-    df = df.drop(columns={"index"})
-    np.save(output_path, df.values)
+    np.random.seed(1)
+    sample_key = np.random.randint(0, len(data_list) - 1, size=lines_limit)
+    np.save(output_path, data_list[sample_key])
 
 
-def create_point_from_csv(input_path, output_path, point_limit):
-    df = pandas.read_csv(input_path)
-    df_sample = df.sample(n=point_limit, random_state=1)
-    df_sample = df_sample.reset_index()
-    df_sample = df_sample.drop(columns={"level_0", "index"})
-    replicates = []
-    for index1, point1 in df_sample.iterrows():
-        replicate = 0
-        for index, point in df.iterrows():
-            if point.x == point1.x and point.y == point1.y:
-                replicate += 1
-        replicates.append(replicate)
-    df_sample["count"] = pd.Series(replicates)
-    df_sample.sort_values(by=["count"], ascending=True, inplace=True)
-    df_sample.reset_index(drop=True, inplace=True)
-    df_sample.to_csv(output_path)
+def create_point_query(input_path, output_path, query_number_limit):
+    data_list = np.load(input_path, allow_pickle=True)[:, 10:12]
+    np.random.seed(1)
+    sample_key = np.random.randint(0, len(data_list) - 1, size=query_number_limit)
+    np.save(output_path, data_list[sample_key])
 
 
-def print_window_from_csv_to_log(input_path, output_path, window_limit, thread_pool_size):
-    df = pandas.read_csv(input_path)
-    multiprocessing.set_start_method('spawn', force=True)
-    pool = multiprocessing.Pool(processes=thread_pool_size)
-    df_sample = df.sample(n=window_limit, random_state=1)
-    df_sample = df_sample.reset_index()
-    df_sample = df_sample.drop(columns={"level_0", "index"})
-    for index1, point1 in df_sample.iterrows():
-        for index2, point2 in df_sample.iterrows():
-            pool.apply_async(print_window_from_csv_child, (output_path, df, index1, point1, index2, point2))
-    pool.close()
-    pool.join()
+def create_range_query(output_path, data_range, query_number_limit, range_ratio_list):
+    result = np.empty(shape=(0, 5))
+    data_range_width = data_range[3] - data_range[2]
+    data_range_height = data_range[1] - data_range[0]
+    for range_ratio in range_ratio_list:
+        if (1 / range_ratio) ** 2 < query_number_limit:
+            raise MyError("range ratio %s is too large with the query number limit %s" %
+                          (range_ratio, query_number_limit))
+        child_range_width = data_range_width * range_ratio
+        child_range_height = data_range_height * range_ratio
+        child_range_number_single_dim = int(1 / range_ratio)
+        sample_size = min(child_range_number_single_dim, query_number_limit)
+        sample_x_key_list = np.random.randint(0, child_range_number_single_dim - 1, size=sample_size)
+        sample_y_key_list = np.random.randint(0, child_range_number_single_dim - 1, size=sample_size)
+        child_ranges = [[data_range[0] + child_range_height * sample_y_key,
+                         data_range[0] + child_range_height * (sample_y_key + 1),
+                         data_range[2] + child_range_width * sample_x_key,
+                         data_range[2] + child_range_width * (sample_x_key + 1)]
+                        for sample_x_key in sample_x_key_list
+                        for sample_y_key in sample_y_key_list]
+        range_ratio_list = np.array([[range_ratio]] * query_number_limit)
+        sample_key_list = np.random.randint(0, sample_size ** 2 - 1, size=query_number_limit)
+        child_ranges = np.array(child_ranges)[sample_key_list]
+        child_ranges = np.hstack((child_ranges, range_ratio_list))
+        result = np.vstack((result, child_ranges))
+    np.save(output_path, result)
 
 
-def print_window_from_csv_child(output_path, df, index1, point1, index2, point2):
-    region = Region.create_region_from_points(point1.x, point1.y, point2.x, point2.y)
-    count = 0
-    for index, point in df.iterrows():
-        if region.contain_and_border(point.x, point.y):
-            count += 1
-    logging.basicConfig(filename=output_path,
-                        level=logging.INFO,
-                        format="%(message)s")
-    logging.info({"index1": index1,
-                  "index2": index2,
-                  "bottom": region.bottom,
-                  "up": region.up,
-                  "left": region.left,
-                  "right": region.right,
-                  "count": count})
-
-
-def create_window_from_log_to_csv(log_file, output_path):
-    file = open(log_file, "r", encoding='UTF-8')
-    results = []
-    for line in file:
-        result = json.loads(line.replace("\'", '"'))
-        results.append(result)
-    df = pandas.DataFrame(results)
-    df.sort_values(by=["count"], ascending=True, inplace=True)
-    df.drop(['index1', 'index2'], axis=1, inplace=True)
-    df.reset_index(drop=True, inplace=True)
-    df.to_csv(output_path)
-
-
-def create_knn_from_csv(input_path, output_path, knn_point_limit, knn_n_limit):
-    df = pandas.read_csv(input_path)
-    df_sample = df.sample(n=knn_point_limit, random_state=1)
-    df_sample.drop(columns={"index"}, inplace=True)
-    df_sample.reset_index(drop=True, inplace=True)
-    result = None
-    for i in range(1, knn_n_limit + 1):
-        df_sample["n"] = pd.Series([i for j in range(100000)])
-        result = result.append(df_sample) if result is not None else df_sample.copy()
-    result.reset_index(drop=True, inplace=True)
-    result.to_csv(output_path)
+def create_knn_query(input_path, output_path, query_number_limit, n_list):
+    data_list = np.load(input_path, allow_pickle=True)[:, 10:12]
+    data_len = len(data_list)
+    result = np.empty(shape=(0, 3))
+    for n in n_list:
+        np.random.seed(n)
+        sample_key = np.random.randint(0, data_len - 1, size=query_number_limit)
+        n_data_list = data_list[sample_key]
+        n_list = np.array([[n]] * query_number_limit)
+        n_data_list = np.hstack((n_data_list, n_list))
+        result = np.vstack((result, n_data_list))
+    np.save(output_path, result)
 
 
 def check_knn():
@@ -240,35 +214,42 @@ if __name__ == '__main__':
     # plot_npy(output_path_uniform)
     # plot_npy(output_path_normal)
     # 4. 生成10w的数据
-    # input_path = "./table/trip_data_1_filter.npy"
-    # output_path_10w_sample = './table/trip_data_1_filter_10w.npy'
+    # input_path = "./table/normal_10000w.npy"
+    # output_path_10w_sample = './table/normal_10w.npy'
     # sample(input_path, output_path_10w_sample, 100000)
     # 5. 生成不重复的数据
     # input_path = "./trip_data_1_10w.npy"
     # output_path = "./trip_data_1_10w_distinct.npy"
     # create_distinct_data(input_path, output_path)
     # 6. Geohash排序数据
-    input_path = "./table/trip_data_1_filter.npy"
-    output_path = "./index/trip_data_1_filter_sorted.npy"
-    geohash_and_sort(input_path, output_path, 6, Region(40, 42, -75, -73))
+    # input_path = "./table/trip_data_1_filter.npy"
+    # output_path = "./index/trip_data_1_filter_sorted.npy"
+    # geohash_and_sort(input_path, output_path, 6, Region(40, 42, -75, -73))
+
     # 1. 生成point检索范围
-    # output_path_10w_sample = './trip_data_1_10w.csv'
-    # output_path_point_query_csv = './trip_data_1_point_query.csv'
-    # point_limit = 10000
-    # create_point_from_csv(output_path_10w_sample, output_path_point_query_csv, point_limit)
+    input_path = './table/trip_data_1_filter.npy'
+    output_path = './query/point_query.npy'
+    # input_path = './table/trip_data_1_filter_10w.npy'
+    # output_path = './query/point_query_10w.npy'
+    query_number_limit = 1000
+    selectivity_list = [0.1, 0.5, 1, 1.5, 2]
+    create_point_query(input_path, output_path, query_number_limit)
     # 2. 生成range检索范围
-    # output_path_10w_sample = './trip_data_1_10w.csv'
-    # output_path_range_query_csv = './trip_data_1_range_query.csv'
-    # output_path_range_query_log = './trip_data_1_range_query.log'
-    # window_limit = 100
-    # print_window_from_csv_to_log(output_path_10w_sample, output_path_range_query_log, window_limit, 6)
-    # create_window_from_log_to_csv(output_path_range_query_log, output_path_range_query_csv)
+    output_path = './query/range_query.npy'
+    range_ratio_list = [0.000006, 0.000025, 0.0001, 0.0004, 0.0016]
+    # output_path = './query/range_query_10w.npy'
+    # range_ratio_list = [0.0025, 0.005, 0.01, 0.02, 0.04]
+    data_range = [40, 42, -75, -73]
+    query_number_limit = 100
+    create_range_query(output_path, data_range, query_number_limit, range_ratio_list)
     # 3.生成knn检索范围
-    # output_path_10w_sample = './query/trip_data_1_10w.csv'
-    # output_path_knn_query_csv = './trip_data_1_knn_query.csv'
-    # knn_point_limit = 1000
-    # knn_n_limit = 10
-    # create_knn_from_csv(output_path_10w_sample, output_path_knn_query_csv, knn_point_limit, knn_n_limit)
+    input_path = './table/trip_data_1_filter.npy'
+    output_path = './query/knn_query.npy'
+    # input_path = './table/trip_data_1_filter_10w.npy'
+    # output_path = './query/knn_query_10w.npy'
+    query_number_limit = 1000
+    n_list = [4, 8, 16, 32, 64]
+    create_knn_query(input_path, output_path, query_number_limit, n_list)
 
     # 确定knn找到的数据对不对
     # check_knn()
