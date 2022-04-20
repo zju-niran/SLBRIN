@@ -240,7 +240,7 @@ if __name__ == '__main__':
     # output_path = './query/range_query_10w.npy'
     # range_ratio_list = [0.0025, 0.005, 0.01, 0.02, 0.04]
     data_range = [40, 42, -75, -73]
-    query_number_limit = 100
+    query_number_limit = 1000
     create_range_query(output_path, data_range, query_number_limit, range_ratio_list)
     # 3.生成knn检索范围
     input_path = './table/trip_data_1_filter.npy'

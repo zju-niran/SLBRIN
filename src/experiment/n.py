@@ -24,8 +24,7 @@ if __name__ == '__main__':
         os.makedirs(parent_path)
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
                         level=logging.INFO,
-                        format="%(asctime)s - %(levelname)s - %(message)s",
-                        datefmt="%Y/%m/%d %H:%M:%S %p")
+                        format="%(message)s")
     # 1. 读取数据
     # data_path = '../../data/index/trip_data_1_filter_10w_sorted.npy'
     data_path = '../../data/index/trip_data_1_filter_sorted.npy'
@@ -57,10 +56,10 @@ if __name__ == '__main__':
                     thread_pool_size=12,
                     save_nn=True,
                     weight=1)
+        index.save()
         end_time = time.time()
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)
-        index.save()
         logging.info("Index size: %s" % index.size())
         model_num = index.meta.first_tmp_br
         logging.info("Model num: %s" % model_num)

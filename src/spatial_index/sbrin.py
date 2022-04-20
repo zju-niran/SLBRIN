@@ -778,11 +778,11 @@ class SBRIN(SpatialIndex):
         sbrin_br = np.array(sbrin_br, dtype=[("0", 'i4'), ("1", 'i8'), ("2", 'i4'), ("3", 'i4'),
                                              ("4", 'i4'), ("5", 'i4'), ("6", 'i8'),
                                              ("7", 'f8'), ("8", 'f8'), ("9", 'f8'), ("10", 'f8')])
-        np.save(self.model_path + 'sbrin_meta.npy', sbrin_meta)
-        np.save(self.model_path + 'sbrin_br.npy', sbrin_br)
-        np.save(self.model_path + 'sbrin_br_model.npy', sbrin_br_model)
+        np.save(os.path.join(self.model_path, 'sbrin_meta.npy'), sbrin_meta)
+        np.save(os.path.join(self.model_path, 'sbrin_br.npy'), sbrin_br)
+        np.save(os.path.join(self.model_path, 'sbrin_br_model.npy'), sbrin_br_model)
         geohash_index = np.array(self.geohash_index, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')])
-        np.save(self.model_path + 'geohash_index.npy', geohash_index)
+        np.save(os.path.join(self.model_path, 'geohash_index.npy'), geohash_index)
 
     def load(self):
         sbrin_meta = np.load(self.model_path + 'sbrin_meta.npy', allow_pickle=True).item()

@@ -154,9 +154,9 @@ class ZMIndex(SpatialIndex):
                              dtype=[("0", 'i4'),
                                     ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8'),
                                     ("5", 'i4'), ("6", 'i4')])
-        np.save(self.model_path + 'zmin_meta.npy', zmin_meta)
-        np.save(self.model_path + 'zmin_rmi.npy', self.rmi)
-        np.save(self.model_path + 'geohash_index.npy', self.geohash_index)
+        np.save(os.path.join(self.model_path, 'zmin_meta.npy'), zmin_meta)
+        np.save(os.path.join(self.model_path, 'zmin_rmi.npy'), self.rmi)
+        np.save(os.path.join(self.model_path, 'geohash_index.npy'), self.geohash_index)
 
     def load(self):
         zmin_rmi = np.load(self.model_path + 'zmin_rmi.npy', allow_pickle=True)

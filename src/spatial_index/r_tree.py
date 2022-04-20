@@ -80,7 +80,7 @@ class RTree(SpatialIndex):
         rtree_meta = [self.fill_factor, self.leaf_node_capacity, self.non_leaf_node_capacity]
         if self.buffering_capacity is not None:
             rtree_meta.append(self.buffering_capacity)
-        np.save(self.model_path + 'rtree_meta.npy', np.array(rtree_meta))
+        np.save(os.path.join(self.model_path, 'rtree_meta.npy'), np.array(rtree_meta))
 
     def load(self):
         rtree_meta = np.load(self.model_path + 'rtree_meta.npy')

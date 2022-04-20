@@ -50,20 +50,16 @@ if __name__ == '__main__':
     for gpu in gpus:
         tf.config.experimental.set_memory_growth(gpu, True)
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    # 1. 读取数据
     x_data = np.load('1.npy', allow_pickle=True)
     y_data = np.load('2.npy', allow_pickle=True)
-    # 输入输出归一化
     x_data_min = x_data.min()
     x_data_max = x_data.max()
     y_data_min = y_data.min()
     y_data_max = y_data.max()
     x_data = (x_data - x_data_min) / (x_data_max - x_data_min) - 0.5
     y_data = (y_data - y_data_min) / (y_data_max - y_data_min)
-    # 2. 设置实验参数
     loss_funcs = [my_score, tf.keras.losses.mse, tf.keras.losses.mae, tf.keras.losses.log_cosh]
     batch_nums = [1, 2, 4, 8, 16, 32, 64, 128, 256, 1024]
-    # 3. 开始实验
     for loss_func in loss_funcs:
         for batch_num in batch_nums:
             start_time = time.time()

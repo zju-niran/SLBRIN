@@ -16,16 +16,12 @@ if __name__ == '__main__':
         os.makedirs(parent_path)
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
                         level=logging.INFO,
-                        format="%(asctime)s - %(levelname)s - %(message)s",
-                        datefmt="%Y/%m/%d %H:%M:%S %p")
-    # 1. 读取数据
+                        format="%(message)s")
     # data_path = '../../data/index/trip_data_1_filter_10w_sorted.npy'
     data_path = '../../data/index/trip_data_1_filter_sorted.npy'
-    # 2. 设置实验参数
     # lrs = [0.1, 0.01, 0.001, 0.0001]
     lrs = [0.1]
     batch_nums = [16, 32, 64, 128, 256, 512]
-    # 3. 开始实验
     for lr in lrs:
         for batch_num in batch_nums:
             model_path = "model/sbrin/lr_bn/%s_%s/" % (lr, batch_num)
@@ -55,6 +51,7 @@ if __name__ == '__main__':
             end_time = time.time()
             build_time = end_time - start_time
             logging.info("Build time: %s" % build_time)
+            logging.info("Index size: %s" % index.size())
             model_num = index.meta.first_tmp_br
             logging.info("Model num: %s" % model_num)
             model_precisions = [(blk_range.model.max_err - blk_range.model.min_err)
