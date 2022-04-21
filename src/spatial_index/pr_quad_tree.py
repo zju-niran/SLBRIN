@@ -47,11 +47,11 @@ class PRQuadTree(SpatialIndex):
         self.logging = logging.getLogger(self.name)
 
     def insert(self, point):
-        self.insert_node(point, self.root_node)
+        self.insert_node(Point(point[0], point[1], key=point[2]), self.root_node)
 
     def insert_batch(self, points):
-        for i in range(len(points)):
-            self.insert(Point(points[i][0], points[i][1], key=i))
+        for point in points:
+            self.insert(point)
 
     def insert_node(self, point, node):
         """
@@ -456,11 +456,11 @@ def main():
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time:  %s" % search_time)
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    # insert_data_list = np.load("../../data/table/trip_data_2_filter_10w.npy", allow_pickle=True)[:, 10:12]
-    # start_time = time.time()
-    # index.insert_batch(insert_data_list)
-    # end_time = time.time()
-    # logging.info("Insert time: %s" % (end_time - start_time))
+    insert_data_list = np.load("../../data/table/trip_data_2_filter_10w.npy", allow_pickle=True)[:, [10, 11, -1]]
+    start_time = time.time()
+    index.insert_batch(insert_data_list)
+    end_time = time.time()
+    logging.info("Insert time: %s" % (end_time - start_time))
 
 
 if __name__ == '__main__':

@@ -907,7 +907,7 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        # data_list = np.load(data_path, allow_pickle=True)[:, 10:12]
+        # data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
         data_list = np.load(data_path, allow_pickle=True)
         # 按照pagesize=4096, size(pointer)=4, size(x/y/g)=8, sbrin整体连续存, meta一个page, br分页存，model(2009大小)单独存
         # 因为精确过滤是否需要xy判断，因此geohash索引相当于存储x/y/g/key四个值=8+8+8+4=28
@@ -963,7 +963,7 @@ def main():
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time:  %s" % search_time)
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    # insert_data_list = np.load("../../data/table/trip_data_2_filter_10w.npy", allow_pickle=True)[:, 10:12]
+    # insert_data_list = np.load("../../data/table/trip_data_2_filter_10w.npy", allow_pickle=True)[:, [10, 11, -1]]
     # start_time = time.time()
     # index.insert_batch(insert_data_list)
     # end_time = time.time()

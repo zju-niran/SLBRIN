@@ -28,7 +28,7 @@ if __name__ == '__main__':
         index_name = index.name
         logging.info("*************start %s************" % model_path)
         start_time = time.time()
-        data_list = np.load(data_path, allow_pickle=True)[:, 10:12]
+        data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
         index.build(data_list=data_list,
                     region=Region(40, 42, -75, -73),
                     threshold_number=n,

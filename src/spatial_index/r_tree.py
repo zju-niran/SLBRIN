@@ -27,11 +27,11 @@ class RTree(SpatialIndex):
         self.logging = logging.getLogger(self.name)
 
     def insert(self, point):
-        self.index.insert(point.key, (point.lng, point.lat))
+        self.index.insert(point[2], (point[0], point[1]))
 
     def insert_batch(self, points):
-        for i in range(len(points)):
-            self.insert(Point(points[i][0], points[i][1], key=i))
+        for point in points:
+            self.insert(point)
 
     def delete(self, point):
         self.index.delete(point.key, (point.lng, point.lat))
@@ -165,11 +165,11 @@ def main():
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time:  %s" % search_time)
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    # insert_data_list = np.load("../../data/table/trip_data_2_filter_10w.npy", allow_pickle=True)[:, 10:12]
-    # start_time = time.time()
-    # index.insert_batch(insert_data_list)
-    # end_time = time.time()
-    # logging.info("Insert time: %s" % (end_time - start_time))
+    insert_data_list = np.load("../../data/table/trip_data_2_filter_10w.npy", allow_pickle=True)[:, [10, 11, -1]]
+    start_time = time.time()
+    index.insert_batch(insert_data_list)
+    end_time = time.time()
+    logging.info("Insert time: %s" % (end_time - start_time))
 
 
 if __name__ == '__main__':

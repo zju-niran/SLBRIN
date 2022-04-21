@@ -286,11 +286,7 @@ class KDTree(SpatialIndex):
 
     def build(self, data_list):
         # TODO: 对比一下两种build的结果树是否一样
-        data_len = len(data_list)
-        key_list = np.arange(data_len)
-        key_list.resize((data_len, 1))
-        data_list = np.hstack((data_list, key_list)).tolist()
-        self.root_node = self.build_node(data_list, data_len, 0)
+        self.root_node = self.build_node(data_list, len(data_list), 0)
         # data_list = np.insert(data_list, np.arange(len(data_list)), axis=1)
         # self.root_node = KDNode(value=data_list[0], axis=0)
         # self.insert_batch(data_list[1:])
@@ -409,7 +405,7 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        data_list = np.load(data_path, allow_pickle=True)[:, 10:12]
+        data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
         index.build(data_list=data_list)
         index.save()
         end_time = time.time()
@@ -440,7 +436,7 @@ def main():
     # search_time = (end_time - start_time) / len(knn_query_list)
     # logging.info("KNN query time:  %s" % search_time)
     # np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    insert_data_list = np.load("../../data/table/trip_data_2_filter_10w.npy", allow_pickle=True)[:, 10:12]
+    insert_data_list = np.load("../../data/table/trip_data_2_filter_10w.npy", allow_pickle=True)[:, [10, 11, -1]]
     start_time = time.time()
     index.insert_batch(insert_data_list)
     end_time = time.time()
