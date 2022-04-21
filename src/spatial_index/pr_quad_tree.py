@@ -5,7 +5,6 @@ import sys
 import time
 
 import numpy as np
-import pandas as pd
 
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.spatial_index import SpatialIndex
@@ -21,7 +20,7 @@ class QuadTreeNode:
         self.RB = RB
         self.LU = LU
         self.RU = RU
-        self.items = items if items is not None else []
+        self.items = items if items else []
 
     def get_all_items(self, result):
         if self.is_leaf == 1:
@@ -208,7 +207,6 @@ class PRQuadTree(SpatialIndex):
 
     def point_query_single(self, point):
         """
-        query key by x/y point
         1. search by x/y
         2. for duplicate point: only return the first one
         """
@@ -245,16 +243,12 @@ class PRQuadTree(SpatialIndex):
                                   result, node.RU)
 
     def range_query_single(self, window):
-        """
-        query key by x1/y1/x2/y2 window
-        """
         result = []
         self.range_search(region=Region(window[0], window[1], window[2], window[3]), result=result, node=None)
         return result
 
     def knn_query_single_old(self, knn):
         """
-        query key by x1/y1/n knn
         代码参考：https://github.com/diana12333/QuadtreeNN
         1.用root node初始化stack，nearest_distance和point_heap分别为正无穷和空
         2.循环：当stack非空
@@ -273,12 +267,11 @@ class PRQuadTree(SpatialIndex):
             if cur.region.within_distance_pow(point, -nearest_distance[0]):
                 if cur.is_leaf:
                     for item in cur.items:
-                        if len(point_heap) < n:
-                            heapq.heappush(point_heap, (-point.distance_pow(item), item.key))
-                            nearest_distance = heapq.nsmallest(1, point_heap)[0]
-                            continue
                         point_distance = point.distance_pow(item)
-                        if point_distance < -nearest_distance[0]:
+                        if len(point_heap) < n:
+                            heapq.heappush(point_heap, (-point_distance, item.key))
+                            nearest_distance = heapq.nsmallest(1, point_heap)[0]
+                        elif point_distance < -nearest_distance[0]:
                             heapq.heappop(point_heap)
                             heapq.heappush(point_heap, (-point_distance, item.key))
                             nearest_distance = heapq.nsmallest(1, point_heap)[0]
@@ -288,10 +281,10 @@ class PRQuadTree(SpatialIndex):
 
     def knn_query_single(self, knn):
         """
-        query key by x1/y1/n knn
         1.先找到point所在的节点，初始化nearest_distance和point_heap
         2.后续操作和knn_query_old一致，但是由于nearest_distance被初始化，后续遍历可以减少大量节点的距离判断
         检索时间从0.099225优化到0.006712
+        TODO: stack改成iter看下是否有加速
         """
         point = Point(knn[0], knn[1])
         n = knn[2]
@@ -300,12 +293,11 @@ class PRQuadTree(SpatialIndex):
         point_heap = []
         point_node = self.search_node(point)
         for item in point_node.items:
-            if len(point_heap) < n:
-                heapq.heappush(point_heap, (-point.distance_pow(item), item.key))
-                nearest_distance = heapq.nsmallest(1, point_heap)[0]
-                continue
             point_distance = point.distance_pow(item)
-            if point_distance < -nearest_distance[0]:
+            if len(point_heap) < n:
+                heapq.heappush(point_heap, (-point_distance, item.key))
+                nearest_distance = heapq.nsmallest(1, point_heap)[0]
+            elif point_distance < -nearest_distance[0]:
                 heapq.heappop(point_heap)
                 heapq.heappush(point_heap, (-point_distance, item.key))
                 nearest_distance = heapq.nsmallest(1, point_heap)[0]
@@ -317,12 +309,11 @@ class PRQuadTree(SpatialIndex):
             if cur.region.within_distance_pow(point, -nearest_distance[0]):
                 if cur.is_leaf:
                     for item in cur.items:
-                        if len(point_heap) < n:
-                            heapq.heappush(point_heap, (-point.distance_pow(item), item.key))
-                            nearest_distance = heapq.nsmallest(1, point_heap)[0]
-                            continue
                         point_distance = point.distance_pow(item)
-                        if point_distance < -nearest_distance[0]:
+                        if len(point_heap) < n:
+                            heapq.heappush(point_heap, (-point_distance, item.key))
+                            nearest_distance = heapq.nsmallest(1, point_heap)[0]
+                        elif point_distance < -nearest_distance[0]:
                             heapq.heappop(point_heap)
                             heapq.heappush(point_heap, (-point_distance, item.key))
                             nearest_distance = heapq.nsmallest(1, point_heap)[0]
@@ -339,7 +330,7 @@ class PRQuadTree(SpatialIndex):
         node_list.append([0, 0, 0, 0, node.depth, node.is_leaf, old_item_len, item_len,
                           node.region.bottom, node.region.up, node.region.left, node.region.right])
         parent_key = len(node_list) - 1
-        if node.LB is not None:
+        if node.LB:
             node_list[parent_key][0] = len(node_list)
             self.tree_to_list(node.LB, node_list, item_list)
         if node.LU is not None:
@@ -414,15 +405,20 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        data_list = np.load(data_path, allow_pickle=True)[:, 10:12]
-        # 按照pagesize=4096, size(pointer)=4, size(x/y)=8, node和data按照DFS的顺序密集存储在page中
-        # node存放深度、是否叶节点、region、四节点指针和data的始末指针:
-        # node size=4+4+8*4+4*4+4*2=64，一个page能存放pagesize/size(node)=64个node
-        # data存放xy数据
-        # 单个node的data size=(8*2+4)*N=20N
+        data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
+        # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y)=8, node和data按照DFS的顺序密集存储在page中
+        # tree存放所有node的深度、是否叶节点、region、四节点指针和data的始末指针:
+        # node size=4+4+8*4+4*4+4*2=64，单page存放4096/64=64node，单prefetch读取256*64=16384node
+        # item存放xy数据和数据指针：
+        # data size=8*2+4=20，单page存放4096/20=204data，单prefetch读取256*204=52224data
         # 10w数据，[1000]参数下：
         # 叶节点平均数据约为0.5*1000=500，叶节点约有10w/500=200个，非叶节点数量由数据分布决定，节点大约280个
-        # 单次扫描IO为读取全部node+读取node数据=1+1=2，索引体积约为280/64*4096+20*10w
+        # 单次扫描IO=读取node+读取node对应数据=280/16384+500/16384=2
+        # 索引体积=280/64*4096+20*10w
+        # 1451w数据，[1000]参数下：
+        # 叶节点平均数据约为0.5*1000=500，叶节点约有1451w/500=29020个，非叶节点数量由数据分布决定，节点大约5w个
+        # 单次扫描IO=读取node+读取node对应数据=5w/16384+500/16384=4~5
+        # 索引体积=5w/64*4096+20*1451w
         index.build(data_list=data_list,
                     region=Region(40, 42, -75, -73),
                     threshold_number=1000,

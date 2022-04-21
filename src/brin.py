@@ -6,8 +6,8 @@ class BRIN:
         self.revmap_page_maxitems = revmap_page_maxitems
         self.regular_page_maxitems = regular_page_maxitems
         self.meta = meta
-        self.revmaps = revmaps if revmaps is not None else []
-        self.block_ranges = block_ranges if block_ranges is not None else []
+        self.revmaps = revmaps if revmaps else []
+        self.block_ranges = block_ranges if block_ranges else []
 
     @staticmethod
     def init_by_dict(d: dict):

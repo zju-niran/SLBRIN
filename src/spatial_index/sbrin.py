@@ -426,7 +426,6 @@ class SBRIN(SpatialIndex):
 
     def point_query_single(self, point):
         """
-        query key by x/y point
         1. compute geohash from x/y of points
         2. find blk range within geohash by sbrin.point_query
         3. predict by leaf model
@@ -449,7 +448,6 @@ class SBRIN(SpatialIndex):
 
     def range_query_single_old(self, window):
         """
-        query key by x1/y1/x2/y2 window
         1. compute geohash from window_left and window_right
         2. get all the blk range and its relationship with window between geohash1/geohash2 by sbrin.range_query
         3. for different relation, use different method to handle the points
@@ -512,7 +510,6 @@ class SBRIN(SpatialIndex):
 
     def range_query_single(self, window):
         """
-        query key by x1/y1/x2/y2 window
         1. compute geohash from window_left and window_right
         2. get all relative blk ranges with key and relationship
         3. get min_geohash and max_geohash of every blk range for different relation
@@ -601,14 +598,14 @@ class SBRIN(SpatialIndex):
                 # if-elif-else->lambda, 30->4
                 gh_new1, gh_new2, compare_func = position_func_list[position](br.scope)
                 # 4 predict min_key/max_key by nn
-                if gh_new1 is not None:
+                if gh_new1:
                     pre1 = br.model_predict(gh_new1)
                     l_bound1 = max(pre1 - br.model.max_err, br.key[0])
                     r_bound1 = min(pre1 - br.model.min_err, br.key[1])
                     key_left = min(biased_search_almost(self.geohash_index, 2, gh_new1, pre1, l_bound1, r_bound1))
                 else:
                     key_left = br.key[0]
-                if gh_new2 is not None:
+                if gh_new2:
                     pre2 = br.model_predict(gh_new2)
                     l_bound2 = max(pre2 - br.model.max_err, br.key[0])
                     r_bound2 = min(pre2 - br.model.min_err, br.key[1])
@@ -623,7 +620,6 @@ class SBRIN(SpatialIndex):
 
     def knn_query_single(self, knn):
         """
-        query key by x1/y1/n knn
         1. get the nearest key of query point
         2. get the nn points to create range query window
         3. filter point by distance
@@ -637,7 +633,7 @@ class SBRIN(SpatialIndex):
         # if blk range is empty, qp_key = the max key of the last blk range
         if qp_blk.number == 0:
             query_point_key = qp_blk.key[1]
-        # if model is not None, qp_key = point_query(geohash)
+        # if model, qp_key = point_query(geohash)
         else:
             pre = qp_blk.model_predict(qp_g)
             l_bound = max(pre - qp_blk.model.max_err, qp_blk.key[0])
@@ -734,14 +730,14 @@ class SBRIN(SpatialIndex):
                 continue
             blk_key = blk.key
             gh_new1, gh_new2 = position_func_list[tp_window_blk[1]](blk.scope)
-            if gh_new1 is not None:
+            if gh_new1:
                 pre1 = blk.model_predict(gh_new1)
                 l_bound1 = max(pre1 - blk.model.max_err, blk_key[0])
                 r_bound1 = min(pre1 - blk.model.min_err, blk_key[1])
                 key_left = min(biased_search_almost(self.geohash_index, 2, gh_new1, pre1, l_bound1, r_bound1))
             else:
                 key_left = blk_key[0]
-            if gh_new2 is not None:
+            if gh_new2:
                 pre2 = blk.model_predict(gh_new2)
                 l_bound2 = max(pre2 - blk.model.max_err, blk_key[0])
                 r_bound2 = min(pre2 - blk.model.min_err, blk_key[1])
@@ -909,7 +905,7 @@ def main():
         start_time = time.time()
         # data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
         data_list = np.load(data_path, allow_pickle=True)
-        # 按照pagesize=4096, size(pointer)=4, size(x/y/g)=8, sbrin整体连续存, meta一个page, br分页存，model(2009大小)单独存
+        # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y/g)=8, sbrin整体连续存, meta一个page, br分页存，model(2009大小)单独存
         # 因为精确过滤是否需要xy判断，因此geohash索引相当于存储x/y/g/key四个值=8+8+8+4=28
         # br体积=blknum/value/length/number=4*3+8=20，一个page存204个br
         # revmap体积=brid+br指针=4+4=8，一个page存512个br

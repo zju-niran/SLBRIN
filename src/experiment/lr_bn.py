@@ -55,6 +55,6 @@ if __name__ == '__main__':
             model_num = index.meta.first_tmp_br
             logging.info("Model num: %s" % model_num)
             model_precisions = [(blk_range.model.max_err - blk_range.model.min_err)
-                                for blk_range in index.block_ranges if blk_range.model is not None]
+                                for blk_range in index.block_ranges if blk_range.model]
             model_precisions_avg = sum(model_precisions) / model_num
             logging.info("Model precision avg: %s" % model_precisions_avg)

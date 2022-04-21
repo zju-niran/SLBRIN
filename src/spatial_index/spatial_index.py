@@ -6,6 +6,9 @@ class SpatialIndex:
         return
 
     def point_query_single(self, point):
+        """
+        query key by x/y point
+        """
         return None
 
     def point_query(self, points):
@@ -16,6 +19,9 @@ class SpatialIndex:
             self.point_query_single(point)
 
     def range_query_single(self, window):
+        """
+        query key by x1/y1/x2/y2 window
+        """
         return None
 
     def range_query(self, windows):
@@ -26,6 +32,9 @@ class SpatialIndex:
             self.range_query_single(window)
 
     def knn_query_single(self, knn):
+        """
+        query key by x1/y1/n knn
+        """
         return None
 
     def knn_query(self, knns):

@@ -13,11 +13,11 @@ class BTreeNode:
         self.isLeaf = is_leaf
         self.numberOfKeys = number_of_keys
         self.index = index
-        if items is not None:
+        if items:
             self.items = items
         else:
             self.items = [None] * (degree * 2 - 1)
-        if children is not None:
+        if children:
             self.children = children
         else:
             self.children = [None] * degree * 2

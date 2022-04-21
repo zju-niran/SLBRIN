@@ -46,7 +46,7 @@ class RTree(SpatialIndex):
         p.idx_extension = "key"  # key文件好像是缓存文件，并非索引文件
         p.storage = index.RT_Disk
         # TODO: 增大buffer可以提高查询效率，而且10w数据下build和insert影响不大，当前单位Byte
-        if buffering_capacity is not None:
+        if buffering_capacity:
             p.buffering_capacity = buffering_capacity
         p.pagesize = 4096
         p.fill_factor = fill_factor
@@ -58,27 +58,20 @@ class RTree(SpatialIndex):
 
     def point_query_single(self, point):
         """
-        query key by x/y point
         1. search by x/y
         2. for duplicate point: only return the first one
         """
         return list(self.index.intersection((point[0], point[1])))
 
     def range_query_single(self, window):
-        """
-        query key by x1/y1/x2/y2 window
-        """
         return list(self.index.intersection((window[2], window[0], window[3], window[1])))
 
     def knn_query_single(self, knn):
-        """
-        query key by x1/y1/n knn
-        """
         return list(self.index.nearest((knn[0], knn[1]), knn[2]))[:knn[2]]
 
     def save(self):
         rtree_meta = [self.fill_factor, self.leaf_node_capacity, self.non_leaf_node_capacity]
-        if self.buffering_capacity is not None:
+        if self.buffering_capacity:
             rtree_meta.append(self.buffering_capacity)
         np.save(os.path.join(self.model_path, 'rtree_meta.npy'), np.array(rtree_meta))
 
@@ -120,17 +113,22 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        data_list = np.load(data_path, allow_pickle=True)[:, 10:12]
-        # 按照pagesize=4096, size(pointer)=4, size(x/y)=8, 一个page存放一个node的规则计算node capacity
+        data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
+        # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y)=8, 一个page存放一个node
         # leaf node存放xyxy数据、数据指针、指向下一个leaf node的指针
         # leaf_node_capacity=(pagesize-size(pointer))/(size(x)*4+size(pointer))=(4096-4)/(8*4+4)=113
         # non leaf node存放MBR、指向MBR对应子节点的指针
         # non_leaf_node_capacity = pagesize/(size(x)*4+size(pointer))=4096/(8*4+4)=113
         # 由于fill_factor的存在，非叶节点数据量在[node_capacity*fill_factor, node_capacity]之间，根节点和叶节点数据量不受约束
-        # 10w数据，[0.7, 204, 113]参数下：
+        # 10w数据，[0.7, 113, 113]参数下：
         # 非叶节点平均数据约为0.85*113=96，数高三层为1-96-leaf，叶节点最多113*113=12769个，最少1*79=79个
         # 假设数据极端聚集，则叶节点为10w/113个=885，数据均匀分布则10w/113*2=1770
-        # 单次扫描IO=树高=3，索引体积约=(1+96+叶节点数据量)*4096
+        # 单次扫描IO=树高=3
+        # 索引体积约=(1+96+叶节点数据量)*4096=(1+96+1770)*4096
+        # 1451w数据，[0.7, 113, 113]参数下：
+        # 树高四层1-96-96*96-leaf，假设数据极端聚集，则叶节点为1451w/113个=128408，数据均匀分布则10w/113*2=256815
+        # 单次扫描IO=树高=4
+        # 索引体积=(1+96+96*96+256815)*4096
         index.build(data_list=data_list,
                     fill_factor=0.7,
                     leaf_node_capacity=113,

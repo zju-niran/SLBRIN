@@ -115,7 +115,7 @@ class ZMIndex(SpatialIndex):
                                     math.ceil(tmp_index.max_err))
         del tmp_index
         gc.collect()
-        if tmp_dict is not None:
+        if tmp_dict:
             tmp_dict[j] = abstract_index
         else:
             self.rmi[i][j] = abstract_index
@@ -181,7 +181,6 @@ class ZMIndex(SpatialIndex):
 
     def point_query_single(self, point):
         """
-        query key by x/y point
         1. compute geohash from x/y of point
         2. predict by geohash and create key scope [pre - min_err, pre + max_err]
         3. binary search in scope
@@ -198,7 +197,6 @@ class ZMIndex(SpatialIndex):
 
     def range_query_single(self, window):
         """
-        query key by x1/y1/x2/y2 window
         1. compute geohash from window_left and window_right
         2. find key_left by point query
         3. find key_right by point query
@@ -269,7 +267,7 @@ def main():
         start_time = time.time()
         # data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
         data_list = np.load(data_path, allow_pickle=True)
-        # 按照pagesize=4096, size(pointer)=4, size(x/y/g)=8, meta单独一个page, rmi(2375大小)每个模型1个page
+        # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y/g)=8, meta单独一个page, rmi(2375大小)每个模型1个page
         # 因为精确过滤是否需要xy判断，因此geohash索引相当于存储x/y/g/key四个值=8+8+8+4=28
         # 10w数据，[1, 100]参数下：
         # 单次扫描IO为读取meta(和rmi连续存所以忽略)+读取每个stage的rmi+读取叶stage对应geohash数据=2+1
