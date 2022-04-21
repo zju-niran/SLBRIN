@@ -4,7 +4,6 @@ import os
 import sys
 import time
 
-import line_profiler
 import numpy as np
 
 sys.path.append('/home/zju/wlj/st-learned-index')
@@ -35,53 +34,6 @@ class KDNode:
         self.right = None
         self.axis = axis
         self.node_num = 1
-
-    def insert(self, value):
-        """
-        Insert a value into the node.
-        """
-        axis = self.axis + 1 if self.axis + 1 < DIM_NUM else 0
-        if np.all(self.value == value):
-            return self
-        elif value[self.axis] >= self.value[self.axis]:
-            if self.right is None:
-                self.right = KDNode(value=value, axis=axis)
-            else:
-                self.right = self.right.insert(value)
-        elif value[self.axis] < self.value[self.axis]:
-            if self.left is None:
-                self.left = KDNode(value=value, axis=axis)
-            else:
-                self.left = self.left.insert(value)
-        self._recalculate_nodes()
-        return self
-
-    def delete(self, value):
-        """
-        Delete a value from the node and return the new node.
-        Returns the same tree if the value was not found.
-        """
-        if np.all(self.value == value):
-            values = self.collect()
-            if len(values) > 1:
-                values.remove(value)
-                new_tree = KDNode.initialize(values, init_axis=self.axis)
-                return new_tree
-            return None
-        elif value[self.axis] >= self.value[self.axis]:
-            if self.right is None:
-                return self
-            else:
-                self.right = self.right.delete(value)
-                self._recalculate_nodes()
-                return self.balance()
-        else:
-            if self.left is None:
-                return self
-            else:
-                self.left = self.left.delete(value)
-                self._recalculate_nodes()
-                return self.balance()
 
     def search_node(self, value):
         """
@@ -148,6 +100,53 @@ class KDNode:
         if value[self.axis] - nearest_distance < self.value[self.axis] and self.left:
             nearest_distance = self.left.nearest_neighbor(value, n, result, nearest_distance)
         return nearest_distance
+
+    def insert(self, value):
+        """
+        Insert a value into the node.
+        """
+        # 重复数据处理：插入时先放到右侧
+        if value[self.axis] >= self.value[self.axis]:
+            if self.right is None:
+                axis = self.axis + 1 if self.axis + 1 < DIM_NUM else 0
+                self.right = KDNode(value=value, axis=axis)
+            else:
+                self.right = self.right.insert(value)
+        else:
+            if self.left is None:
+                axis = self.axis + 1 if self.axis + 1 < DIM_NUM else 0
+                self.left = KDNode(value=value, axis=axis)
+            else:
+                self.left = self.left.insert(value)
+        self._recalculate_nodes()
+        return self
+
+    def delete(self, value):
+        """
+        Delete a value from the node and return the new node.
+        Returns the same tree if the value was not found.
+        """
+        if np.all(self.value == value):
+            values = self.collect()
+            if len(values) > 1:
+                values.remove(value)
+                new_tree = KDNode.initialize(values, init_axis=self.axis)
+                return new_tree
+            return None
+        elif value[self.axis] >= self.value[self.axis]:
+            if self.right is None:
+                return self
+            else:
+                self.right = self.right.delete(value)
+                self._recalculate_nodes()
+                return self.balance()
+        else:
+            if self.left is None:
+                return self
+            else:
+                self.left = self.left.delete(value)
+                self._recalculate_nodes()
+                return self.balance()
 
     def balance(self):
         """
@@ -286,7 +285,7 @@ class KDTree(SpatialIndex):
 
     def build(self, data_list):
         # TODO: 对比一下两种build的结果树是否一样
-        self.root_node = self.build_node(data_list, len(data_list), 0)
+        self.root_node = self.build_node(data_list.tolist(), len(data_list), 0)
         # data_list = np.insert(data_list, np.arange(len(data_list)), axis=1)
         # self.root_node = KDNode(value=data_list[0], axis=0)
         # self.insert_batch(data_list[1:])
@@ -302,7 +301,10 @@ class KDTree(SpatialIndex):
 
     def point_query_single(self, point):
         result = []
-        self.root_node.search_node(point).search_all(point, result)
+        node = self.root_node.search_node(point)
+        if node is None:
+            point("")
+        node.search_all(point, result)
         return result
 
     def range_query_single(self, window):
@@ -384,11 +386,48 @@ class KDTree(SpatialIndex):
                 stack.append(cur.left)
         return [itr[1] for itr in result]
 
+    def tree_to_list(self, node, node_list):
+        if node is None:
+            return
+        node_list.append([0, 0, node.axis, node.node_num, node.value[0], node.value[1], node.value[2]])
+        parent_key = len(node_list) - 1
+        if node.left:
+            node_list[parent_key][0] = len(node_list)
+            self.tree_to_list(node.left, node_list)
+        if node.right is not None:
+            node_list[parent_key][1] = len(node_list)
+            self.tree_to_list(node.right, node_list)
+
+    def list_to_tree(self, node_list, key=None):
+        if key is None:
+            key = 0
+        item = list(node_list[key])
+        node = KDNode(item[4:], item[2])
+        if item[0] != 0:
+            node.left = self.list_to_tree(node_list, item[0])
+        if item[1] != 0:
+            node.right = self.list_to_tree(node_list, item[1])
+        return node
+
+    def save(self):
+        node_list = []
+        self.tree_to_list(self.root_node, node_list)
+        result1 = []
+        self.root_node.search_linked_node([-73.954468, 40.779896], result1)
+        kd_tree = np.array([tuple(node) for node in node_list],
+                           dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'), ("3", 'i4'),
+                                  ("4", 'f8'), ("5", 'f8'), ("6", 'i4')])
+        np.save(os.path.join(self.model_path, 'kd_tree.npy'), kd_tree)
+
+    def load(self):
+        kd_tree = np.load(self.model_path + 'kd_tree.npy', allow_pickle=True)
+        self.root_node = self.list_to_tree(kd_tree)
+
     def size(self):
         """
-        size = rtree.data + rtree.key + rtree.json
+        size = kd_tree.npy
         """
-        return None
+        return os.path.getsize(os.path.join(self.model_path, "kd_tree.npy")) - 128
 
 
 def main():
@@ -399,43 +438,53 @@ def main():
         os.makedirs(model_path)
     index = KDTree(model_path=model_path)
     index_name = index.name
-    load_index_from_json = False
+    load_index_from_json = True
     if load_index_from_json:
         index.load()
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
         data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
+        # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y)=8, node按照DFS的顺序密集存储在page中
+        # tree存放所有node的axis、数据量、左右节点指针、data的data指针:
+        # node size=4+4+4+4+8*2+4=36，单page存放4096/36=113node，单prefetch读取256*113=26668node
+        # 15层节点数=2^(15-1)=16384，之后每一层对应1次IO
+        # 10w数据，[]参数下：
+        # 树高=log2(10w)=17, IO=前15层IO+后17-15层IO=1~2+2=3~4
+        # 索引体积=36*10w
+        # 1451w数据，[]参数下：
+        # 树高=log2(1451W)=24, IO=前15层IO+后24-15层IO=1~2+9=10~11
+        # 索引体积=36*1451w
         index.build(data_list=data_list)
         index.save()
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
     logging.info("Index size: %s" % index.size())
-    # path = '../../data/query/point_query_10w.npy'
-    # point_query_list = np.load(path, allow_pickle=True).tolist()
-    # start_time = time.time()
-    # results = index.point_query(point_query_list)
-    # end_time = time.time()
-    # search_time = (end_time - start_time) / len(point_query_list)
-    # logging.info("Point query time: %s" % search_time)
-    # np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    # path = '../../data/query/range_query_10w.npy'
-    # range_query_list = np.load(path, allow_pickle=True).tolist()
-    # start_time = time.time()
-    # results = index.range_query(range_query_list)
-    # end_time = time.time()
-    # search_time = (end_time - start_time) / len(range_query_list)
-    # logging.info("Range query time:  %s" % search_time)
-    # np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    # path = '../../data/query/knn_query_10w.npy'
-    # knn_query_list = np.load(path, allow_pickle=True).tolist()
-    # start_time = time.time()
-    # results = index.knn_query(knn_query_list)
-    # end_time = time.time()
-    # search_time = (end_time - start_time) / len(knn_query_list)
-    # logging.info("KNN query time:  %s" % search_time)
-    # np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    path = '../../data/query/point_query_10w.npy'
+    point_query_list = np.load(path, allow_pickle=True).tolist()
+    start_time = time.time()
+    results = index.point_query(point_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(point_query_list)
+    logging.info("Point query time: %s" % search_time)
+    np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    path = '../../data/query/range_query_10w.npy'
+    range_query_list = np.load(path, allow_pickle=True).tolist()
+    start_time = time.time()
+    results = index.range_query(range_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(range_query_list)
+    logging.info("Range query time:  %s" % search_time)
+    np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    path = '../../data/query/knn_query_10w.npy'
+    knn_query_list = np.load(path, allow_pickle=True).tolist()
+    start_time = time.time()
+    results = index.knn_query(knn_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(knn_query_list)
+    logging.info("KNN query time:  %s" % search_time)
+    np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     insert_data_list = np.load("../../data/table/trip_data_2_filter_10w.npy", allow_pickle=True)[:, [10, 11, -1]]
     start_time = time.time()
     index.insert_batch(insert_data_list)
