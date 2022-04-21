@@ -16,8 +16,8 @@ if __name__ == '__main__':
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
                         level=logging.INFO,
                         format="%(message)s")
-    data_path = '../../data/table/trip_data_1_filter_10w.npy'
-    # data_path = '../../data/table/trip_data_1_filter.npy'
+    # data_path = '../../data/table/trip_data_1_filter_10w.npy'
+    data_path = '../../data/table/trip_data_1_filter.npy'
     fill_factors = [0.1, 0.3, 0.5, 0.7, 0.9]
     for fill_factor in fill_factors:
         model_path = "model/rtree/fill_factor/%s" % fill_factor

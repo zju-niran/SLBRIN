@@ -3,7 +3,6 @@ import os
 
 import numpy as np
 import pandas
-import pandas as pd
 
 from src.spatial_index.common_utils import Point
 from src.spatial_index.geohash_utils import Geohash
@@ -94,39 +93,6 @@ def create_knn_query(input_path, output_path, query_number_limit, n_list):
         n_data_list = np.hstack((n_data_list, n_list))
         result = np.vstack((result, n_data_list))
     np.save(output_path, result)
-
-
-def check_knn():
-    index_list = pd.read_csv(r'D:\Code\Paper\st-learned-index\src\spatial_index\model\sbrin_10w\point_list.csv',
-                             float_precision='round_trip', header=None)
-    data_list = pd.read_csv(r'D:\Code\Paper\st-learned-index\data\trip_data_1_10w.csv', float_precision='round_trip')
-    gm_result_list = r'D:\Code\Paper\st-learned-index\src\spatial_index\model\sbrin_10w\knn_query_result.csv'
-    r_result_list = r'D:\Code\Paper\st-learned-index\src\spatial_index\model\rtree_10w\knn_query_result.csv'
-    with open(gm_result_list) as f1, open(r_result_list) as f2:
-        list1 = []
-        list2 = []
-        for line1 in f1.readlines():
-            l = []
-            line1 = line1[1:-2]
-            indexes = line1.split(", ")
-            for index1 in indexes:
-                index1 = int(index1)
-                row = index_list.iloc[index1]
-                l.append([row[0], row[1]])
-            list1.append(l)
-        for line2 in f2.readlines():
-            l = []
-            line2 = line2[1:-2]
-            indexes = line2.split(", ")
-            for index2 in indexes:
-                index2 = int(index2)
-                row = data_list.iloc[index2]
-                l.append([row[1], row[2]])
-            list2.append(l)
-    for i in range(len(list1)):
-        for j in range(len(list1[i])):
-            if list1[i][j] not in list2[i]:
-                print("gm: %s, r: %s" % (list1[i], list2[i]))
 
 
 def geohash_and_sort(input_path, output_path, data_precision, region):
@@ -250,6 +216,3 @@ if __name__ == '__main__':
     query_number_limit = 1000
     n_list = [4, 8, 16, 32, 64]
     create_knn_query(input_path, output_path, query_number_limit, n_list)
-
-    # 确定knn找到的数据对不对
-    # check_knn()
