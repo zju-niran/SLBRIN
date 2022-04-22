@@ -234,11 +234,15 @@ class Region:
         self.up -= i
         self.right -= i
 
-    @staticmethod
-    def up_right_less_region(region, i):
-        region.up -= i
-        region.right -= i
-        return region
+    def up_right_less_region(self, i):
+        self.up -= i
+        self.right -= i
+        return self
+
+    def up_right_more_region(self, i):
+        self.up += i
+        self.right += i
+        return self
 
     def split(self):
         """
