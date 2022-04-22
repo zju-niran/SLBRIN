@@ -299,8 +299,8 @@ class Item():
 # For Test
 def b_tree_main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    path = '../data/index/trip_data_1_filter_10w_sorted.npy'
-    data_list = np.load(path).tolist()
+    path = '../data/index/trip_data_1_filter_10w.npy'
+    data_list = np.load(path, allow_pickle=True)[:, [10, 11, -1]]
     b = BTree(2)
     l = len(data_list)
     for i in range(l):

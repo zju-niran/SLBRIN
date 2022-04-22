@@ -315,7 +315,8 @@ def main():
     # search_time = (end_time - start_time) / len(knn_query_list)
     # logging.info("KNN query time:  %s" % search_time)
     # np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    # insert_data_list = np.load("../../data/table/trip_data_2_filter_10w.npy", allow_pickle=True)[:, [10, 11, -1]]
+    # path = '../../data/table/trip_data_2_filter_10w.npy'
+    # insert_data_list = np.load(path, allow_pickle=True)[:, [10, 11, -1]]
     # start_time = time.time()
     # index.insert_batch(insert_data_list)
     # end_time = time.time()

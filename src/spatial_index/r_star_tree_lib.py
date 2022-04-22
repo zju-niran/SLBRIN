@@ -4,12 +4,10 @@ import sys
 import time
 
 import numpy as np
-import pandas as pd
 from rtreelib import RStarTree as RStarTreeLib, Rect
 
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.spatial_index import SpatialIndex
-from src.spatial_index.common_utils import Point
 
 
 class RStarTree(SpatialIndex):
@@ -24,15 +22,18 @@ class RStarTree(SpatialIndex):
         self.logging = logging.getLogger(self.name)
 
     def insert(self, point):
-        self.index.insert(point.index, Rect(point.lng, point.lat, point.lng, point.lat))
+        self.index.insert(point[2], Rect(point[0], point[1], point[0], point[1]))
+
+    def insert_batch(self, points):
+        for point in points:
+            self.insert(point)
 
     def delete(self, point):
         return
 
     def build(self, data_list, threshold_number):
         self.index = RStarTreeLib(max_entries=threshold_number)
-        for i in range(len(data_list)):
-            self.insert(Point(data_list[i][0], data_list[i][1], index=i))
+        self.insert_batch(data_list)
 
     def point_query_single(self, point):
         """
@@ -100,7 +101,8 @@ def main():
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time:  %s" % search_time)
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    # insert_data_list = np.load("../../data/table/trip_data_2_filter_10w.npy", allow_pickle=True)[:, [10, 11, -1]]
+    # path = '../../data/table/trip_data_2_filter_10w.npy'
+    # insert_data_list = np.load(path, allow_pickle=True)[:, [10, 11, -1]]
     # start_time = time.time()
     # index.insert_batch(insert_data_list)
     # end_time = time.time()

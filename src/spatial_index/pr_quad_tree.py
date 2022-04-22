@@ -413,11 +413,11 @@ def main():
         # data size=8*2+4=20，单page存放4096/20=204data，单prefetch读取256*204=52224data
         # 10w数据，[1000]参数下：
         # 叶节点平均数据约为0.5*1000=500，叶节点约有10w/500=200个，非叶节点数量由数据分布决定，节点大约280个
-        # 单次扫描IO=读取node+读取node对应数据=280/16384+500/16384=2
+        # 单次扫描IO=读取node+读取node对应数据=280/16384+500/52224=2
         # 索引体积=280/64*4096+20*10w
         # 1451w数据，[1000]参数下：
         # 叶节点平均数据约为0.5*1000=500，叶节点约有1451w/500=29020个，非叶节点数量由数据分布决定，节点大约5w个
-        # 单次扫描IO=读取node+读取node对应数据=5w/16384+500/16384=4~5
+        # 单次扫描IO=读取node+读取node对应数据=5w/16384+500/52224=4~5
         # 索引体积=5w/64*4096+20*1451w
         index.build(data_list=data_list,
                     region=Region(40, 42, -75, -73),
@@ -452,7 +452,8 @@ def main():
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time:  %s" % search_time)
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    insert_data_list = np.load("../../data/table/trip_data_2_filter_10w.npy", allow_pickle=True)[:, [10, 11, -1]]
+    path = '../../data/table/trip_data_2_filter_10w.npy'
+    insert_data_list = np.load(path, allow_pickle=True)[:, [10, 11, -1]]
     start_time = time.time()
     index.insert_batch(insert_data_list)
     end_time = time.time()

@@ -261,11 +261,11 @@ class KDTree(SpatialIndex):
         self.logging = logging.getLogger(self.name)
 
     def insert(self, point):
-        self.root_node = self.root_node.insert(point)
+        self.root_node = self.root_node.insert(point.tolist())
 
     def insert_batch(self, points):
-        for i in range(len(points)):
-            self.insert([points[i][0], points[i][1], i])
+        for point in points:
+            self.insert(point)
 
     def delete(self, point):
         self.root_node = self.root_node.delete(point)
@@ -441,7 +441,7 @@ def main():
         os.makedirs(model_path)
     index = KDTree(model_path=model_path)
     index_name = index.name
-    load_index_from_json = True
+    load_index_from_json = False
     if load_index_from_json:
         index.load()
     else:
@@ -488,7 +488,8 @@ def main():
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time:  %s" % search_time)
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    insert_data_list = np.load("../../data/table/trip_data_2_filter_10w.npy", allow_pickle=True)[:, [10, 11, -1]]
+    path = '../../data/table/trip_data_2_filter_10w.npy'
+    insert_data_list = np.load(path, allow_pickle=True)[:, [10, 11, -1]]
     start_time = time.time()
     index.insert_batch(insert_data_list)
     end_time = time.time()

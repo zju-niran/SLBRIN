@@ -19,7 +19,7 @@ if __name__ == '__main__':
                         format="%(message)s")
     # data_path = '../../data/table/trip_data_1_filter_10w.npy'
     data_path = '../../data/table/trip_data_1_filter.npy'
-    ns = [1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000, 256000, 512000]
+    ns = [125, 250, 500, 1000, 2000, 4000, 8000, 16000, 32000, 64000]
     for n in ns:
         model_path = "model/prquadtree/n/%s" % n
         if os.path.exists(model_path) is False:

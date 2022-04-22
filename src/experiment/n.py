@@ -4,7 +4,6 @@ import sys
 import time
 
 import numpy as np
-import pandas as pd
 
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.common_utils import Region
@@ -68,8 +67,7 @@ if __name__ == '__main__':
         model_precisions_avg = sum(model_precisions) / model_num
         logging.info("Model precision avg: %s" % model_precisions_avg)
         path = '../../data/query/point_query.npy'
-        point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
-        point_query_list = point_query_df.drop("count", axis=1).values.tolist()
+        point_query_list = np.load(path, allow_pickle=True).tolist()
         start_time = time.time()
         index.test_point_query(point_query_list)
         end_time = time.time()
@@ -105,8 +103,7 @@ if __name__ == '__main__':
         model_precisions_avg = sum(model_precisions) / model_num
         logging.info("Model precision avg: %s" % model_precisions_avg)
         path = '../../data/query/point_query.npy'
-        point_query_df = pd.read_csv(path, usecols=[1, 2, 3])
-        point_query_list = point_query_df.drop("count", axis=1).values.tolist()
+        point_query_list = np.load(path, allow_pickle=True).tolist()
         start_time = time.time()
         index.test_point_query(point_query_list)
         end_time = time.time()
