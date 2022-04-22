@@ -118,7 +118,7 @@ class KDNode:
                 self.left = KDNode(value=value, axis=axis)
             else:
                 self.left = self.left.insert(value)
-        self._recalculate_nodes()
+        self.recalculate_nodes()
         return self
 
     def delete(self, value):
@@ -138,14 +138,14 @@ class KDNode:
                 return self
             else:
                 self.right = self.right.delete(value)
-                self._recalculate_nodes()
+                self.recalculate_nodes()
                 return self.balance()
         else:
             if self.left is None:
                 return self
             else:
                 self.left = self.left.delete(value)
-                self._recalculate_nodes()
+                self.recalculate_nodes()
                 return self.balance()
 
     def balance(self):
@@ -168,7 +168,7 @@ class KDNode:
             rn = self.right.node_num
         return abs(ln - rn) <= DIM_NUM
 
-    def _recalculate_nodes(self):
+    def recalculate_nodes(self):
         """
         Recalculate the number of nodes of the node, assuming that the node's children are correctly calculated.
         """
@@ -224,7 +224,7 @@ class KDNode:
             node.right = KDNode._initialize_recursive(sorted_right_values, axis)
         if left_value_len > 0:
             node.left = KDNode._initialize_recursive(sorted_left_values, axis)
-        node._recalculate_nodes()
+        node.recalculate_nodes()
         return node
 
     @staticmethod
@@ -268,7 +268,7 @@ class KDTree(SpatialIndex):
             self.insert([points[i][0], points[i][1], i])
 
     def delete(self, point):
-        self.index.delete(point.key, (point.lng, point.lat))
+        self.root_node = self.root_node.delete(point)
 
     def build_node(self, values, value_len, axis):
         median_key = value_len // 2
@@ -281,6 +281,7 @@ class KDTree(SpatialIndex):
             node.left = self.build_node(sorted_value[: median_key], left_value_len, axis)
         if right_value_len > 0:
             node.right = self.build_node(sorted_value[median_key + 1:], right_value_len, axis)
+        node.recalculate_nodes()
         return node
 
     def build(self, data_list):
@@ -289,7 +290,7 @@ class KDTree(SpatialIndex):
         # data_list = np.insert(data_list, np.arange(len(data_list)), axis=1)
         # self.root_node = KDNode(value=data_list[0], axis=0)
         # self.insert_batch(data_list[1:])
-        # self.root_node.balance()
+        self.root_node.balance()
         # self.visualize("1.txt")
 
     def visualize(self, output_path):
@@ -300,12 +301,13 @@ class KDTree(SpatialIndex):
                 f.write(line + '\r')
 
     def point_query_single(self, point):
-        result = []
         node = self.root_node.search_node(point)
         if node is None:
-            point("")
-        node.search_all(point, result)
-        return result
+            return []
+        else:
+            result = []
+            node.search_all(point, result)
+            return result
 
     def range_query_single(self, window):
         result = []
@@ -403,6 +405,7 @@ class KDTree(SpatialIndex):
             key = 0
         item = list(node_list[key])
         node = KDNode(item[4:], item[2])
+        node.node_num = item[3]
         if item[0] != 0:
             node.left = self.list_to_tree(node_list, item[0])
         if item[1] != 0:
