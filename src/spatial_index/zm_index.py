@@ -68,15 +68,15 @@ class ZMIndex(SpatialIndex):
                     # allocate data into training set for models in next stage
                     for ind in range(len(train_inputs[i][j])):
                         # pick model in next stage with output of this model
-                        pre = round(self.rmi[i][j].predict(train_inputs[i][j][ind]))
+                        pre = int(self.rmi[i][j].predict(train_inputs[i][j][ind]))
                         train_inputs[i + 1][pre].append(train_inputs[i][j][ind])
                         train_labels[i + 1][pre].append(train_labels[i][j][ind])
         # 叶子节点使用线程池训练
         multiprocessing.set_start_method('spawn', force=True)
         pool = multiprocessing.Pool(processes=thread_pool_size)
-        mp_dict = multiprocessing.Manager().dict()
         i = self.stage_length - 1
         task_size = stages[i]
+        mp_list = multiprocessing.Manager().list([None] * task_size)
         for j in range(task_size):
             inputs = train_inputs[i][j]
             labels = train_labels[i][j]
@@ -84,20 +84,19 @@ class ZMIndex(SpatialIndex):
                 continue
             pool.apply_async(self.build_nn,
                              (i, j, inputs, labels, use_thresholds[i], thresholds[i], cores[i], train_steps[i],
-                              batch_nums[i], learning_rates[i], retrain_time_limits[i], save_nn, weight, mp_dict))
+                              batch_nums[i], learning_rates[i], retrain_time_limits[i], save_nn, weight, mp_list))
         pool.close()
         pool.join()
-        for (key, value) in mp_dict.items():
-            self.rmi[i][key] = value
+        self.rmi[i] = [model for model in mp_list]
 
     def build_nn(self, curr_stage, current_stage_step, inputs, labels, use_threshold, threshold, core,
-                 train_step, batch_num, learning_rate, retrain_time_limit, save_nn, weight, tmp_dict=None):
+                 train_step, batch_num, learning_rate, retrain_time_limit, save_nn, weight, mp_list=None):
         batch_size = 2 ** math.ceil(math.log(len(inputs) / batch_num, 2))
         if batch_size < 1:
             batch_size = 1
         i = curr_stage
         j = current_stage_step
-        model_key = str(i) + "_" + str(j)
+        model_key = "%s_%s" % (i, j)
         if save_nn is False:
             tmp_index = TrainedNN_Simple(self.model_path, model_key, inputs, labels, core, train_step, batch_size,
                                          learning_rate, weight)
@@ -105,18 +104,14 @@ class ZMIndex(SpatialIndex):
             tmp_index = TrainedNN(self.model_path, model_key, inputs, labels, use_threshold, threshold, core,
                                   train_step, batch_size, learning_rate, retrain_time_limit, weight)
         tmp_index.train()
-        abstract_index = AbstractNN(tmp_index.get_weights(),
-                                    core,
-                                    tmp_index.train_x_min,
-                                    tmp_index.train_x_max,
-                                    tmp_index.train_y_min,
-                                    tmp_index.train_y_max,
-                                    math.floor(tmp_index.min_err),
-                                    math.ceil(tmp_index.max_err))
+        abstract_index = AbstractNN(tmp_index.get_weights(), core,
+                                    int(tmp_index.train_x_min), int(tmp_index.train_x_max),
+                                    int(tmp_index.train_y_min), int(tmp_index.train_y_max),
+                                    math.ceil(tmp_index.min_err), math.ceil(tmp_index.max_err))
         del tmp_index
         gc.collect()
-        if tmp_dict:
-            tmp_dict[j] = abstract_index
+        if mp_list:
+            mp_list[j] = abstract_index
         else:
             self.rmi[i][j] = abstract_index
 
@@ -132,7 +127,7 @@ class ZMIndex(SpatialIndex):
         # 1. predict the leaf_model by rmi
         leaf_model_key = 0
         for i in range(0, self.stage_length - 1):
-            leaf_model_key = round(self.rmi[i][leaf_model_key].predict(key))
+            leaf_model_key = self.rmi[i][leaf_model_key].predict(key)
         # 2. return the less max key when leaf model is None
         if self.rmi[-1][leaf_model_key] is None:
             while self.rmi[-1][leaf_model_key] is None:
@@ -144,7 +139,7 @@ class ZMIndex(SpatialIndex):
         # 3. predict the key by leaf_model
         leaf_model = self.rmi[-1][leaf_model_key]
         pre = leaf_model.predict(key)
-        return round(pre), leaf_model.min_err, leaf_model.max_err
+        return pre, leaf_model.min_err, leaf_model.max_err
 
     def save(self):
         zmin_meta = np.array((self.geohash.data_precision,
@@ -173,10 +168,12 @@ class ZMIndex(SpatialIndex):
         """
         size = zmin_rmi.npy + zmin_meta.npy + geohash_index.npy
         """
-        # 实际上：os.path.getsize(os.path.join(self.model_path, "zmin_meta.npy")) - 128 - 64
-        # 理论上：只存geohash_length/stage_length/train_data_length三个int即可
+        # 实际上：
+        # meta=os.path.getsize(os.path.join(self.model_path, "zmin_meta.npy"))-128-64=4*3+8*4=44
+        # 理论上：
+        # meta只存geohash_length/stage_length/train_data_length=4*3=12
         return os.path.getsize(os.path.join(self.model_path, "zmin_rmi.npy")) - 128 + \
-               4 * 3 + \
+               12 + \
                os.path.getsize(os.path.join(self.model_path, "geohash_index.npy")) - 128
 
     def point_query_single(self, point):
@@ -246,7 +243,7 @@ class AbstractNN:
         for i in range(len(self.core_nums) - 2):
             y = sigmoid(y * self.weights[i * 2] + self.weights[i * 2 + 1])
         y = y * self.weights[-2] + self.weights[-1]
-        return denormalize_output_minmax(y[0, 0], self.output_min, self.output_max)
+        return int(denormalize_output_minmax(y[0, 0], self.output_min, self.output_max))
 
 
 # @profile(precision=8)
@@ -259,7 +256,7 @@ def main():
         os.makedirs(model_path)
     index = ZMIndex(model_path=model_path)
     index_name = index.name
-    load_index_from_json = True
+    load_index_from_json = False
     if load_index_from_json:
         index.load()
     else:
@@ -270,7 +267,7 @@ def main():
         # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y/g)=8, meta单独一个page, rmi(2375大小)每个模型1个page
         # 因为精确过滤是否需要xy判断，因此geohash索引相当于存储x/y/g/key四个值=8+8+8+4=28
         # 10w数据，[1, 100]参数下：
-        # 单次扫描IO为读取meta(和rmi连续存所以忽略)+读取每个stage的rmi+读取叶stage对应geohash数据=2+1
+        # 单次扫描IO=读取meta+读取每个stage的rmi+读取叶stage对应geohash数据=2+1
         # 索引体积为geohash索引+rmi=28*10w+4096*(1+100)
         index.build(data_list=data_list,
                     data_precision=6,
