@@ -2,13 +2,10 @@ import logging
 import os.path
 import time
 
-import matplotlib
 import numpy as np
 import tensorflow as tf
 
 from src.spatial_index.common_utils import normalize_input, normalize_output, denormalize_diff_minmax
-
-matplotlib.use('Agg')  # 解决_tkinter.TclError: couldn't connect to display "localhost:11.0"
 
 
 class TrainedNN:
@@ -47,7 +44,6 @@ class TrainedNN:
         gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
         for gpu in gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
-
         model = tf.keras.Sequential()
         for i in range(len(self.core_nums) - 2):
             model.add(tf.keras.layers.Dense(units=self.core_nums[i + 1],

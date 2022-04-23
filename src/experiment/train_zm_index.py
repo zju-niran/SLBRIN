@@ -32,15 +32,15 @@ if __name__ == '__main__':
         index.build(data_list=data_list,
                     data_precision=6,
                     region=Region(40, 42, -75, -73),
-                    use_thresholds=[False, False],
+                    use_thresholds=[True, True],
                     thresholds=[0, 0],
                     stages=[1, stage2_num],
                     cores=[[1, 128, 1], [1, 128, 1]],
                     train_steps=[5000, 5000],
                     batch_nums=[64, 64],
                     learning_rates=[0.1, 0.1],
-                    retrain_time_limits=[5, 0],
-                    thread_pool_size=1,
+                    retrain_time_limits=[5, 2],
+                    thread_pool_size=10,
                     save_nn=True,
                     weight=1)
         index.save()
@@ -72,5 +72,3 @@ if __name__ == '__main__':
             search_time = (end_time - start_time) / 1000
             logging.info("Range query ratio:  %s" % range_ratio)
             logging.info("Range query time:  %s" % search_time)
-        path = '../../data/query/knn_query.npy'
-        knn_query_list = np.load(path, allow_pickle=True).tolist()

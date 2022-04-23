@@ -47,7 +47,6 @@ class SBRIN(SpatialIndex):
         # threshold_length: 新增：blk range 分裂的geohash长度阈值
         # geohash: 新增：max_length = geohash.sum_bits
         # first_tmp_br: 新增：记录第一个tmp blk range的位置
-        # last_br: 优化计算所需：first_tmp_br - 1
         # size: 优化计算所需：blk range总数
         self.meta = meta
         # revmap pages由多个revmap分页组成
@@ -80,7 +79,7 @@ class SBRIN(SpatialIndex):
         # 3. append in geohash index
         self.geohash_index[last_tmp_br.key[1]] = tuple(point)
         # 4. merge tmp br TODO 改成异步
-        self.merge_tmp_br()
+        # self.merge_tmp_br()
 
     def build(self, data_list, threshold_number, data_precision, region, use_threshold, threshold, core,
               train_step, batch_num, learning_rate, retrain_time_limit, thread_pool_size, save_nn, weight):
@@ -131,7 +130,7 @@ class SBRIN(SpatialIndex):
         # last_revmap_page理论上是第一个regular_page磁盘位置-1
         result_len = len(result_list)
         self.meta = Meta(1, pages_per_range, 0, threshold_number, threshold_length,
-                         max([result[1] for result in result_list]), result_len, geohash, result_len - 1, result_len)
+                         max([result[1] for result in result_list]), result_len, geohash, result_len)
         region_offset = pow(10, -data_precision - 1)
         self.block_ranges = [
             BlockRange(i * pages_per_range, result_list[i][0], result_list[i][1], result_list[i][2], None,
@@ -209,21 +208,21 @@ class SBRIN(SpatialIndex):
             br.model.output_min = self.meta.threshold_number * i
             br.model.output_max = self.meta.threshold_number * (i + 1) - 1
             for i in range(br.key[0], br.key[1] + 1):
-                pre = round(br.model.predict(self.geohash_index[i][2]))
+                pre = br.model.predict(self.geohash_index[i][2])
                 if result_data_list[pre] is None:
                     result_data_list[pre] = self.geohash_index[i]
                 else:
                     # 重复数据处理：写入误差范围内离pre最近的None里
                     if result_data_list[pre][2] == self.geohash_index[i][2]:
-                        l_bound = max(round(pre - br.model.max_err), br.model.output_min)
-                        r_bound = min(round(pre - br.model.min_err), br.model.output_max)
+                        l_bound = max(pre - br.model.max_err, br.model.output_min)
+                        r_bound = min(pre - br.model.min_err, br.model.output_max)
                     else:  # 非重复数据，但是整型部分重复，或被重复数据取代了位置
                         if result_data_list[pre][2] > self.geohash_index[i][2]:
-                            l_bound = max(round(pre - br.model.max_err), br.model.output_min)
+                            l_bound = max(pre - br.model.max_err, br.model.output_min)
                             r_bound = pre
                         else:
                             l_bound = pre
-                            r_bound = min(round(pre - br.model.min_err), br.model.output_max)
+                            r_bound = min(pre - br.model.min_err, br.model.output_max)
                     key = get_nearest_none(result_data_list, pre, l_bound, r_bound)
                     if key is None:
                         # 超出边界是因为大量的数据相互占用导致误差放大
@@ -774,10 +773,10 @@ class SBRIN(SpatialIndex):
                                self.meta.max_length, self.meta.geohash.data_precision,
                                self.meta.geohash.region.bottom, self.meta.geohash.region.up,
                                self.meta.geohash.region.left, self.meta.geohash.region.right,
-                               self.meta.last_br, self.meta.size),
+                               self.meta.size),
                               dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'), ("3", 'i4'), ("4", 'i4'), ("5", 'i4'),
                                      ("6", 'i4'), ("7", 'i4'), ("8", 'f8'), ("9", 'f8'), ("10", 'f8'), ("11", 'f8'),
-                                     ("12", 'i4'), ("13", 'i4')])
+                                     ("12", 'i4')])
         sbrin_br_model = np.array([br.model for br in self.block_ranges])
         sbrin_br = []
         for br in self.block_ranges:
@@ -805,7 +804,7 @@ class SBRIN(SpatialIndex):
         region = Region(sbrin_meta[8], sbrin_meta[9], sbrin_meta[10], sbrin_meta[11])
         geohash = Geohash.init_by_precision(data_precision=sbrin_meta[7], region=region)
         self.meta = Meta(sbrin_meta[0], sbrin_meta[1], sbrin_meta[2], sbrin_meta[4], sbrin_meta[5], sbrin_meta[6],
-                         sbrin_meta[3], geohash, sbrin_meta[12], sbrin_meta[13])
+                         sbrin_meta[3], geohash, sbrin_meta[12])
         brs = []
         for i in range(len(sbrin_br)):
             br = sbrin_br[i]
@@ -823,11 +822,11 @@ class SBRIN(SpatialIndex):
         size = sbrin_meta.npy + sbrin_br.npy + sbrin_br_model.npy + geohash_index.npy
         """
         # 实际上：
-        # meta为os.path.getsize(os.path.join(self.model_path, "sbrin_meta.npy"))-128-64*3=4*10+8*4=72
-        # br为os.path.getsize(os.path.join(self.model_path, "sbrin_br.npy"))-128-64*2=br_size*(4*4+8*6)=br_size*64
+        # meta=os.path.getsize(os.path.join(self.model_path, "sbrin_meta.npy"))-128-64*3=4*9+8*4=68
+        # br=os.path.getsize(os.path.join(self.model_path, "sbrin_br.npy"))-128-64*2=br_size*(4*4+8*6)=br_size*64
         # revmap为none
-        # model一致为os.path.getsize(os.path.join(self.model_path, "sbrin_br_model.npy"))-128=br_size*model_size
-        # geohash_index为os.path.getsize(os.path.join(self.model_path, "geohash_index.npy"))-128
+        # model一致=os.path.getsize(os.path.join(self.model_path, "sbrin_br_model.npy"))-128=br_size*model_size
+        # geohash_index=os.path.getsize(os.path.join(self.model_path, "geohash_index.npy"))-128
         # =br_size*meta.threashold_number*(8*3+4)
         # 理论上：
         # meta只存version/pages_per_range/last_revmap_page/ts_number/ts_length/max_length/first_tmp_br=4*7=28
@@ -845,7 +844,7 @@ class SBRIN(SpatialIndex):
 
 class Meta:
     def __init__(self, version, pages_per_range, last_revmap_page,
-                 threshold_number, threshold_length, max_length, first_tmp_br, geohash, last_br, size):
+                 threshold_number, threshold_length, max_length, first_tmp_br, geohash, size):
         # BRIN
         self.version = version
         self.pages_per_range = pages_per_range
@@ -857,7 +856,7 @@ class Meta:
         self.first_tmp_br = first_tmp_br
         # For compute
         self.geohash = geohash
-        self.last_br = last_br
+        self.last_br = first_tmp_br - 1
         self.size = size
 
 

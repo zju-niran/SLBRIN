@@ -3,7 +3,6 @@ import os.path
 import random
 import shutil
 import time
-from functools import wraps
 
 import matplotlib
 import numpy as np
@@ -39,9 +38,9 @@ class TrainedNN:
         self.retrain_time_limit = retrain_time_limit
         self.model_path = model_path
         self.model_key = model_key
-        self.model_hdf_dir = model_path + "hdf/"
-        self.model_png_dir = model_path + "png/"
-        self.model_loss_dir = model_path + "loss/"
+        self.model_hdf_dir = os.path.join(model_path, "hdf/")
+        self.model_png_dir = os.path.join(model_path, "png/")
+        self.model_loss_dir = os.path.join(model_path, "loss/")
         if os.path.exists(self.model_hdf_dir) is False:
             os.makedirs(self.model_hdf_dir)
         if os.path.exists(self.model_png_dir) is False:

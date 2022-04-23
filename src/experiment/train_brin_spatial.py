@@ -16,8 +16,8 @@ if __name__ == '__main__':
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
                         level=logging.INFO,
                         format="%(message)s")
-    data_path = '../../data/table/trip_data_1_filter_10w.npy'
-    # data_path = '../../data/table/trip_data_1_filter.npy'
+    # data_path = '../../data/table/trip_data_1_filter_10w.npy'
+    data_path = '../../data/table/trip_data_1_filter.npy'
     pprs = [64, 128, 256, 512, 1024, 2048]
     for ppr in pprs:
         model_path = "model/brinspatial/ppr/%s" % ppr

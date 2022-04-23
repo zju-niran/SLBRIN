@@ -32,7 +32,7 @@ if __name__ == '__main__':
     # 3. 开始实验
     # 3.1 快速构建精度低的
     for n in n_list:
-        model_path = "model/sbrin/n/" + str(n) + "/"
+        model_path = "model/sbrin/n/%s/" % n
         if not os.path.exists(model_path):
             os.makedirs(model_path)
         index = SBRIN(model_path=model_path)
@@ -74,7 +74,7 @@ if __name__ == '__main__':
         logging.info("Point query time: %s" % search_time)
     # 3.2 重新训练提高精度
     for n in n_list:
-        model_path = "model/sbrin/n/" + str(n) + "/"
+        model_path = "model/sbrin/n/%s/" % n
         index = SBRIN(model_path=model_path)
         index_name = index.name
         logging.info("*************start %s************" % model_path)

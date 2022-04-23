@@ -220,7 +220,7 @@ def main():
         # data体积=x/y/key=8*2+4=20，一个page存204个data
         # 10w数据，[5]参数下：大约有10w/5/204=99br
         # 1meta page，99/114=1regular page，99/512=1revmap page，10w/204=491data page
-        # 单次扫描IO为读取brin+读取对应model+读取model对应xy数据=1
+        # 单次扫描IO为读取brin+读取br对应xy数据=1+0
         # 索引体积=xy索引+meta+br+revmap
         index.build(data_list=data_list,
                     pages_per_range=5)
