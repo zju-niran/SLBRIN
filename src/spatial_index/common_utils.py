@@ -572,6 +572,21 @@ def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
 
+def get_mbr_by_points(points):
+    x_max = x_min = points[0][0]
+    y_max = y_min = points[0][1]
+    for point in points:
+        if y_min > point[1]:
+            y_min = point[1]
+        elif y_max < point[1]:
+            y_max = point[1]
+        if x_min > point[0]:
+            x_min = point[0]
+        elif x_max < point[0]:
+            x_max = point[0]
+    return Region(y_min, y_max, x_min, x_max)
+
+
 def fun100(data):
     a = data.tolist()
     k = 100

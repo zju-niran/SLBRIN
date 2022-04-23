@@ -13,7 +13,7 @@ sys.path.append('/home/zju/wlj/st-learned-index')
 from src.learned_model import TrainedNN
 from src.learned_model_simple import TrainedNN as TrainedNN_Simple
 from src.spatial_index.common_utils import Region, binary_search_less_max, get_nearest_none, sigmoid, Point, \
-    biased_search_almost, biased_search
+    biased_search_almost, biased_search, get_mbr_by_points
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 
@@ -67,21 +67,9 @@ class SBRIN(SpatialIndex):
         point.insert(-1, self.meta.geohash.encode(point[0], point[1]))
         # 2. insert into sbrin
         # 2.1 if last tmp br is full, update scope of last tmp br and create new tmp br
-        if self.block_ranges[-1].number >= self.meta.threshold_number:
-            last_tmp_br = self.block_ranges[-1]
-            x_min, y_min, _, _ = self.geohash_index[last_tmp_br.key[1]]
-            x_max = x_min
-            y_max = y_min
-            for data in self.geohash_index[last_tmp_br.key[0]:last_tmp_br.key[1]]:
-                if y_min > data[1]:
-                    y_min = data[1]
-                elif y_max < data[1]:
-                    y_max = data[1]
-                if x_min > data[0]:
-                    x_min = data[0]
-                elif x_max < data[0]:
-                    x_max = data[0]
-            last_tmp_br.scope = Region(y_min, y_max, x_min, x_max)
+        last_tmp_br = self.block_ranges[-1]
+        if last_tmp_br.number >= self.meta.threshold_number:
+            last_tmp_br.scope = get_mbr_by_points(self.geohash_index[last_tmp_br.key[0]:last_tmp_br.key[1] + 1])
             self.create_tmp_br()
         # 2.2 insert data in last tmp br
         last_tmp_br = self.block_ranges[-1]
