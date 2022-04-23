@@ -52,22 +52,21 @@ class SBRIN(SpatialIndex):
         # 忽略revmap，pages找blk range的过程，通过br的id和pagesperrange直接完成
         # self.revmaps = revmaps
         # regular pages由多个block range分页组成
-        # itemoffet: 序号偏移
         # blknum: pages偏移 = id * pagesperrange
         # value: 改动：max_length长度的整型geohash
         # length: 新增：blk range geohash的实际length
         # number: 新增：blk range的数据量
         # model: 新增：learned indices
         # scope: 优化计算所需：BRIN-Spatial有，blk range的scope
-        # key: 优化计算所需：blk range的索引key范围=[blknum * block_size, blknum * block_size + number]
+        # key: 优化计算所需：blk range的索引key范围
         # value_diff: 优化计算所需：下一个blk range value - blk range value
         self.block_ranges = block_ranges
 
-    def insert(self, point):
+    def insert_single(self, point):
         # 1. compute geohash from x/y of point
         point.insert(-1, self.meta.geohash.encode(point[0], point[1]))
-        # 3. insert into sbrin
-        # 3.1 if last tmp br is full, update scope of last tmp br and create new tmp br
+        # 2. insert into sbrin
+        # 2.1 if last tmp br is full, update scope of last tmp br and create new tmp br
         if self.block_ranges[-1].number >= self.meta.threshold_number:
             last_tmp_br = self.block_ranges[-1]
             x_min, y_min, _, _ = self.geohash_index[last_tmp_br.key[1]]
@@ -84,18 +83,14 @@ class SBRIN(SpatialIndex):
                     x_max = data[0]
             last_tmp_br.scope = Region(y_min, y_max, x_min, x_max)
             self.create_tmp_br()
-        # 3.2 insert data in last tmp br
+        # 2.2 insert data in last tmp br
         last_tmp_br = self.block_ranges[-1]
         last_tmp_br.number += 1
         last_tmp_br.key[1] += 1
-        # 3. append in disk
+        # 3. append in geohash index
         self.geohash_index[last_tmp_br.key[1]] = tuple(point)
-        # 4. update sbrin TODO 改成异步
-        data_group_dict = self.merge_tmp_br()
-
-    def insert_batch(self, points):
-        for point in points.tolist():
-            self.insert(point)
+        # 4. merge tmp br TODO 改成异步
+        self.merge_tmp_br()
 
     def build(self, data_list, block_size, threshold_number, data_precision, region, use_threshold, threshold, core,
               train_step, batch_num, learning_rate, retrain_time_limit, thread_pool_size, save_nn, weight):
@@ -837,23 +832,25 @@ class SBRIN(SpatialIndex):
         """
         size = sbrin_meta.npy + sbrin_br.npy + sbrin_br_model.npy + geohash_index.npy
         """
-        # 实际上：meta+br+br_model+geohash_index
-        # meta为os.path.getsize(os.path.join(self.model_path, "sbrin_br_model.npy"))-128-64*3=4*10+8*4=72
-        # br为os.path.getsize(os.path.join(self.model_path, "sbrin_br_model.npy"))-128-64*2=meta.size*(4*4+8*6)=287*64
+        # 实际上：
+        # meta为os.path.getsize(os.path.join(self.model_path, "sbrin_meta.npy"))-128-64*3=4*10+8*4=72
+        # br为os.path.getsize(os.path.join(self.model_path, "sbrin_br.npy"))-128-64*2=br_size*(4*4+8*6)=br_size*64
         # revmap为none
+        # model一致为os.path.getsize(os.path.join(self.model_path, "sbrin_br_model.npy"))-128=br_size*model_size
         # geohash_index为os.path.getsize(os.path.join(self.model_path, "geohash_index.npy"))-128
-        # =meta.size*meta.threashold_number*(8*3+4)
+        # =br_size*meta.threashold_number*(8*3+4)
         # 理论上：
         # meta只存version/pages_per_range/last_revmap_page/ts_number/ts_length/max_length/first_tmp_br=4*7=28
-        # br只存blknum/value/length/number=287*(4*3+8)=287*20
-        # revmap存br id/pointer=287*(4+4)
-        # geohash_index为data_len*(8*3+4)
+        # br只存blknum/value/length/number=br_size*(4*3+8)=br_size*20
+        # revmap存br id/pointer=br_size*(4+4)=br_size*8
+        # geohash_index为data_len*(8*3+4)=data_len*28
         data_len = len([geohash for geohash in self.geohash_index if geohash[2] != 0])
+        br_size = self.meta.size
         return 28 + \
-               20 * self.meta.size + \
-               8 * self.meta.size + \
+               br_size * 20 + \
+               br_size * 8 + \
                os.path.getsize(os.path.join(self.model_path, "sbrin_br_model.npy")) - 128 + \
-               28 * data_len
+               data_len * 28
 
 
 class Meta:
@@ -931,7 +928,7 @@ def main():
         os.makedirs(model_path)
     index = SBRIN(model_path=model_path)
     index_name = index.name
-    load_index_from_json = True
+    load_index_from_json = False
     if load_index_from_json:
         index.load()
     else:
@@ -940,15 +937,14 @@ def main():
         # data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
         data_list = np.load(data_path, allow_pickle=True)
         # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y/g)=8, sbrin整体连续存, meta一个page, br分页存，model(2009大小)单独存
-        # 因为精确过滤是否需要xy判断，因此geohash索引相当于存储x/y/g/key四个值=8+8+8+4=28
         # br体积=blknum/value/length/number=4*3+8=20，一个page存204个br
         # revmap体积=brid+br指针=4+4=8，一个page存512个br
         # model体积=2009，一个page存2个model
         # data体积=x/y/g/key=8*3+4=28，一个page存146个data
         # 10w数据，[1000]参数下：大约有286个br
-        # 1meta page，286/243=2regular page，286/512=1revmap page，286/2=143model page，10w/146=685data page
-        # 单次扫描IO为读取sbrin的meta和brs+读取对应model+读取model对应geohash数据=1+1+误差范围/4096
-        # 索引体积为geohash索引+models+meta+brs=28*10w+4096*(n+1+n/28)
+        # 1meta page，286/204=2regular page，286/512=1revmap page，286/2=143model page，10w/146=685data page
+        # 单次扫描IO=读取sbrin+读取对应model+读取model对应geohash数据=1+1+误差范围/146/512
+        # 索引体积=geohash索引+models+meta+br+revmap
         index.build(data_list=data_list,
                     block_size=100,
                     threshold_number=1000,
@@ -997,7 +993,7 @@ def main():
     insert_data_list = np.load(path, allow_pickle=True)[:2000, [10, 11, -1]]
     # profile = line_profiler.LineProfiler(index.update_br)
     # profile.enable()
-    index.insert_batch(insert_data_list)
+    index.insert(insert_data_list.tolist())
     # profile.disable()
     # profile.print_stats()
     start_time = time.time()

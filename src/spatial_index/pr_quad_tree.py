@@ -45,12 +45,8 @@ class PRQuadTree(SpatialIndex):
                             datefmt="%Y/%m/%d %H:%M:%S %p")
         self.logging = logging.getLogger(self.name)
 
-    def insert(self, point):
+    def insert_single(self, point):
         self.insert_node(Point(point[0], point[1], key=point[2]), self.root_node)
-
-    def insert_batch(self, points):
-        for point in points:
-            self.insert(point)
 
     def insert_node(self, point, node):
         """
@@ -203,7 +199,7 @@ class PRQuadTree(SpatialIndex):
         self.threshold_number = threshold_number
         self.max_depth = region.get_max_depth_by_region_and_precision(precision=data_precision)
         self.root_node = QuadTreeNode(region=region)
-        self.insert_batch(data_list)
+        self.insert(data_list)
 
     def point_query_single(self, point):
         """
@@ -455,7 +451,7 @@ def main():
     path = '../../data/table/trip_data_2_filter_10w.npy'
     insert_data_list = np.load(path, allow_pickle=True)[:, [10, 11, -1]]
     start_time = time.time()
-    index.insert_batch(insert_data_list)
+    index.insert(insert_data_list)
     end_time = time.time()
     logging.info("Insert time: %s" % (end_time - start_time))
 

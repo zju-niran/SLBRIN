@@ -260,12 +260,8 @@ class KDTree(SpatialIndex):
                             datefmt="%Y/%m/%d %H:%M:%S %p")
         self.logging = logging.getLogger(self.name)
 
-    def insert(self, point):
+    def insert_single(self, point):
         self.root_node = self.root_node.insert(point.tolist())
-
-    def insert_batch(self, points):
-        for point in points:
-            self.insert(point)
 
     def delete(self, point):
         self.root_node = self.root_node.delete(point)
@@ -289,7 +285,7 @@ class KDTree(SpatialIndex):
         self.root_node = self.build_node(data_list.tolist(), len(data_list), 0)
         # data_list = np.insert(data_list, np.arange(len(data_list)), axis=1)
         # self.root_node = KDNode(value=data_list[0], axis=0)
-        # self.insert_batch(data_list[1:])
+        # self.insert(data_list[1:])
         self.root_node.balance()
         # self.visualize("1.txt")
 
@@ -491,7 +487,7 @@ def main():
     path = '../../data/table/trip_data_2_filter_10w.npy'
     insert_data_list = np.load(path, allow_pickle=True)[:, [10, 11, -1]]
     start_time = time.time()
-    index.insert_batch(insert_data_list)
+    index.insert(insert_data_list)
     end_time = time.time()
     logging.info("Insert time: %s" % (end_time - start_time))
 

@@ -318,7 +318,7 @@ def main():
     # path = '../../data/table/trip_data_2_filter_10w.npy'
     # insert_data_list = np.load(path, allow_pickle=True)[:, [10, 11, -1]]
     # start_time = time.time()
-    # index.insert_batch(insert_data_list)
+    # index.insert(insert_data_list)
     # end_time = time.time()
     # logging.info("Insert time: %s" % (end_time - start_time))
 

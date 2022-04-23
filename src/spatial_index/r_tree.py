@@ -25,12 +25,8 @@ class RTree(SpatialIndex):
                             datefmt="%Y/%m/%d %H:%M:%S %p")
         self.logging = logging.getLogger(self.name)
 
-    def insert(self, point):
+    def insert_single(self, point):
         self.index.insert(point[2], (point[0], point[1]))
-
-    def insert_batch(self, points):
-        for point in points:
-            self.insert(point)
 
     def delete(self, point):
         self.index.delete(point.key, (point.lng, point.lat))
@@ -53,7 +49,7 @@ class RTree(SpatialIndex):
         p.index_capacity = non_leaf_node_capacity
         self.index = index.Index(os.path.join(self.model_path, 'rtree'), properties=p, overwrite=True)
         # self.index = index.RtreeContainer(properties=p)  # 没有直接Index来得快，range_query慢了一倍
-        self.insert_batch(data_list)
+        self.insert(data_list)
 
     def point_query_single(self, point):
         """
@@ -165,7 +161,7 @@ def main():
     path = '../../data/table/trip_data_2_filter_10w.npy'
     insert_data_list = np.load(path, allow_pickle=True)[:, [10, 11, -1]]
     start_time = time.time()
-    index.insert_batch(insert_data_list)
+    index.insert(insert_data_list)
     end_time = time.time()
     logging.info("Insert time: %s" % (end_time - start_time))
 

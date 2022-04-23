@@ -2,8 +2,12 @@ class SpatialIndex:
     def __init__(self, name):
         self.name = name
 
-    def insert(self, point):
+    def insert_single(self, point):
         return
+
+    def insert(self, points):
+        for point in points:
+            self.insert_single(point)
 
     def point_query_single(self, point):
         """
