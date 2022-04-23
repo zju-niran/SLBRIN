@@ -33,7 +33,6 @@ if __name__ == '__main__':
             start_time = time.time()
             data_list = np.load(data_path, allow_pickle=True)
             index.build(data_list=data_list,
-                        block_size=100,
                         threshold_number=20000,
                         data_precision=6,
                         region=Region(40, 42, -75, -73),

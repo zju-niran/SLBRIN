@@ -24,6 +24,8 @@ from src.spatial_index.spatial_index import SpatialIndex
 索引size = 数据+索引的size - 数据的size + sbrin.json的size；
 索引构建时间 = 数据geohash编码时间+sbrin构建时间
 """
+PAGE_SZIE = 4096
+DATA_SIZE = 28  # x + y + geohash + key
 
 
 # TODO 检索的时候要检索tmp brs
@@ -80,7 +82,7 @@ class SBRIN(SpatialIndex):
         # 4. merge tmp br TODO 改成异步
         self.merge_tmp_br()
 
-    def build(self, data_list, block_size, threshold_number, data_precision, region, use_threshold, threshold, core,
+    def build(self, data_list, threshold_number, data_precision, region, use_threshold, threshold, core,
               train_step, batch_num, learning_rate, retrain_time_limit, thread_pool_size, save_nn, weight):
         """
         构建SBRIN
@@ -125,7 +127,7 @@ class SBRIN(SpatialIndex):
                 # 把不超过的blk range加入结果list，加入的时候顺序为[左上，右下，左上，右上]的逆序，因为堆栈
                 result_list.append(cur)
         # 2.3. 存储为SBRIN结构
-        pages_per_range = threshold_number // block_size
+        pages_per_range = math.ceil(threshold_number * DATA_SIZE / PAGE_SZIE)
         # last_revmap_page理论上是第一个regular_page磁盘位置-1
         result_len = len(result_list)
         self.meta = Meta(1, pages_per_range, 0, threshold_number, threshold_length,
@@ -288,7 +290,6 @@ class SBRIN(SpatialIndex):
         if points_len + br.number > self.meta.threshold_number and br.length < self.meta.threshold_length:
             # split br
             self.split_br(br, br_key, points)
-            return
         else:
             # update br metadata
             br.number += points_len
@@ -935,7 +936,6 @@ def main():
         # 单次扫描IO=读取sbrin+读取对应model+读取model对应geohash数据=1+1+误差范围/146/512
         # 索引体积=geohash索引+models+meta+br+revmap
         index.build(data_list=data_list,
-                    block_size=100,
                     threshold_number=1000,
                     data_precision=6,
                     region=Region(40, 42, -75, -73),
