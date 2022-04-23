@@ -76,12 +76,16 @@ class Region:
         else:
             return False
 
-    def intersect(self, other):
+    @staticmethod
+    def init_by_list(window):
+        return Region(window[0], window[1], window[2], window[3])
+
+    def intersect(self, other, cross=False):
         """
         a和b相交：两个矩形中心点的xy距离 <= 两个矩形xy边长之和
         a包含b：两个矩形中心点的xy距离 <= 两个矩形xy边长之差(a-b)
         # b包含a：两个矩形中心点的xy距离 <= 两个矩形xy边长之差(b-a)
-        :param other:
+        :param cross: 是否返回相交部分的region
         :return: 1=intersect, 2=self contain other, 3=other contain self
         """
         center_distance_x = abs(self.left + self.right - other.left - other.right)
@@ -94,16 +98,27 @@ class Region:
                 if center_distance_x <= edge_divide_x:
                     edge_divide_y = self.up - self.bottom - other.up + other.bottom
                     if center_distance_y <= edge_divide_y:
-                        return 2, None
-                # 这里进不来，调用这个方法的地方用if i = j判断过了
-                # edge_divide_x2 = other.right - other.left - self.right + self.left
-                # if center_distance_x <= edge_divide_x2:
-                #     edge_divide_y2 = other.up - other.bottom - self.up + self.bottom
-                #     if center_distance_y <= edge_divide_y2:
-                #         return 3, None
-                return 1, Region(max(self.bottom, other.bottom), min(self.up, other.up), max(self.left, other.left),
-                                 min(self.right, other.right))
-        return 0, None
+                        if cross:
+                            return 2, None
+                        else:
+                            return 2
+                edge_divide_x2 = other.right - other.left - self.right + self.left
+                if center_distance_x <= edge_divide_x2:
+                    edge_divide_y2 = other.up - other.bottom - self.up + self.bottom
+                    if center_distance_y <= edge_divide_y2:
+                        if cross:
+                            return 3, None
+                        else:
+                            return 3
+                if cross:
+                    return 1, Region(max(self.bottom, other.bottom), min(self.up, other.up), max(self.left, other.left),
+                                     min(self.right, other.right))
+                else:
+                    return 1
+        if cross:
+            return 0, None
+        else:
+            return 0
 
     def contain(self, point):
         return self.bottom == point.lat or self.left == point.lng or (

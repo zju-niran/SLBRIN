@@ -360,7 +360,8 @@ class SBRIN(SpatialIndex):
         if i == j:
             return [((3, None), self.block_ranges[i])]
         else:
-            return [(window.intersect(self.block_ranges[k].scope), self.block_ranges[k]) for k in range(i, j - 1)]
+            return [(window.intersect(self.block_ranges[k].scope, cross=True), self.block_ranges[k])
+                    for k in range(i, j - 1)]
 
     def range_query_br(self, point1, point2):
         """
