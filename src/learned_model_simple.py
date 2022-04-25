@@ -1,4 +1,5 @@
 import logging
+import math
 import os.path
 import time
 
@@ -81,6 +82,18 @@ class TrainedNN:
         mse_loss = tf.keras.backend.mean(tf.keras.backend.square(diff), axis=-1)
         return self.weight * range_loss + mse_loss
 
+    def batch_predict(self):
+        """
+        分batch predict来减少内存占用
+        避免一次性redict形成size(self.train_x) * 1的tensor造成内存溢出
+        """
+        train_x_len = len(self.train_x)
+        step = 10000
+        pres = np.empty(shape=0)
+        for i in range(math.ceil(train_x_len / step)):
+            tmp_pres = self.model(self.train_x[i * step:(i + 1) * step]).numpy().flatten()
+            pres = np.hstack((pres, tmp_pres))
+        return pres
+
     def get_err(self):
-        pres = self.model(self.train_x).numpy().flatten()
-        return denormalize_diff_minmax(pres, self.train_y, self.train_y_min, self.train_y_max)
+        return denormalize_diff_minmax(self.batch_predict(), self.train_y, self.train_y_min, self.train_y_max)
