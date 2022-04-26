@@ -265,10 +265,12 @@ def main():
         # data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
         data_list = np.load(data_path, allow_pickle=True)
         # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y/g)=8, meta单独一个page, rmi(2375大小)每个模型1个page
-        # 因为精确过滤是否需要xy判断，因此geohash索引相当于存储x/y/g/key四个值=8+8+8+4=28
+        # model体积=2009，一个page存2个model
+        # data体积=x/y/g/key=8*3+4=28，一个page存146个data
         # 10w数据，[1, 100]参数下：
-        # 单次扫描IO=读取meta+读取每个stage的rmi+读取叶stage对应geohash数据=2+1
-        # 索引体积为geohash索引+rmi=28*10w+4096*(1+100)
+        # meta+stage0 model存一个page，stage2 model需要22/2=11个page，data需要10w/146=685page
+        # 单次扫描IO=读取meta+读取每个stage的rmi+读取叶stage对应geohash数据=1+1
+        # 索引体积为geohash索引+rmi+meta
         index.build(data_list=data_list,
                     data_precision=6,
                     region=Region(40, 42, -75, -73),

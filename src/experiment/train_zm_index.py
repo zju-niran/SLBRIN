@@ -52,9 +52,11 @@ if __name__ == '__main__':
         logging.info("Stage1 model precision: %s" % stage1_model_precision)
         stage2_model_precisions = [(model.max_err - model.min_err)
                                    for model in index.rmi[1] if model is not None]
-        stage2_model_precisions_avg = sum(stage2_model_precisions) / len(stage2_model_precisions)
+        stage2_model_num = len(stage2_model_precisions)
+        stage2_model_precisions_avg = sum(stage2_model_precisions) / stage2_model_num
         logging.info("Stage2 model precision avg: %s" % stage2_model_precisions_avg)
         path = '../../data/query/point_query.npy'
+        logging.info("Stage2 model number: %s" % stage2_model_num)
         point_query_list = np.load(path, allow_pickle=True).tolist()
         start_time = time.time()
         index.test_point_query(point_query_list)
