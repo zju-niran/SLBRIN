@@ -48,9 +48,9 @@ if __name__ == '__main__':
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)
         logging.info("Index size: %s" % index.size())
-        model_num = index.meta.first_tmp_blk
+        model_num = index.meta.last_hr + 1
         logging.info("Model num: %s" % model_num)
-        model_precisions = [(blk.model.max_err - blk.model.min_err)
-                            for blk in index.block_ranges if blk.model]
+        model_precisions = [(hr.model.max_err - hr.model.min_err)
+                            for hr in index.history_ranges if hr.model]
         model_precisions_avg = sum(model_precisions) / model_num
         logging.info("Model precision avg: %s" % model_precisions_avg)
