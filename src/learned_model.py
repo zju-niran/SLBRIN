@@ -177,11 +177,11 @@ class TrainedNN:
         """
         train_x_len = len(self.train_x)
         step = 10000
-        pres = np.empty(shape=0)
+        pres = np.empty(shape=(0, 1))
         for i in range(math.ceil(train_x_len / step)):
-            tmp_pres = self.model(self.train_x[i * step:(i + 1) * step]).numpy().flatten()
-            pres = np.hstack((pres, tmp_pres))
-        return pres
+            tmp_pres = self.model(self.train_x[i * step:(i + 1) * step].reshape(-1, 1)).numpy()
+            pres = np.vstack((pres, tmp_pres))
+        return pres.flatten()
 
     def get_err(self):
         return denormalize_diff_minmax(self.batch_predict(), self.train_y, self.train_y_min, self.train_y_max)
