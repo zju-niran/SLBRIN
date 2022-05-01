@@ -1,3 +1,4 @@
+import copy
 import gc
 import logging
 import math
@@ -18,14 +19,13 @@ from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 
 PAGE_SZIE = 4096
-DATA_SIZE = 28  # x + y + geohash + key
 
 
 # TODO 检索的时候要检索crs
 class SBRIN(SpatialIndex):
     def __init__(self, model_path=None, meta=None, history_ranges=None, current_ranges=None):
         super(SBRIN, self).__init__("SBRIN")
-        self.geohash_index = None
+        self.index_entries = None
         self.model_path = model_path
         logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
                             level=logging.INFO,
@@ -34,45 +34,29 @@ class SBRIN(SpatialIndex):
         self.logging = logging.getLogger(self.name)
         # meta page由meta组成
         # version
-        # first_cr: 新增：第一个cr的page指针
+        # last_hr: 新增：最后一个hr的指针
+        # last_cr: 新增：最后一个hr的指针
         # threshold_number: 新增：hr的数据范围，也是hr分裂的索引项数量阈值
         # threshold_length: 新增：hr分裂的geohash长度阈值
         # threshold_err: 新增：hr重新训练model的误差阈值
         # threshold_summary: 新增：cr的数据范围，也是cr统计mbr的索引项数量阈值
         # threshold_merge: 新增：cr合并的cr数量阈值
         # geohash: 新增：对应L = geohash.sum_bits，索引项geohash编码实际长度
-        # last_hr: 优化计算所需：最后一个hr的编号
         self.meta = meta
         # history range pages由多个hr分页组成
         # value: 改动：max_length长度的整型geohash
         # length: 新增：geohash的实际length
         # number: 新增：range范围内索引项的数据量
         # model: 新增：learned indices
+        # state: 新增：状态，1=inefficient
         # scope: 优化计算所需
         # value_diff: 优化计算所需：下一个hr value - hr value
         self.history_ranges = history_ranges
         # current range pages由多个cr分页组成
         # value: 改动：mbr
         # number: 新增：range范围内索引项的数据量
+        # state: 新增：状态，1=full, 2=outdated
         self.current_ranges = current_ranges
-
-    def insert_single(self, point):
-        # 1. compute geohash from x/y of point
-        point.insert(-1, self.meta.geohash.encode(point[0], point[1]))
-        # 2. insert into cr
-        # 2.1 if last cr is full, update scope of last cr and pop new cr to crs
-        last_cr = self.current_ranges[-1]
-        if last_cr.number >= self.meta.threshold_summary:
-            first_cr_key = (self.meta.last_hr + 1) * self.meta.threshold_number
-            last_cr.value = get_mbr_by_points(self.geohash_index[first_cr_key:first_cr_key + last_cr.number])
-            self.create_cr()
-            last_cr = self.current_ranges[-1]
-        # 2.2 insert data in last cr
-        last_cr.number += 1
-        # 3. append in geohash index
-        self.geohash_index.append(tuple(point))
-        # 4. merge cr TODO 改成异步
-        self.merge_cr()
 
     def build(self, data_list, threshold_number, data_precision, region, threshold_err,
               threshold_summary, threshold_merge,
@@ -83,23 +67,21 @@ class SBRIN(SpatialIndex):
         1. order data by geohash
         2. build SBRIN
         2.1. init hr
-        2.2. quadripartite recursively
-        2.3. create meta and hr
-        2.4. reconstruct index items
-        2.5. create cr
+        2.2. quartile recursively
+        2.3. create sbrin
+        2.4. reconstruct index entries
         3. build learned model
         """
         # 1. order data by geohash
         data_list = data_list.tolist()
         # 2. build SBRIN
-        start_time = time.time()
         # 2.1. init hr
         n = len(data_list)
         tmp_stack = [(0, 0, n, 0, region)]
         result_list = []
         geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
         threshold_length = region.get_max_depth_by_region_and_precision(precision=data_precision) * 2
-        # 2.2. quadripartite recursively
+        # 2.2. quartile recursively
         while len(tmp_stack):
             cur = tmp_stack.pop(-1)
             if cur[2] > threshold_number and cur[1] < threshold_length:
@@ -120,25 +102,22 @@ class SBRIN(SpatialIndex):
             else:
                 # 把不需要分裂的hr加入结果list，加入的时候顺序为[左上，右下，左上，右上]的逆序，因为堆栈
                 result_list.append(cur)
-        # 2.3. create meta and hr
+        # 2.3. create sbrin
         result_len = len(result_list)
-        self.meta = Meta(1, threshold_number, threshold_length, threshold_err, threshold_summary, threshold_merge,
-                         max([result[1] for result in result_list]), geohash, result_len - 1)
+        self.meta = Meta(result_len - 1, -1, threshold_number, threshold_length, threshold_err, threshold_summary,
+                         threshold_merge, max([result[1] for result in result_list]), geohash)
         region_offset = pow(10, -data_precision - 1)
-        self.history_ranges = [HistoryRange(result_list[i][0], result_list[i][1], result_list[i][2], None,
+        self.history_ranges = [HistoryRange(result_list[i][0], result_list[i][1], result_list[i][2], None, 0,
                                             result_list[i][4].up_right_less_region(region_offset),
                                             2 << 50 - result_list[i][1] - 1) for i in range(result_len)]
-        # 2.4. reconstruct index items
+        self.current_ranges = []
+        self.create_cr()
+        # 2.4. reconstruct index entries
         result_data_list = []
         for i in range(result_len):
             result_data_list.extend(data_list[result_list[i][3]: result_list[i][3] + result_list[i][2]])
             result_data_list.extend([(0, 0, 0, 0)] * (threshold_number - result_list[i][2]))
-        self.geohash_index = result_data_list
-        # 2.5. create cr
-        self.current_ranges = []
-        self.create_cr()
-        end_time = time.time()
-        self.logging.info("Create SBRIN: %s" % (end_time - start_time))
+        self.index_entries = result_data_list
         # 3. build learned model
         start_time = time.time()
         self.build_nn_multiprocess(use_threshold, threshold, core, train_step, batch_num, learning_rate,
@@ -155,7 +134,7 @@ class SBRIN(SpatialIndex):
             hr = self.history_ranges[i]
             # 训练数据为左下角点+分区数据+右上角点
             inputs = [j[2] for j in
-                      self.geohash_index[i * self.meta.threshold_number:i * self.meta.threshold_number + hr.number]]
+                      self.index_entries[i * self.meta.threshold_number:i * self.meta.threshold_number + hr.number]]
             inputs.insert(0, hr.value)
             inputs.append(hr.value + hr.value_diff)
             data_num = hr.number + 2
@@ -203,16 +182,16 @@ class SBRIN(SpatialIndex):
             hr.model.output_max = self.meta.threshold_number * (i + 1) - 1
             hr_first_key = i * self.meta.threshold_number
             for i in range(hr_first_key, hr_first_key + hr.number):
-                pre = hr.model.predict(self.geohash_index[i][2])
+                pre = hr.model.predict(self.index_entries[i][2])
                 if result_data_list[pre] is None:
-                    result_data_list[pre] = self.geohash_index[i]
+                    result_data_list[pre] = self.index_entries[i]
                 else:
                     # 重复数据处理：写入误差范围内离pre最近的None里
-                    if result_data_list[pre][2] == self.geohash_index[i][2]:
+                    if result_data_list[pre][2] == self.index_entries[i][2]:
                         l_bound = max(pre - hr.model.max_err, hr.model.output_min)
                         r_bound = min(pre - hr.model.min_err, hr.model.output_max)
                     else:  # 非重复数据，但是整型部分重复，或被重复数据取代了位置
-                        if result_data_list[pre][2] > self.geohash_index[i][2]:
+                        if result_data_list[pre][2] > self.index_entries[i][2]:
                             l_bound = max(pre - hr.model.max_err, hr.model.output_min)
                             r_bound = pre
                         else:
@@ -223,19 +202,69 @@ class SBRIN(SpatialIndex):
                         # 超出边界是因为大量的数据相互占用导致误差放大
                         print("超出边界")
                     else:
-                        result_data_list[key] = self.geohash_index[i]
-        self.geohash_index = result_data_list
+                        result_data_list[key] = self.index_entries[i]
+        self.index_entries = result_data_list
+
+    def insert_single(self, point):
+        # 1. encode p to geohash and create item entry(geohash, x, y, pointer)
+        point.insert(-1, self.meta.geohash.encode(point[0], point[1]))
+        # 2. insert into cr
+        self.current_ranges[-1].number += 1
+        self.index_entries.append(tuple(point))
+        # 3. parallel transactions
+        self.get_sum_up_full_cr()
+        self.post_sum_up_full_cr()
+        self.get_merge_outdated_cr()
+        self.post_merge_outdated_cr()
+        self.post_retrain_inefficient_model()
 
     def create_cr(self):
-        self.current_ranges.append(CurrentRange(value=None, number=0))
+        self.current_ranges.append(CurrentRange(value=None, number=0, state=0))
+        self.meta.last_cr += 1
 
-    def merge_cr(self):
-        if len(self.current_ranges) > self.meta.threshold_merge:
-            # 1. order index items in crs
+    def get_sum_up_full_cr(self):
+        """
+        监听last cr的number，如果超过ts_summary，则设为full状态，并追加新的cr
+        """
+        if self.current_ranges[-1].number >= self.meta.threshold_summary:
+            self.current_ranges[-1].state = 1
+            self.create_cr()
+
+    def post_sum_up_full_cr(self):
+        """
+        获取所有full的cr，统计MBR
+        """
+        # full_crs = [cr for cr in self.current_ranges if cr.state == 1]
+        cr_key = self.meta.last_cr
+        while cr_key >= 0:
+            cr = self.current_ranges[cr_key]
+            if cr.state == 1:
+                first_key = (self.meta.last_hr + 1) * self.meta.threshold_number + cr_key * self.meta.threshold_summary
+                self.current_ranges[cr_key].value = get_mbr_by_points(
+                    self.index_entries[first_key:first_key + self.meta.threshold_summary])
+                self.current_ranges[cr_key].state = 0
+                break
+            cr_key -= 1
+
+    def get_merge_outdated_cr(self):
+        """
+        监听cr数量，如果超过ts_merge(outdated)，则把前ts_merge个cr设为outdated状态
+        """
+        if self.meta.last_cr >= self.meta.threshold_merge:
+            for cr in self.current_ranges[:self.meta.threshold_merge]:
+                cr.state = 2
+
+    def post_merge_outdated_cr(self):
+        """
+        获取所有outdated的cr，合并其内前ts_merge个cr到hr，并删除这些cr对应的对象
+        """
+        # outdated_crs = [cr for cr in self.current_ranges if cr.state == 2]
+        if self.current_ranges[0].state == 2:
+            # 1. order index entries in outdated crs(first ts_merge cr)
             old_data_len = self.meta.threshold_merge * self.meta.threshold_summary
-            first_old_key = (self.meta.last_hr + 1) * self.meta.threshold_number
-            old_data = sorted(self.geohash_index[first_old_key:first_old_key + old_data_len], key=lambda x: x[2])
-            # 2. merge index items into hrs
+            first_key = (self.meta.last_hr + 1) * self.meta.threshold_number
+            old_data = sorted(self.index_entries[first_key:first_key + old_data_len], key=lambda x: x[2])
+            # 2. merge index entries into hrs
             hr_key = self.binary_search_less_max(old_data[0][2], 2, self.meta.last_hr) + 1
             tmp_l_key = 0
             tmp_r_key = 0
@@ -251,9 +280,26 @@ class SBRIN(SpatialIndex):
                 else:
                     self.update_hr(hr_key - 1, old_data[tmp_r_key:])
                     break
-            # delete crs
+            # 3. delete crs/item entries
             del self.current_ranges[:self.meta.threshold_merge]
-            del self.geohash_index[first_old_key:first_old_key + old_data_len]
+            self.meta.last_cr -= self.meta.threshold_merge
+            del self.index_entries[first_key:first_key + old_data_len]
+
+    def get_retrain_inefficient_model(self, hr):
+        """
+        在模型更新时，监听误差范围，如果超过ts_err(inefficient)，则设为inefficient状态
+        """
+        if hr.model.max_err - hr.model.min_err >= self.meta.threshold_err:
+            hr.state = 1
+
+    def post_retrain_inefficient_model(self):
+        """
+        获取所有低效状态的HR，进行重训练
+        """
+        inefficient_hrs = [hr for hr in self.history_ranges if hr.state == 1]
+        for hr in inefficient_hrs:
+            # TODO: 重训练
+            hr.state = 0
 
     def update_hr(self, hr_key, points):
         """
@@ -262,9 +308,9 @@ class SBRIN(SpatialIndex):
         points_len = len(points)
         hr = self.history_ranges[hr_key]
         # quicksort->merge_sorted_array->sorted => 50:2:1
-        # merge_sorted_array(self.geohash_index, 2, hr.key[0], hr.key[1], points)
+        # merge_sorted_array(self.index_entries, 2, hr.key[0], hr.key[1], points)
         offset = hr_key * self.meta.threshold_number
-        points.extend(self.geohash_index[offset:offset + hr.number])
+        points.extend(self.index_entries[offset:offset + hr.number])
         points = sorted(points, key=lambda x: x[2])
         if points_len + hr.number > self.meta.threshold_number and hr.length < self.meta.threshold_length:
             # split hr
@@ -272,13 +318,14 @@ class SBRIN(SpatialIndex):
         else:
             # update hr metadata
             hr.number += points_len
-            # TODO: retrain model
+            hr.max_key += points_len
             hr.model_update([[point[2]] for point in points])
-            # update geohash index
-            self.geohash_index[offset:offset + hr.number] = points
+            self.get_retrain_inefficient_model(hr)
+            # update item entries
+            self.index_entries[offset:offset + hr.number] = points
 
     def split_hr(self, hr, hr_key, offset, points):
-        # 1. create child hrs
+        # 1. create child hrs, of which model is inherited from parent hr and update err by inherited item entries
         length = hr.length + 2
         value_diff = hr.value_diff >> 2
         region_offset = pow(10, -self.meta.geohash.data_precision - 1)
@@ -287,22 +334,28 @@ class SBRIN(SpatialIndex):
         tmp_l_key = 0
         child_hrs = [None] * 4
         r_bound = hr.value
-        child_geohash_index = []
+        child_index_entries = []
         for i in range(3):
             value = r_bound
             r_bound = hr.value + (i + 1) * value_diff
             tmp_r_key = binary_search_less_max(points, 2, r_bound, tmp_l_key, last_key)
             number = tmp_r_key - tmp_l_key + 1
-            child_geohash_index.extend(points[tmp_l_key: tmp_r_key + 1])
-            child_geohash_index.extend([(0, 0, 0, 0)] * (self.meta.threshold_number - number))
-            child_hrs[3 - i] = HistoryRange(value, length, number, hr.model,
-                                            child_regs[i].up_right_less_region(region_offset), value_diff)
+            child_index_entries.extend(points[tmp_l_key: tmp_r_key + 1])
+            child_index_entries.extend([(0, 0, 0, 0)] * (self.meta.threshold_number - number))
+            child_hr = HistoryRange(value, length, number, copy.copy(hr.model), 0,
+                                    child_regs[i].up_right_less_region(region_offset), value_diff)
+            child_hr.model_update([[point[2]] for point in points[tmp_l_key: tmp_r_key + 1]])
+            self.get_retrain_inefficient_model(child_hr)
+            child_hrs[3 - i] = child_hr
             tmp_l_key = tmp_r_key + 1
         number = last_key - tmp_l_key + 1
-        child_geohash_index.extend(points[tmp_l_key:])
-        child_geohash_index.extend([(0, 0, 0, 0)] * (self.meta.threshold_number - number))
-        child_hrs[0] = HistoryRange(r_bound, length, number, hr.model,
-                                    child_regs[i].up_right_less_region(region_offset), value_diff)
+        child_index_entries.extend(points[tmp_l_key:])
+        child_index_entries.extend([(0, 0, 0, 0)] * (self.meta.threshold_number - number))
+        child_hr = HistoryRange(r_bound, length, number, hr.model, 0, child_regs[i].up_right_less_region(region_offset),
+                                value_diff)
+        child_hr.model_update([[point[2]] for point in points[tmp_l_key:]])
+        self.get_retrain_inefficient_model(child_hr)
+        child_hrs[0] = child_hr
         # 2. delete old hr
         del self.history_ranges[hr_key]
         # 3. insert child hrs
@@ -312,9 +365,9 @@ class SBRIN(SpatialIndex):
         self.meta.last_hr += 3
         if length > self.meta.max_length:
             self.meta.max_length = length
-        # 5. update geohash index
-        self.geohash_index = self.geohash_index[:offset] + child_geohash_index + \
-                             self.geohash_index[offset + self.meta.threshold_number:]
+        # 5. update item entries
+        self.index_entries = self.index_entries[:offset] + child_index_entries + \
+                             self.index_entries[offset + self.meta.threshold_number:]
 
     def point_query_hr(self, point):
         """
@@ -435,8 +488,8 @@ class SBRIN(SpatialIndex):
             pre = hr.model_predict(gh)
             offset = hr_key * self.meta.threshold_number
             # 4. biased search in scope [pre - max_err, pre + min_err]
-            return [self.geohash_index[key][3]
-                    for key in biased_search(self.geohash_index, 2, gh, offset + pre,
+            return [self.index_entries[key][3]
+                    for key in biased_search(self.index_entries, 2, gh, offset + pre,
                                              offset + max(pre - hr.model.max_err, 0),
                                              offset + min(pre - hr.model.min_err, hr.max_key))]
 
@@ -484,7 +537,7 @@ class SBRIN(SpatialIndex):
                     max_err = hr[1].model.max_err
                     l_bound1 = max(pre1 - max_err, hr[1].key[0])
                     r_bound1 = min(pre1 - min_err, hr[1].key[1])
-                    key_left = biased_search_almost(self.geohash_index, 0, gh1, pre1, l_bound1, r_bound1)
+                    key_left = biased_search_almost(self.index_entries, 0, gh1, pre1, l_bound1, r_bound1)
                     if gh1 == gh2:
                         if len(key_left) > 0:
                             result.extend(key_left)
@@ -492,11 +545,11 @@ class SBRIN(SpatialIndex):
                         key_left = l_bound1 if len(key_left) == 0 else min(key_left)
                         l_bound2 = max(pre2 - max_err, hr[1].key[0])
                         r_bound2 = min(pre2 - min_err, hr[1].key[1])
-                        key_right = biased_search_almost(self.geohash_index, 0, gh2, pre2, l_bound2, r_bound2)
+                        key_right = biased_search_almost(self.index_entries, 0, gh2, pre2, l_bound2, r_bound2)
                         key_right = r_bound2 if len(key_right) == 0 else max(key_right)
                         # 3.2.3 filter all the point of scope[min_key/max_key] by range.contain(point)
-                        result.extend([self.geohash_index[key][3] for key in range(key_left, key_right + 1)
-                                       if region.contain_and_border_by_list(self.geohash_index[key])])
+                        result.extend([self.index_entries[key][3] for key in range(key_left, key_right + 1)
+                                       if region.contain_and_border_by_list(self.index_entries[key])])
         return result
 
     def range_query_old(self, windows):
@@ -599,18 +652,18 @@ class SBRIN(SpatialIndex):
                     pre1 = hr.model_predict(gh_new1)
                     l_bound1 = max(pre1 - hr.model.max_err, 0)
                     r_bound1 = min(pre1 - hr.model.min_err, hr.max_key)
-                    key_left = min(biased_search_almost(self.geohash_index, 2, gh_new1,
+                    key_left = min(biased_search_almost(self.index_entries, 2, gh_new1,
                                                         pre1 + offset, l_bound1 + offset, r_bound1 + offset))
                 if gh_new2:
                     pre2 = hr.model_predict(gh_new2)
                     l_bound2 = max(pre2 - hr.model.max_err, 0)
                     r_bound2 = min(pre2 - hr.model.min_err, hr.max_key)
-                    key_right = max(biased_search_almost(self.geohash_index, 2, gh_new2,
+                    key_right = max(biased_search_almost(self.index_entries, 2, gh_new2,
                                                          pre2 + offset, l_bound2 + offset, r_bound2 + offset))
                 # 5 filter all the point of scope[min_key/max_key] by range.contain(point)
                 # 优化: region.contain->compare_func不同位置的点做不同的判断: 638->474mil
-                result.extend([self.geohash_index[key][3] for key in range(key_left, key_right + 1)
-                               if compare_func(self.geohash_index[key])])
+                result.extend([self.index_entries[key][3] for key in range(key_left, key_right + 1)
+                               if compare_func(self.index_entries[key])])
         return result
 
     def knn_query_single(self, knn):
@@ -634,39 +687,39 @@ class SBRIN(SpatialIndex):
             pre = qp_hr.model_predict(qp_g)
             l_bound = max(pre - qp_hr.model.max_err, 0)
             r_bound = min(pre - qp_hr.model.min_err, qp_hr.max_key)
-            query_point_key = biased_search_almost(self.geohash_index, 2, qp_g,
+            query_point_key = biased_search_almost(self.index_entries, 2, qp_g,
                                                    pre + offset, l_bound + offset, r_bound + offset)[0]
         # 2. get the n points to create range query window
         # TODO: 两种策略，一种是左右找一半，但是如果跳跃了，window很大；
         #  还有一种是两边找n，减少跳跃，使window变小，当前是第二种
-        tp_list = [[Point.distance_pow_point_list(knn, self.geohash_index[query_point_key]),
-                    self.geohash_index[query_point_key][3]]]
+        tp_list = [[Point.distance_pow_point_list(knn, self.index_entries[query_point_key]),
+                    self.index_entries[query_point_key][3]]]
         cur_key = query_point_key + 1
         cur_block_key = qp_hr_key
         i = 0
         while i < k - 1:
-            if self.geohash_index[cur_key][2] == 0:
+            if self.index_entries[cur_key][2] == 0:
                 cur_block_key += 1
                 if cur_block_key > self.meta.last_hr:
                     break
                 cur_key = cur_block_key * self.meta.threshold_number
             else:
-                tp_list.append([Point.distance_pow_point_list(knn, self.geohash_index[cur_key]),
-                                self.geohash_index[cur_key][3]])
+                tp_list.append([Point.distance_pow_point_list(knn, self.index_entries[cur_key]),
+                                self.index_entries[cur_key][3]])
                 cur_key += 1
                 i += 1
         cur_key = query_point_key - 1
         cur_block_key = qp_hr_key
         i = 0
         while i < k - 1:
-            if self.geohash_index[cur_key][2] == 0:
+            if self.index_entries[cur_key][2] == 0:
                 cur_block_key -= 1
                 if cur_block_key < 0:
                     break
                 cur_key = cur_block_key * self.meta.threshold_number + self.history_ranges[cur_block_key].max_key
             else:
-                tp_list.append([Point.distance_pow_point_list(knn, self.geohash_index[cur_key]),
-                                self.geohash_index[cur_key][3]])
+                tp_list.append([Point.distance_pow_point_list(knn, self.index_entries[cur_key]),
+                                self.index_entries[cur_key][3]])
                 cur_key -= 1
                 i += 1
         tp_list = sorted(tp_list)[:k]
@@ -733,66 +786,67 @@ class SBRIN(SpatialIndex):
                 pre1 = hr.model_predict(gh_new1)
                 l_bound1 = max(pre1 - hr.model.max_err, 0)
                 r_bound1 = min(pre1 - hr.model.min_err, hr.max_key)
-                key_left = min(biased_search_almost(self.geohash_index, 2, gh_new1,
+                key_left = min(biased_search_almost(self.index_entries, 2, gh_new1,
                                                     pre1 + offset, l_bound1 + offset, r_bound1 + offset))
             if gh_new2:
                 pre2 = hr.model_predict(gh_new2)
                 l_bound2 = max(pre2 - hr.model.max_err, 0)
                 r_bound2 = min(pre2 - hr.model.min_err, hr.max_key)
-                key_right = max(biased_search_almost(self.geohash_index, 2, gh_new2,
+                key_right = max(biased_search_almost(self.index_entries, 2, gh_new2,
                                                      pre2 + offset, l_bound2 + offset, r_bound2 + offset))
             # 3. filter point by distance
-            tp_list.extend([[Point.distance_pow_point_list(knn, self.geohash_index[i]), self.geohash_index[i][3]]
+            tp_list.extend([[Point.distance_pow_point_list(knn, self.index_entries[i]), self.index_entries[i][3]]
                             for i in range(key_left, key_right + 1)])
             tp_list = sorted(tp_list)[:k]
-            if tp_list == []:
-                print(tp_list)
             max_dist = tp_list[-1][0]
         return [tp[1] for tp in tp_list]
 
     def save(self):
-        sbrin_meta = np.array((self.meta.version, self.meta.threshold_number, self.meta.threshold_length,
+        sbrin_meta = np.array((self.meta.last_hr, self.meta.last_cr,
+                               self.meta.threshold_number, self.meta.threshold_length,
                                self.meta.threshold_err, self.meta.threshold_summary, self.meta.threshold_merge,
                                self.meta.max_length, self.meta.geohash.data_precision,
                                self.meta.geohash.region.bottom, self.meta.geohash.region.up,
-                               self.meta.geohash.region.left, self.meta.geohash.region.right, self.meta.last_hr),
-                              dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'), ("3", 'i4'), ("4", 'i4'), ("5", 'i4'),
-                                     ("6", 'i4'), ("7", 'i4'), ("8", 'f8'), ("9", 'f8'), ("10", 'f8'), ("11", 'f8'),
-                                     ("12", 'i4')])
-        sbrin_hr_models = np.array([hr.model for hr in self.history_ranges])
-        sbrin_hrs = np.array([(hr.value, hr.length, hr.number, hr.value_diff,
+                               self.meta.geohash.region.left, self.meta.geohash.region.right),
+                              dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i2'), ("3", 'i2'), ("4", 'i2'), ("5", 'i2'),
+                                     ("6", 'i2'), ("7", 'i1'), ("8", 'i1'),
+                                     ("9", 'f8'), ("10", 'f8'), ("11", 'f8'), ("12", 'f8')])
+        sbrin_models = np.array([hr.model for hr in self.history_ranges])
+        sbrin_hrs = np.array([(hr.value, hr.length, hr.number, hr.state, hr.value_diff,
                                hr.scope.bottom, hr.scope.up, hr.scope.left, hr.scope.right)
                               for hr in self.history_ranges],
-                             dtype=[("0", 'i8'), ("1", 'i4'), ("2", 'i4'), ("3", 'i8'),
-                                    ("4", 'f8'), ("5", 'f8'), ("6", 'f8'), ("7", 'f8')])
+                             dtype=[("0", 'i8'), ("1", 'i1'), ("2", 'i2'), ("3", 'i1'), ("4", 'i8'),
+                                    ("5", 'f8'), ("6", 'f8'), ("7", 'f8'), ("8", 'f8')])
         sbrin_crs = []
         for cr in self.current_ranges:
             if cr.value is None:
-                cr_list = [-1, -1, -1, -1, cr.number]
+                cr_list = [-1, -1, -1, -1, cr.number, cr.state]
             else:
-                cr_list = [cr.value.bottom, cr.value.up, cr.value.left, cr.value.right, cr.number]
+                cr_list = [cr.value.bottom, cr.value.up, cr.value.left, cr.value.right, cr.number, cr.state]
             sbrin_crs.append(tuple(cr_list))
-        sbrin_crs = np.array(sbrin_crs, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'i4')])
+        sbrin_crs = np.array(sbrin_crs, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'f8'), ("3", 'f8'),
+                                               ("4", 'i2'), ("5", 'i1')])
         np.save(os.path.join(self.model_path, 'sbrin_meta.npy'), sbrin_meta)
         np.save(os.path.join(self.model_path, 'sbrin_hrs.npy'), sbrin_hrs)
-        np.save(os.path.join(self.model_path, 'sbrin_hr_models.npy'), sbrin_hr_models)
+        np.save(os.path.join(self.model_path, 'sbrin_models.npy'), sbrin_models)
         np.save(os.path.join(self.model_path, 'sbrin_crs.npy'), sbrin_crs)
-        geohash_index = np.array(self.geohash_index, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')])
-        np.save(os.path.join(self.model_path, 'geohash_index.npy'), geohash_index)
+        index_entries = np.array(self.index_entries, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')])
+        np.save(os.path.join(self.model_path, 'sbrin_data.npy'), index_entries)
 
     def load(self):
         sbrin_meta = np.load(self.model_path + 'sbrin_meta.npy', allow_pickle=True).item()
         sbrin_hrs = np.load(self.model_path + 'sbrin_hrs.npy', allow_pickle=True)
-        sbrin_hr_models = np.load(self.model_path + 'sbrin_hr_models.npy', allow_pickle=True)
+        sbrin_models = np.load(self.model_path + 'sbrin_models.npy', allow_pickle=True)
         sbrin_crs = np.load(self.model_path + 'sbrin_crs.npy', allow_pickle=True)
-        geohash_index = np.load(self.model_path + 'geohash_index.npy', allow_pickle=True)
-        region = Region(sbrin_meta[8], sbrin_meta[9], sbrin_meta[10], sbrin_meta[11])
-        geohash = Geohash.init_by_precision(data_precision=sbrin_meta[7], region=region)
+        index_entries = np.load(self.model_path + 'sbrin_data.npy', allow_pickle=True)
+        region = Region(sbrin_meta[9], sbrin_meta[10], sbrin_meta[11], sbrin_meta[12])
+        geohash = Geohash.init_by_precision(data_precision=sbrin_meta[8], region=region)
         self.meta = Meta(sbrin_meta[0], sbrin_meta[1], sbrin_meta[2], sbrin_meta[3], sbrin_meta[4], sbrin_meta[5],
-                         sbrin_meta[6], geohash, sbrin_meta[12])
-        self.history_ranges = [HistoryRange(sbrin_hrs[i][0], sbrin_hrs[i][1], sbrin_hrs[i][2], sbrin_hr_models[i],
-                                            Region(sbrin_hrs[i][4], sbrin_hrs[i][5], sbrin_hrs[i][6], sbrin_hrs[i][7]),
-                                            sbrin_hrs[i][3]) for i in range(len(sbrin_hrs))]
+                         sbrin_meta[6], sbrin_meta[7], geohash)
+        self.history_ranges = [
+            HistoryRange(sbrin_hrs[i][0], sbrin_hrs[i][1], sbrin_hrs[i][2], sbrin_models[i], sbrin_hrs[i][3],
+                         Region(sbrin_hrs[i][5], sbrin_hrs[i][6], sbrin_hrs[i][7], sbrin_hrs[i][8]),
+                         sbrin_hrs[i][4]) for i in range(len(sbrin_hrs))]
         crs = []
         for i in range(len(sbrin_crs)):
             cr = sbrin_crs[i]
@@ -800,43 +854,43 @@ class SBRIN(SpatialIndex):
                 region = None
             else:
                 region = Region(cr[0], cr[1], cr[2], cr[3])
-            crs.append(CurrentRange(region, cr[4]))
+            crs.append(CurrentRange(region, cr[4], cr[5]))
         self.current_ranges = crs
-        self.geohash_index = geohash_index.tolist()
+        self.index_entries = index_entries.tolist()
 
     def size(self):
         """
-        size = sbrin_meta.npy + sbrin_hrs.npy + sbrin_hr_models.npy + sbrin_crs.npy + geohash_index.npy
+        size = sbrin_meta.npy + sbrin_hrs.npy + sbrin_models.npy + sbrin_crs.npy + sbrin_data.npy
         """
         # 实际上：
-        # meta=os.path.getsize(os.path.join(self.model_path, "sbrin_meta.npy"))-128-64*2=4*9+8*4=68
-        # hr=os.path.getsize(os.path.join(self.model_path, "sbrin_hrs.npy"))-128-64=hr_size*(4*2+8*6)=hr_size*56
-        # model一致=os.path.getsize(os.path.join(self.model_path, "sbrin_hr_models.npy"))-128=hr_size*model_size
-        # cr=os.path.getsize(os.path.join(self.model_path, "sbrin_crs.npy"))-128-64=cr_size*(4*1+8*4)=cr_size*36
-        # geohash_index=os.path.getsize(os.path.join(self.model_path, "geohash_index.npy"))-128
+        # meta=os.path.getsize(os.path.join(self.model_path, "sbrin_meta.npy"))-128-64*2=1*2+2*5+4*2+8*4=52
+        # hr=os.path.getsize(os.path.join(self.model_path, "sbrin_hrs.npy"))-128-64=hr_size*(1*2+2*1+8*6)=hr_size*52
+        # model一致=os.path.getsize(os.path.join(self.model_path, "sbrin_models.npy"))-128=hr_size*model_size
+        # cr=os.path.getsize(os.path.join(self.model_path, "sbrin_crs.npy"))-128-64=cr_size*(1*1+2*1+8*4)=cr_size*35
+        # index_entries=os.path.getsize(os.path.join(self.model_path, "sbrin_data.npy"))-128
         # =hr_size*meta.threashold_number*(8*3+4)
         # 理论上：
-        # meta只存version/ts_number/ts_length/ts_err/ts_summary/ts_merge/max_length/first_cr=4*8=32
-        # hr只存value/length/number=hr_size*(4*2+8*1)=hr_size*16
-        # cr只存value/number=cr_size*(4*1+8*4)=cr_size*36
-        # geohash_index为data_len*(8*3+4)=data_len*28
-        data_len = len([geohash for geohash in self.geohash_index if geohash[2] != 0])
+        # meta只存last_hr/last_cr/5*ts/max_length=4+4+5*2+1=19
+        # hr只存value/length/number/state=hr_size*(8+1+2+4+1)=hr_size*16
+        # cr只存value/number/state=cr_size*(8*4+2+1)=cr_size*35
+        # index_entries为data_len*(8*3+4)=data_len*28
+        data_len = len([geohash for geohash in self.index_entries if geohash[2] != 0])
         hr_size = len(self.history_ranges)
         cr_size = len(self.current_ranges)
-        return 32 + \
+        return 19 + \
                hr_size * 16 + \
-               os.path.getsize(os.path.join(self.model_path, "sbrin_hr_models.npy")) - 128 + \
-               cr_size * 36 + \
+               os.path.getsize(os.path.join(self.model_path, "sbrin_models.npy")) - 128 + \
+               cr_size * 35 + \
                data_len * 28
 
 
 class Meta:
-    def __init__(self, version, threshold_number, threshold_length, threshold_err, threshold_summary,
-                 threshold_merge, max_length, geohash, last_hr):
+    def __init__(self, last_hr, last_cr, threshold_number, threshold_length, threshold_err, threshold_summary,
+                 threshold_merge, max_length, geohash):
         # BRIN
-        self.version = version
         # SBRIN
-        # self.first_cr = first_cr
+        self.last_hr = last_hr
+        self.last_cr = last_cr
         self.threshold_number = threshold_number
         self.threshold_length = threshold_length
         self.threshold_err = threshold_err
@@ -845,17 +899,17 @@ class Meta:
         self.max_length = max_length
         # For compute
         self.geohash = geohash
-        self.last_hr = last_hr
 
 
 class HistoryRange:
-    def __init__(self, value, length, number, model, scope, value_diff):
+    def __init__(self, value, length, number, model, state, scope, value_diff):
         # BRIN
         self.value = value
         # SBRIN
         self.length = length
         self.number = number
         self.model = model
+        self.state = state
         # For compute
         self.scope = scope
         self.value_diff = value_diff
@@ -870,18 +924,23 @@ class HistoryRange:
         return int(self.max_key * x)
 
     def model_update(self, xs):
-        err = self.model.predicts((np.array(xs) - self.value) / self.value_diff - 0.5) * self.max_key \
-              - np.arange(len(xs))
+        xs.insert(0, [self.value])
+        xs.append([self.value + self.value_diff])
+        pres = self.model.predicts((np.array(xs) - self.value) / self.value_diff - 0.5)
+        pres[pres < 0] = 0
+        pres[pres > 1] = 1
+        err = pres * (self.max_key + 2) - np.arange(len(xs))
         self.model.min_err = math.ceil(err.min())
         self.model.max_err = math.ceil(err.max())
 
 
 class CurrentRange:
-    def __init__(self, value, number):
+    def __init__(self, value, number, state):
         # BRIN
         self.value = value
         # SBRIN
         self.number = number
+        self.state = state
         # For compute
 
 
@@ -922,8 +981,8 @@ def main():
         # data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
         data_list = np.load(data_path, allow_pickle=True)
         # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y/g)=8, sbrin整体连续存, meta一个page, br分页存，model(2009大小)单独存
-        # hr体积=value/length/number=4*2+8*1=16，一个page存256个hr
-        # cr体积=value/number=4*1+8*4=36，一个page存113个cr
+        # hr体积=value/length/number=16，一个page存256个hr
+        # cr体积=value/number=35，一个page存117个cr
         # model体积=2009，一个page存2个model
         # data体积=x/y/g/key=8*3+4=28，一个page存146个data
         # 10w数据，[1000]参数下：大约有289个cr
