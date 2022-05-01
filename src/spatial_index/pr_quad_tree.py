@@ -404,16 +404,16 @@ def main():
         data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
         # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y)=8, node和data按照DFS的顺序密集存储在page中
         # tree存放所有node的深度、是否叶节点、region、四节点指针和data的始末指针:
-        # node size=4+4+8*4+4*4+4*2=64，单page存放4096/64=64node，单prefetch读取256*64=16384node
+        # node size=1+1+8*4+4*4+4*2=58，单page存放4096/64=70node，单prefetch读取256*70=17920node
         # item存放xy数据和数据指针：
         # data size=8*2+4=20，单page存放4096/20=204data，单prefetch读取256*204=52224data
         # 10w数据，[1000]参数下：
         # 叶节点平均数据约为0.5*1000=500，叶节点约有10w/500=200个，非叶节点数量由数据分布决定，节点大约280个
-        # 单次扫描IO=读取node+读取node对应数据=280/16384+500/52224=2
+        # 单次扫描IO=读取node+读取node对应数据=280/17920+500/52224=2
         # 索引体积=280/64*4096+20*10w
         # 1451w数据，[1000]参数下：
         # 叶节点平均数据约为0.5*1000=500，叶节点约有1451w/500=29020个，非叶节点数量由数据分布决定，节点大约5w个
-        # 单次扫描IO=读取node+读取node对应数据=5w/16384+500/52224=4~5
+        # 单次扫描IO=读取node+读取node对应数据=5w/17920+500/52224=4~5
         # 索引体积=5w/64*4096+20*1451w
         index.build(data_list=data_list,
                     region=Region(40, 42, -75, -73),

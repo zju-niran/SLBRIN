@@ -445,8 +445,8 @@ def main():
         start_time = time.time()
         data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
         # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y)=8, node按照DFS的顺序密集存储在page中
-        # tree存放所有node的axis、数据量、左右节点指针、data的data指针:
-        # node size=4+4+4+4+8*2+4=36，单page存放4096/36=113node，单prefetch读取256*113=26668node
+        # tree存放所有node的axis、数据量、左右节点指针、data:
+        # node size=1+4+4*2+(8*2+4)=33，单page存放4096/36=124node，单prefetch读取256*124=31744node
         # 15层节点数=2^(15-1)=16384，之后每一层对应1次IO
         # 10w数据，[]参数下：
         # 树高=log2(10w)=17, IO=前15层IO+后17-15层IO=1~2+2=3~4

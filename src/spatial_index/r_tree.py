@@ -111,9 +111,9 @@ def main():
         data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
         # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y)=8, 一个page存放一个node
         # leaf node存放xyxy数据、数据指针、指向下一个leaf node的指针
-        # leaf_node_capacity=(pagesize-size(pointer))/(size(x)*4+size(pointer))=(4096-4)/(8*4+4)=113
+        # leaf_node_capacity=(pagesize-size(pointer))/(size(x)*4+size(pointer))=(4096-4)/(8*4+4*1)=113
         # non leaf node存放MBR、指向MBR对应子节点的指针
-        # non_leaf_node_capacity = pagesize/(size(x)*4+size(pointer))=4096/(8*4+4)=113
+        # non_leaf_node_capacity = pagesize/(size(x)*4+size(pointer))=4096/(8*4+4*1)=113
         # 由于fill_factor的存在，非叶节点数据量在[node_capacity*fill_factor, node_capacity]之间，根节点和叶节点数据量不受约束
         # 10w数据，[0.7, 113, 113]参数下：
         # 非叶节点平均数据约为0.85*113=96，数高三层为1-96-leaf，叶节点最多113*113=12769个，最少1*79=79个
