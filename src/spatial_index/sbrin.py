@@ -342,6 +342,7 @@ class SBRIN(SpatialIndex):
             number = tmp_r_key - tmp_l_key + 1
             child_index_entries.extend(points[tmp_l_key: tmp_r_key + 1])
             child_index_entries.extend([(0, 0, 0, 0)] * (self.meta.threshold_number - number))
+            # TODO: 当前model直接继承，需要改为计算得到父model的1/4部分
             child_hr = HistoryRange(value, length, number, copy.copy(hr.model), 0,
                                     child_regs[i].up_right_less_region(region_offset), value_diff)
             child_hr.model_update([[point[2]] for point in points[tmp_l_key: tmp_r_key + 1]])
