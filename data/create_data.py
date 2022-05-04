@@ -35,7 +35,7 @@ def filter_row_in_region(input_path, output_path, range_limit):
 
 
 def add_key_field(input_path, output_path, first_key):
-    data_list = np.load(input_path, allow_pickle=True)
+    data_list = np.load(input_path, allow_pickle=True).astype(np.object)
     data_len = len(data_list)
     key_list = np.arange(first_key, first_key + data_len)
     key_list.resize((data_len, 1))
@@ -203,7 +203,6 @@ if __name__ == '__main__':
     # 7. 生成索引列
     # output_path = "./table/trip_data_1_filter.npy"
     # output_path = "./table/trip_data_1_filter_10w.npy"
-    # output_path = "./table/trip_data_1_filter.npy"
     # output_path = "./table/normal_10000w.npy"
     # output_path = "./table/normal_10w.npy"
     output_path = "./table/uniform_10000w.npy"

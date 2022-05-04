@@ -140,7 +140,7 @@ class BRINSpatial(SpatialIndex):
             brins_blk.append((blk.blknum, -1, -1, -1, -1))
         else:
             brins_blk.append((blk.blknum, blk.value.bottom, blk.value.up, blk.value.left, blk.value.right))
-        brins_blk = np.array(brins_blk, dtype=[("0", 'i4'), ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8')])
+        brins_blk = np.array(brins_blk, dtype=[("0", 'i2'), ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8')])
         np.save(os.path.join(self.model_path, 'brins_meta.npy'), brins_meta)
         np.save(os.path.join(self.model_path, 'brins_blk.npy'), brins_blk)
         xy_index = np.array(self.xy_index, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i4')])
@@ -168,15 +168,15 @@ class BRINSpatial(SpatialIndex):
         """
         # 实际上：
         # meta一致为为os.path.getsize(os.path.join(self.model_path, "brins_meta.npy"))-128=4*3=12
-        # blk一致为os.path.getsize(os.path.join(self.model_path, "brins_blk.npy"))-128-64=blk_size*(8*4+4)=blk_size*36
+        # blk一致为os.path.getsize(os.path.join(self.model_path, "brins_blk.npy"))-128-64=blk_size*(8*4+2)=blk_size*34
         # revmap为none
         # xy_index一致为os.path.getsize(os.path.join(self.model_path, "xy_index.npy"))-128=data_len*(8*2+4)=data_len*20
         # 理论上：
-        # revmap存blk id/pointer=meta.size*(4+4)=meta.size*8
+        # revmap存blk id/pointer=meta.size*(2+4)=meta.size*6
         blk_size = len(self.block_ranges)
         return 12 + \
-               blk_size * 36 + \
-               blk_size * 8 + \
+               blk_size * 34 + \
+               blk_size * 6 + \
                os.path.getsize(os.path.join(self.model_path, "xy_index.npy")) - 128
 
 
@@ -215,11 +215,11 @@ def main():
         start_time = time.time()
         data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
         # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y)=8, brin整体连续存, meta一个page, blk分页存
-        # blk体积=blknum/value=4+4*8=36，一个page存114个blk
-        # revmap体积=blkid+blk指针=4+4=8，一个page存512个blk
+        # blk体积=blknum/value=2+4*8=34，一个page存120个blk
+        # revmap体积=blkid+blk指针=2+4=6，一个page存682个blk
         # data体积=x/y/key=8*2+4=20，一个page存204个data
         # 10w数据，[5]参数下：大约有10w/5/204=99blk
-        # 1meta page，99/114=1regular page，99/512=1revmap page，10w/204=491data page
+        # 1meta page，99/120=1regular page，99/682=1revmap page，10w/204=491data page
         # 单次扫描IO为读取brin+读取blk对应xy数据=1+0
         # 索引体积=xy索引+meta+blk+revmap
         index.build(data_list=data_list,
