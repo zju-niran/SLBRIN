@@ -6,8 +6,7 @@ import time
 import numpy as np
 
 sys.path.append('/home/zju/wlj/st-learned-index')
-from src.experiment.common_utils import Distribution, load_data
-from src.spatial_index.common_utils import Region
+from src.experiment.common_utils import Distribution, load_data, data_region, data_precision
 from src.spatial_index.pr_quad_tree import PRQuadTree
 
 if __name__ == '__main__':
@@ -32,9 +31,9 @@ if __name__ == '__main__':
             start_time = time.time()
             data_list = load_data(data_distribution)
             index.build(data_list=data_list,
-                        region=Region(40, 42, -75, -73),
+                        region=data_region[data_distribution],
                         threshold_number=n,
-                        data_precision=6)
+                        data_precision=data_precision[data_distribution])
             index.save()
             end_time = time.time()
             build_time = end_time - start_time

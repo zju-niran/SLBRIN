@@ -45,6 +45,10 @@ class ZMIndex(SpatialIndex):
         train_labels = [[[] for i in range(stages[i])] for i in range(self.stage_length)]
         self.rmi = [[None for i in range(stages[i])] for i in range(self.stage_length)]
         # 1. ordering x/y point by geohash
+        data_list = [(data_list[i][0], data_list[i][1], self.geohash.encode(data_list[i][0], data_list[i][1]), i)
+                     for i in range(len(data_list))]
+        data_list = np.array(sorted(data_list, key=lambda x: x[2]),
+                             dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')])
         self.geohash_index = data_list
         self.train_data_length = len(self.geohash_index) - 1
         train_inputs[0][0] = [data[2] for data in data_list]
@@ -249,8 +253,7 @@ class AbstractNN:
 # @profile(precision=8)
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    # data_path = '../../data/table/trip_data_1_filter_10w.npy'
-    data_path = '../../data/index/trip_data_1_filter_10w_sorted.npy'
+    data_path = '../../data/table/trip_data_1_filter_10w.npy'
     model_path = "model/zm_index_10w/"
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
@@ -262,8 +265,7 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        # data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
-        data_list = np.load(data_path, allow_pickle=True)
+        data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
         # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y/g)=8, meta单独一个page, rmi(2375大小)每个模型1个page
         # model体积=2009，一个page存2个model
         # data体积=x/y/g/key=8*3+4=28，一个page存146个data

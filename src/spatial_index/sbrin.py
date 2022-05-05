@@ -73,13 +73,15 @@ class SBRIN(SpatialIndex):
         3. build learned model
         """
         # 1. order data by geohash
-        data_list = data_list.tolist()
+        geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
+        data_list = [(data_list[i][0], data_list[i][1], geohash.encode(data_list[i][0], data_list[i][1]), i)
+                     for i in range(len(data_list))]
+        data_list = sorted(data_list, key=lambda x: x[2])
         # 2. build SBRIN
         # 2.1. init hr
         n = len(data_list)
         tmp_stack = [(0, 0, n, 0, region)]
         result_list = []
-        geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
         threshold_length = region.get_max_depth_by_region_and_precision(precision=data_precision) * 2
         # 2.2. quartile recursively
         while len(tmp_stack):
@@ -967,20 +969,19 @@ class AbstractNN:
 # @profile(precision=8)
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data_path = '../../data/index/trip_data_1_filter_10w_sorted.npy'
+    data_path = '../../data/table/trip_data_1_filter_10w.npy'
     model_path = "model/sbrin_10w/"
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
     index = SBRIN(model_path=model_path)
     index_name = index.name
-    load_index_from_json = True
+    load_index_from_json = False
     if load_index_from_json:
         index.load()
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        # data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
-        data_list = np.load(data_path, allow_pickle=True)
+        data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
         # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y/g)=8, sbrin整体连续存, meta一个page, br分页存，model(2009大小)单独存
         # hr体积=value/length/number=16，一个page存256个hr
         # cr体积=value/number=35，一个page存117个cr

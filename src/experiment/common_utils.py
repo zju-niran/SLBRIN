@@ -1,7 +1,8 @@
-import os
 from enum import Enum
 
 import numpy as np
+
+from src.spatial_index.common_utils import Region
 
 
 class Distribution(Enum):
@@ -24,6 +25,28 @@ data_path = {
     Distribution.NORMAL_10W: "../../data/table/normal_10w.npy",
     Distribution.NYCT_10W: "../../data/table/trip_data_1_filter_10w.npy",
     Distribution.NYCT_SORTED_10W: "../../data/index/trip_data_1_filter_10w_sorted.npy",
+}
+
+data_precision = {
+    Distribution.UNIFORM: 10,
+    Distribution.NORMAL: 10,
+    Distribution.NYCT: 6,
+    Distribution.NYCT_SORTED: 6,
+    Distribution.UNIFORM_10W: 10,
+    Distribution.NORMAL_10W: 10,
+    Distribution.NYCT_10W: 6,
+    Distribution.NYCT_SORTED_10W: 6,
+}
+
+data_region = {
+    Distribution.UNIFORM: Region(0, 1, 0, 1),
+    Distribution.NORMAL: Region(0, 1, 0, 1),
+    Distribution.NYCT: Region(40, 42, -75, -73),
+    Distribution.NYCT_SORTED: Region(40, 42, -75, -73),
+    Distribution.UNIFORM_10W: Region(0, 1, 0, 1),
+    Distribution.NORMAL_10W: Region(0, 1, 0, 1),
+    Distribution.NYCT_10W: Region(40, 42, -75, -73),
+    Distribution.NYCT_SORTED_10W: Region(40, 42, -75, -73),
 }
 
 
