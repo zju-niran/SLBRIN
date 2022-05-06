@@ -58,7 +58,7 @@ class SBRIN(SpatialIndex):
         # state: 新增：状态，1=full, 2=outdated
         self.current_ranges = current_ranges
 
-    def build(self, data_list, threshold_number, data_precision, region, threshold_err,
+    def build(self, data_list, is_sorted, threshold_number, data_precision, region, threshold_err,
               threshold_summary, threshold_merge,
               use_threshold, threshold, core, train_step, batch_num, learning_rate, retrain_time_limit,
               thread_pool_size, save_nn, weight):
@@ -74,9 +74,12 @@ class SBRIN(SpatialIndex):
         """
         # 1. order data by geohash
         geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
-        data_list = [(data_list[i][0], data_list[i][1], geohash.encode(data_list[i][0], data_list[i][1]), i)
-                     for i in range(len(data_list))]
-        data_list = sorted(data_list, key=lambda x: x[2])
+        if is_sorted:
+            data_list = data_list.tolist()
+        else:
+            data_list = [(data_list[i][0], data_list[i][1], geohash.encode(data_list[i][0], data_list[i][1]), i)
+                         for i in range(len(data_list))]
+            data_list = sorted(data_list, key=lambda x: x[2])
         # 2. build SBRIN
         # 2.1. init hr
         n = len(data_list)
@@ -969,7 +972,7 @@ class AbstractNN:
 # @profile(precision=8)
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data_path = '../../data/table/trip_data_1_filter_10w.npy'
+    data_path = '../../data/index/nyct_10w_sorted.npy'
     model_path = "model/sbrin_10w/"
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
@@ -981,7 +984,7 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
+        data_list = np.load(data_path, allow_pickle=True)
         # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y/g)=8, sbrin整体连续存, meta一个page, br分页存，model(2009大小)单独存
         # hr体积=value/length/number=16，一个page存256个hr
         # cr体积=value/number=35，一个page存117个cr
@@ -992,6 +995,7 @@ def main():
         # 单次扫描IO=读取sbrin+读取对应model+读取model对应geohash数据=1+1+误差范围/146/512
         # 索引体积=geohash索引+meta+hrs+model+crs
         index.build(data_list=data_list,
+                    is_sorted=True,
                     threshold_number=1000,
                     data_precision=6,
                     region=Region(40, 42, -75, -73),

@@ -112,8 +112,11 @@ def create_knn_query(input_path, output_path, query_number_limit, n_list):
 
 def geohash_and_sort(input_path, output_path, data_precision, region):
     geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
-    data = np.load(input_path, allow_pickle=True)[:, [10, 11, -1]]
-    data = [(data[i][0], data[i][1], geohash.encode(data[i][0], data[i][1]), data[i][2]) for i in range(len(data))]
+    if "nyct" in output_path:
+        data = np.load(input_path, allow_pickle=True)[:, [10, 11, -1]]
+    else:
+        data = np.load(input_path, allow_pickle=True)
+        data = [(data[i][0], data[i][1], geohash.encode(data[i][0], data[i][1]), data[i][2]) for i in range(len(data))]
     data = sorted(data, key=lambda x: x[2])
     np.save(output_path, np.array(data, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')]))
 
@@ -188,13 +191,16 @@ if __name__ == '__main__':
     # input_path = "./table/trip_data_1_filter.npy"
     # get_region(input_path)
     # 3. 生成uniform和normal的数据
+    # 精度8，范围0-1-0-1，geohash长度为60，精度9的话长度就66了，超过了int64的范围
     # output_path_uniform = "./table/uniform_10000w.npy"
     # output_path_normal = "./table/normal_10000w.npy"
-    # create_data(output_path_uniform, 100000000, [0, 1, 0, 1], 10, 'uniform')
-    # create_data(output_path_normal, 100000000, [0, 1, 0, 1], 10, 'normal')
+    # create_data(output_path_uniform, 100000000, [0, 1, 0, 1], 8, 'uniform')
+    # create_data(output_path_normal, 100000000, [0, 1, 0, 1], 8, 'normal')
     # plot_npy(output_path_uniform)
     # plot_npy(output_path_normal)
     # 4. 生成10w的数据
+    # input_path = "./table/uniform_10000w.npy"
+    # output_path_10w_sample = './table/uniform_10w.npy'
     # input_path = "./table/normal_10000w.npy"
     # output_path_10w_sample = './table/normal_10w.npy'
     # sample(input_path, output_path_10w_sample, 100000)
@@ -203,9 +209,19 @@ if __name__ == '__main__':
     # output_path = "./table/trip_data_1_10w_distinct.npy"
     # create_distinct_data(input_path, output_path)
     # 6. Geohash排序数据
+    # input_path = "./table/uniform_10000w.npy"
+    # output_path = "./index/uniform_sorted.npy"
+    input_path = "./table/normal_10000w.npy"
+    output_path = "./index/normal_sorted.npy"
+    data_precision = 8
+    region = Region(0, 1, 0, 1)
     # input_path = "./table/trip_data_1_filter.npy"
-    # output_path = "./index/trip_data_1_filter_sorted.npy"
-    # geohash_and_sort(input_path, output_path, 6, Region(40, 42, -75, -73))
+    # output_path = "./index/nyct_sorted.npy"
+    # input_path = "./table/trip_data_1_filter_10w.npy"
+    # output_path = "./index/nyct_10w_sorted.npy"
+    # data_precision = 6
+    # region = Region(40, 42, -75, -73)
+    geohash_and_sort(input_path, output_path, data_precision, region)
     # 7. 生成索引列
     # output_path = "./table/trip_data_1_filter.npy"
     # output_path = "./table/trip_data_1_filter_10w.npy"
@@ -242,12 +258,12 @@ if __name__ == '__main__':
     # 3.生成knn检索范围
     # input_path = './table/uniform_10000w.npy'
     # output_path = './query/knn_query_uniform.npy'
-    input_path = './table/normal_10000w.npy'
-    output_path = './query/knn_query_normal.npy'
+    # input_path = './table/normal_10000w.npy'
+    # output_path = './query/knn_query_normal.npy'
     # input_path = './table/trip_data_1_filter.npy'
     # output_path = './query/knn_query_nyct.npy'
     # input_path = './table/trip_data_1_filter_10w.npy'
     # output_path = './query/knn_query_nyct_10w.npy'
-    query_number_limit = 1000
-    n_list = [4, 8, 16, 32, 64]
-    create_knn_query(input_path, output_path, query_number_limit, n_list)
+    # query_number_limit = 1000
+    # n_list = [4, 8, 16, 32, 64]
+    # create_knn_query(input_path, output_path, query_number_limit, n_list)

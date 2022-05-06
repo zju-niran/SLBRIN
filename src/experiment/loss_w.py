@@ -15,8 +15,8 @@ if __name__ == '__main__':
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
                         level=logging.INFO,
                         format="%(message)s")
-    # data_distributions = [Distribution.UNIFORM_10W, Distribution.NORMAL_10W, Distribution.NYCT_10W]
-    data_distributions = [Distribution.UNIFORM, Distribution.NORMAL, Distribution.NYCT]
+    # data_distributions = [Distribution.UNIFORM_10W, Distribution.NORMAL_10W, Distribution.NYCT_SORTED_10W]
+    data_distributions = [Distribution.UNIFORM_SORTED, Distribution.NORMAL_SORTED, Distribution.NYCT_SORTED]
     weights = [0.01, 0.1, 1, 10, 100, 1000]
     for data_distribution in data_distributions:
         for weight in weights:
@@ -29,6 +29,7 @@ if __name__ == '__main__':
             start_time = time.time()
             data_list = load_data(data_distribution)
             index.build(data_list=data_list,
+                        is_sorted=True,
                         threshold_number=20000,
                         data_precision=data_precision[data_distribution],
                         region=data_region[data_distribution],

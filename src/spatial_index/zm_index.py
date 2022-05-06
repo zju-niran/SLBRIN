@@ -32,8 +32,9 @@ class ZMIndex(SpatialIndex):
                             datefmt="%Y/%m/%d %H:%M:%S %p")
         self.logging = logging.getLogger(self.name)
 
-    def build(self, data_list, data_precision, region, use_thresholds, thresholds, stages, cores, train_steps,
-              batch_nums, learning_rates, retrain_time_limits, thread_pool_size, save_nn, weight):
+    def build(self, data_list, is_sorted, data_precision, region,
+              use_thresholds, thresholds, stages, cores, train_steps, batch_nums, learning_rates, retrain_time_limits,
+              thread_pool_size, save_nn, weight):
         """
         build index
         1. ordering x/y point by geohash
@@ -45,11 +46,14 @@ class ZMIndex(SpatialIndex):
         train_labels = [[[] for i in range(stages[i])] for i in range(self.stage_length)]
         self.rmi = [[None for i in range(stages[i])] for i in range(self.stage_length)]
         # 1. ordering x/y point by geohash
-        data_list = [(data_list[i][0], data_list[i][1], self.geohash.encode(data_list[i][0], data_list[i][1]), i)
-                     for i in range(len(data_list))]
-        data_list = np.array(sorted(data_list, key=lambda x: x[2]),
-                             dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')])
-        self.geohash_index = data_list
+        if is_sorted:
+            self.geohash_index = data_list
+        else:
+            data_list = [(data_list[i][0], data_list[i][1], self.geohash.encode(data_list[i][0], data_list[i][1]), i)
+                         for i in range(len(data_list))]
+            data_list = np.array(sorted(data_list, key=lambda x: x[2]),
+                                 dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')])
+            self.geohash_index = data_list
         self.train_data_length = len(self.geohash_index) - 1
         train_inputs[0][0] = [data[2] for data in data_list]
         train_labels[0][0] = list(range(0, self.train_data_length + 1))
@@ -253,7 +257,7 @@ class AbstractNN:
 # @profile(precision=8)
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data_path = '../../data/table/trip_data_1_filter_10w.npy'
+    data_path = '../../data/index/nyct_10w_sorted.npy'
     model_path = "model/zm_index_10w/"
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
@@ -265,7 +269,7 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
+        data_list = np.load(data_path, allow_pickle=True)
         # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y/g)=8, meta单独一个page, rmi(2375大小)每个模型1个page
         # model体积=2009，一个page存2个model
         # data体积=x/y/g/key=8*3+4=28，一个page存146个data
@@ -274,6 +278,7 @@ def main():
         # 单次扫描IO=读取meta+读取每个stage的rmi+读取叶stage对应geohash数据=1+1
         # 索引体积为geohash索引+rmi+meta
         index.build(data_list=data_list,
+                    is_sorted=True,
                     data_precision=6,
                     region=Region(40, 42, -75, -73),
                     use_thresholds=[False, False],
