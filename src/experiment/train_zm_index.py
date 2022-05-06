@@ -69,5 +69,5 @@ if __name__ == '__main__':
                 index.test_range_query(tmp_range_query_list)
                 end_time = time.time()
                 search_time = (end_time - start_time) / 1000
-                logging.info("Range query ratio:  %s" % range_ratio)
-                logging.info("Range query time:  %s" % search_time)
+                logging.info("Range query ratio: %s" % range_ratio)
+                logging.info("Range query time: %s" % search_time)

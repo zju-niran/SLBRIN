@@ -243,7 +243,7 @@ def main():
     results = index.range_query(range_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(range_query_list)
-    logging.info("Range query time:  %s" % search_time)
+    logging.info("Range query time: %s" % search_time)
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     path = '../../data/table/trip_data_2_filter_10w.npy'
     insert_data_list = np.load(path, allow_pickle=True)[:2000, [10, 11, -1]]

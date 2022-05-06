@@ -71,5 +71,5 @@ if __name__ == '__main__':
             y_pred = model.predict(x_data).flatten()
             diff = y_data - y_pred
             diff_length = diff.max() - diff.min()
-            print("loss func: %s, batch size: %s, diff: %s, epoch: %s, time: %s"
-                  % (loss_func.__name__, bs, diff_length, epoch, end_time - start_time))
+            print("loss func: %s, batch num: %s, diff: %s, epoch: %s, time: %s"
+                  % (loss_func.__name__, batch_num, diff_length, epoch, end_time - start_time))
