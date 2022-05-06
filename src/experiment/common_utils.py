@@ -84,11 +84,11 @@ range_query_path = {
     Distribution.NYCT: '../../data/query/range_query_nyct.npy',
     Distribution.UNIFORM_10W: '../../data/query/range_query_uniform.npy',
     Distribution.NORMAL_10W: '../../data/query/range_query_normal.npy',
-    Distribution.NYCT_10W: '../../data/query/range_query_nyct_10w.npy',
+    Distribution.NYCT_10W: '../../data/query/range_query_nyct.npy',
     Distribution.UNIFORM_SORTED: '../../data/query/range_query_uniform.npy',
     Distribution.NORMAL_SORTED: '../../data/query/range_query_normal.npy',
     Distribution.NYCT_SORTED: '../../data/query/range_query_nyct.npy',
-    Distribution.NYCT_10W_SORTED: '../../data/query/range_query_nyct_10w.npy',
+    Distribution.NYCT_10W_SORTED: '../../data/query/range_query_nyct.npy',
 }
 
 knn_query_path = {

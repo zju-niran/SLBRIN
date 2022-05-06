@@ -4,7 +4,7 @@ import os
 import numpy as np
 import pandas
 
-from src.spatial_index.common_utils import Point, Region
+from src.spatial_index.common_utils import Point
 from src.spatial_index.geohash_utils import Geohash
 
 
@@ -70,25 +70,21 @@ def create_range_query(output_path, data_range, query_number_limit, range_ratio_
     data_range_width = data_range[3] - data_range[2]
     data_range_height = data_range[1] - data_range[0]
     for range_ratio in range_ratio_list:
-        if (1 / range_ratio) ** 2 < query_number_limit:
-            raise MyError("range ratio %s is too large with the query number limit %s" %
-                          (range_ratio, query_number_limit))
         child_range_width = data_range_width * range_ratio
         child_range_height = data_range_height * range_ratio
-        child_range_number_single_dim = int(1 / range_ratio)
-        sample_size = min(child_range_number_single_dim, query_number_limit)
-        sample_x_key_list = np.random.randint(0, child_range_number_single_dim - 1, size=sample_size)
-        sample_y_key_list = np.random.randint(0, child_range_number_single_dim - 1, size=sample_size)
-        child_ranges = [[data_range[0] + child_range_height * sample_y_key,
-                         data_range[0] + child_range_height * (sample_y_key + 1),
-                         data_range[2] + child_range_width * sample_x_key,
-                         data_range[2] + child_range_width * (sample_x_key + 1)]
-                        for sample_x_key in sample_x_key_list
-                        for sample_y_key in sample_y_key_list]
+        child_range_list = []
+        while len(child_range_list) < query_number_limit:
+            point_x1_list = np.random.randint(0, 100000, size=query_number_limit) / 100000 * data_range_width + \
+                            data_range[2]
+            point_y1_list = np.random.randint(0, 100000, size=query_number_limit) / 100000 * data_range_height + \
+                            data_range[0]
+            child_range_list.extend([[point_y1_list[i], point_y1_list[i] + child_range_height,
+                                      point_x1_list[i], point_x1_list[i] + child_range_width]
+                                     for i in range(query_number_limit)
+                                     if point_y1_list[i] + child_range_height < data_range[1]
+                                     and point_x1_list[i] + child_range_width < data_range[3]])
         range_ratio_list = np.array([[range_ratio]] * query_number_limit)
-        sample_key_list = np.random.randint(0, sample_size ** 2 - 1, size=query_number_limit)
-        child_ranges = np.array(child_ranges)[sample_key_list]
-        child_ranges = np.hstack((child_ranges, range_ratio_list))
+        child_ranges = np.hstack((np.array(child_range_list[:query_number_limit]), range_ratio_list))
         result = np.vstack((result, child_ranges))
     np.save(output_path, result)
 
@@ -214,17 +210,17 @@ if __name__ == '__main__':
     # 6. Geohash排序数据
     # input_path = "./table/uniform_10000w.npy"
     # output_path = "./index/uniform_sorted.npy"
-    input_path = "./table/normal_10000w.npy"
-    output_path = "./index/normal_sorted.npy"
-    data_precision = 8
-    region = Region(0, 1, 0, 1)
+    # input_path = "./table/normal_10000w.npy"
+    # output_path = "./index/normal_sorted.npy"
+    # data_precision = 8
+    # region = Region(0, 1, 0, 1)
     # input_path = "./table/trip_data_1_filter.npy"
     # output_path = "./index/nyct_sorted.npy"
     # input_path = "./table/trip_data_1_filter_10w.npy"
     # output_path = "./index/nyct_10w_sorted.npy"
     # data_precision = 6
     # region = Region(40, 42, -75, -73)
-    geohash_and_sort(input_path, output_path, data_precision, region)
+    # geohash_and_sort(input_path, output_path, data_precision, region)
     # 7. 生成索引列
     # output_path = "./table/trip_data_1_filter.npy"
     # output_path = "./table/trip_data_1_filter_10w.npy"
@@ -248,16 +244,14 @@ if __name__ == '__main__':
     # query_number_limit = 1000
     # create_point_query(input_path, output_path, query_number_limit)
     # 2. 生成range检索范围
+    range_ratio_list = [0.001, 0.005, 0.01, 0.015, 0.02]
     # output_path = './query/range_query_uniform.npy'
     # output_path = './query/range_query_normal.npy'
     # data_range = [0, 1, 0, 1]
-    # output_path = './query/range_query_nyct.npy'
-    # range_ratio_list = [0.000006, 0.000025, 0.0001, 0.0004, 0.0016]
-    # output_path = './query/range_query_nyct_10w.npy'
-    # range_ratio_list = [0.0025, 0.005, 0.01, 0.02, 0.04]
-    # data_range = [40, 42, -75, -73]
-    # query_number_limit = 1000
-    # create_range_query(output_path, data_range, query_number_limit, range_ratio_list)
+    output_path = './query/range_query_nyct.npy'
+    data_range = [40, 42, -75, -73]
+    query_number_limit = 1000
+    create_range_query(output_path, data_range, query_number_limit, range_ratio_list)
     # 3.生成knn检索范围
     # input_path = './table/uniform_10000w.npy'
     # output_path = './query/knn_query_uniform.npy'
@@ -265,8 +259,6 @@ if __name__ == '__main__':
     # output_path = './query/knn_query_normal.npy'
     # input_path = './table/trip_data_1_filter.npy'
     # output_path = './query/knn_query_nyct.npy'
-    # input_path = './table/trip_data_1_filter_10w.npy'
-    # output_path = './query/knn_query_nyct_10w.npy'
     # query_number_limit = 1000
     # n_list = [4, 8, 16, 32, 64]
     # create_knn_query(input_path, output_path, query_number_limit, n_list)
