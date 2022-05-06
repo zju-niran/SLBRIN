@@ -51,9 +51,51 @@ data_region = {
 
 
 def load_data(distribution):
-    # os.chdir(os.path.dirname(os.path.realpath(__file__)))
-
     if distribution in [Distribution.NYCT, Distribution.NYCT_10W]:
         return np.load(data_path[distribution], allow_pickle=True)[:, [10, 11, -1]]
     else:
         return np.load(data_path[distribution], allow_pickle=True)
+
+
+point_query_path = {
+    Distribution.UNIFORM: '../../data/query/point_query_uniform.npy',
+    Distribution.NORMAL: '../../data/query/point_query_normal.npy',
+    Distribution.NYCT: '../../data/query/point_query_nyct.npy',
+    Distribution.NYCT_SORTED: '../../data/query/point_query_nyct.npy',
+    Distribution.UNIFORM_10W: '../../data/query/point_query_uniform.npy',
+    Distribution.NORMAL_10W: '../../data/query/point_query_normal.npy',
+    Distribution.NYCT_10W: '../../data/query/point_query_nyct_10w.npy',
+    Distribution.NYCT_SORTED_10W: '../../data/query/point_query_nyct_10w.npy',
+}
+
+range_query_path = {
+    Distribution.UNIFORM: '../../data/query/range_query_uniform.npy',
+    Distribution.NORMAL: '../../data/query/range_query_normal.npy',
+    Distribution.NYCT: '../../data/query/range_query_nyct.npy',
+    Distribution.NYCT_SORTED: '../../data/query/range_query_nyct.npy',
+    Distribution.UNIFORM_10W: '../../data/query/range_query_uniform.npy',
+    Distribution.NORMAL_10W: '../../data/query/range_query_normal.npy',
+    Distribution.NYCT_10W: '../../data/query/range_query_nyct_10w.npy',
+    Distribution.NYCT_SORTED_10W: '../../data/query/range_query_nyct_10w.npy',
+}
+
+knn_query_path = {
+    Distribution.UNIFORM: '../../data/query/knn_query_uniform.npy',
+    Distribution.NORMAL: '../../data/query/knn_query_normal.npy',
+    Distribution.NYCT: '../../data/query/knn_query_nyct.npy',
+    Distribution.NYCT_SORTED: '../../data/query/knn_query_nyct.npy',
+    Distribution.UNIFORM_10W: '../../data/query/knn_query_uniform.npy',
+    Distribution.NORMAL_10W: '../../data/query/knn_query_normal.npy',
+    Distribution.NYCT_10W: '../../data/query/knn_query_nyct_10w.npy',
+    Distribution.NYCT_SORTED_10W: '../../data/query/knn_query_nyct_10w.npy',
+}
+
+
+def load_query(distribution, type):
+    if type == "point":
+        query_path = point_query_path[distribution]
+    elif type == "range":
+        query_path = range_query_path[distribution]
+    else:
+        query_path = knn_query_path[distribution]
+    return np.load(query_path, allow_pickle=True)

@@ -3,10 +3,8 @@ import os
 import sys
 import time
 
-import numpy as np
-
 sys.path.append('/home/zju/wlj/st-learned-index')
-from src.experiment.common_utils import Distribution, load_data
+from src.experiment.common_utils import Distribution, load_data, load_query
 from src.spatial_index.brin_spatial import BRINSpatial
 
 if __name__ == '__main__':
@@ -39,17 +37,16 @@ if __name__ == '__main__':
             logging.info("Build time: %s" % build_time)
             logging.info("Index size: %s" % index.size())
             path = '../../data/query/point_query.npy'
-            point_query_list = np.load(path, allow_pickle=True).tolist()
+            point_query_list = load_query(data_distribution, "point").tolist()
             start_time = time.time()
             index.test_point_query(point_query_list)
             end_time = time.time()
             search_time = (end_time - start_time) / len(point_query_list)
             logging.info("Point query time: %s" % search_time)
-            path = '../../data/query/range_query.npy'
-            range_query_list = np.load(path, allow_pickle=True).tolist()
+            range_query_list = load_query(data_distribution, "range").tolist()
             for i in range(len(range_query_list) // 1000):
                 tmp_range_query_list = range_query_list[i * 1000:(i + 1) * 1000]
-                range_ratio = tmp_range_query_list[0][4]
+                range_ratio = tmp_range_query_list[0][-1]
                 start_time = time.time()
                 index.test_range_query(tmp_range_query_list)
                 end_time = time.time()

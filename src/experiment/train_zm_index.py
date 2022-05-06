@@ -3,10 +3,8 @@ import os
 import sys
 import time
 
-import numpy as np
-
 sys.path.append('/home/zju/wlj/st-learned-index')
-from src.experiment.common_utils import Distribution, load_data, data_region, data_precision
+from src.experiment.common_utils import Distribution, load_data, data_region, data_precision, load_query
 from src.spatial_index.zm_index import ZMIndex
 
 if __name__ == '__main__':
@@ -57,21 +55,19 @@ if __name__ == '__main__':
             stage2_model_precisions_avg = sum(stage2_model_precisions) / stage2_model_num
             logging.info("Stage2 model precision avg: %s" % stage2_model_precisions_avg)
             logging.info("Stage2 model number: %s" % stage2_model_num)
-            path = '../../data/query/point_query_10w.npy'
-            point_query_list = np.load(path, allow_pickle=True).tolist()
+            point_query_list = load_query(data_distribution, "point").tolist()
             start_time = time.time()
             index.test_point_query(point_query_list)
             end_time = time.time()
             search_time = (end_time - start_time) / len(point_query_list)
             logging.info("Point query time: %s" % search_time)
-            path = '../../data/query/range_query_10w.npy'
-            range_query_list = np.load(path, allow_pickle=True).tolist()
-            for i in range(len(range_query_list) // 100):
-                tmp_range_query_list = range_query_list[i * 100:(i + 1) * 100]
-                range_ratio = tmp_range_query_list[0][4]
+            range_query_list = load_query(data_distribution, "range").tolist()
+            for i in range(len(range_query_list) // 1000):
+                tmp_range_query_list = range_query_list[i * 1000:(i + 1) * 1000]
+                range_ratio = tmp_range_query_list[0][-1]
                 start_time = time.time()
                 index.test_range_query(tmp_range_query_list)
                 end_time = time.time()
-                search_time = (end_time - start_time) / 100
+                search_time = (end_time - start_time) / 1000
                 logging.info("Range query ratio:  %s" % range_ratio)
                 logging.info("Range query time:  %s" % search_time)

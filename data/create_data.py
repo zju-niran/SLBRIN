@@ -56,7 +56,10 @@ def sample(input_path, output_path, lines_limit):
 
 
 def create_point_query(input_path, output_path, query_number_limit):
-    data_list = np.load(input_path, allow_pickle=True)[:, [10, 11, -1]]
+    if "nyct" in output_path:
+        data_list = np.load(input_path, allow_pickle=True)[:, [10, 11, -1]]
+    else:
+        data_list = np.load(input_path, allow_pickle=True)
     np.random.seed(1)
     sample_key = np.random.randint(0, len(data_list) - 1, size=query_number_limit)
     np.save(output_path, data_list[sample_key])
@@ -91,9 +94,12 @@ def create_range_query(output_path, data_range, query_number_limit, range_ratio_
 
 
 def create_knn_query(input_path, output_path, query_number_limit, n_list):
-    data_list = np.load(input_path, allow_pickle=True)[:, [10, 11, -1]]
+    if "nyct" in output_path:
+        data_list = np.load(input_path, allow_pickle=True)[:, [10, 11, -1]]
+    else:
+        data_list = np.load(input_path, allow_pickle=True)
     data_len = len(data_list)
-    result = np.empty(shape=(0, 3))
+    result = np.empty(shape=(0, 4))
     for n in n_list:
         np.random.seed(n)
         sample_key = np.random.randint(0, data_len - 1, size=query_number_limit)
@@ -205,35 +211,43 @@ if __name__ == '__main__':
     # output_path = "./table/trip_data_1_filter_10w.npy"
     # output_path = "./table/normal_10000w.npy"
     # output_path = "./table/normal_10w.npy"
-    output_path = "./table/uniform_10000w.npy"
+    # output_path = "./table/uniform_10000w.npy"
     # output_path = "./table/uniform_10w.npy"
-    first_key = 0
+    # first_key = 0
     # output_path = "./table/trip_data_2_filter.npy"
     # first_key = 14507253
     # output_path = "./table/trip_data_2_filter_10w.npy"
     # first_key = 100000
-    add_key_field(output_path, output_path, first_key)
+    # add_key_field(output_path, output_path, first_key)
     # 1. 生成point检索范围
+    # input_path = './table/uniform_10000w.npy'
+    # output_path = './query/point_query_uniform.npy'
+    # input_path = './table/normal_10000w.npy'
+    # output_path = './query/point_query_normal.npy'
     # input_path = './table/trip_data_1_filter.npy'
-    # output_path = './query/point_query.npy'
-    # input_path = './table/trip_data_1_filter_10w.npy'
-    # output_path = './query/point_query_10w.npy'
+    # output_path = './query/point_query_nyct.npy'
     # query_number_limit = 1000
-    # selectivity_list = [0.1, 0.5, 1, 1.5, 2]
     # create_point_query(input_path, output_path, query_number_limit)
     # 2. 生成range检索范围
-    # output_path = './query/range_query.npy'
+    # output_path = './query/range_query_uniform.npy'
+    # output_path = './query/range_query_normal.npy'
+    # data_range = [0, 1, 0, 1]
+    # output_path = './query/range_query_nyct.npy'
     # range_ratio_list = [0.000006, 0.000025, 0.0001, 0.0004, 0.0016]
-    # output_path = './query/range_query_10w.npy'
+    # output_path = './query/range_query_nyct_10w.npy'
     # range_ratio_list = [0.0025, 0.005, 0.01, 0.02, 0.04]
     # data_range = [40, 42, -75, -73]
     # query_number_limit = 1000
     # create_range_query(output_path, data_range, query_number_limit, range_ratio_list)
     # 3.生成knn检索范围
+    # input_path = './table/uniform_10000w.npy'
+    # output_path = './query/knn_query_uniform.npy'
+    input_path = './table/normal_10000w.npy'
+    output_path = './query/knn_query_normal.npy'
     # input_path = './table/trip_data_1_filter.npy'
-    # output_path = './query/knn_query.npy'
+    # output_path = './query/knn_query_nyct.npy'
     # input_path = './table/trip_data_1_filter_10w.npy'
-    # output_path = './query/knn_query_10w.npy'
-    # query_number_limit = 1000
-    # n_list = [4, 8, 16, 32, 64]
-    # create_knn_query(input_path, output_path, query_number_limit, n_list)
+    # output_path = './query/knn_query_nyct_10w.npy'
+    query_number_limit = 1000
+    n_list = [4, 8, 16, 32, 64]
+    create_knn_query(input_path, output_path, query_number_limit, n_list)
