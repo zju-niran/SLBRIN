@@ -7,8 +7,8 @@ from src.experiment.common_utils import Distribution, load_data, data_precision,
 from src.spatial_index.geohash_utils import Geohash
 
 os.chdir(os.path.dirname(os.path.realpath(__file__)))
-# data_distributions = [Distribution.UNIFORM_10W, Distribution.NORMAL_10W, Distribution.NYCT_10W]
-data_distributions = [Distribution.UNIFORM, Distribution.NORMAL, Distribution.NYCT]
+# data_distributions = [Distribution.NYCT_10W, Distribution.NORMAL_10W, Distribution.UNIFORM_10W]
+data_distributions = [Distribution.NYCT, Distribution.NORMAL, Distribution.UNIFORM]
 for data_distribution in data_distributions:
     data_list = load_data(data_distribution)
     geohash = Geohash.init_by_precision(data_precision=data_precision[data_distribution],

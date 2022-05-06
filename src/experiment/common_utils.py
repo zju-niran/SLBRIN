@@ -15,7 +15,7 @@ class Distribution(Enum):
     UNIFORM_SORTED = 6
     NORMAL_SORTED = 7
     NYCT_SORTED = 8
-    NYCT_SORTED_10W = 9
+    NYCT_10W_SORTED = 9
 
 
 data_path = {
@@ -28,7 +28,7 @@ data_path = {
     Distribution.UNIFORM_SORTED: "../../data/index/uniform_sorted.npy",
     Distribution.NORMAL_SORTED: "../../data/table/normal_sorted.npy",
     Distribution.NYCT_SORTED: "../../data/index/nyct_sorted.npy",
-    Distribution.NYCT_SORTED_10W: "../../data/index/nyct_10w_sorted.npy",
+    Distribution.NYCT_10W_SORTED: "../../data/index/nyct_10w_sorted.npy",
 }
 
 data_precision = {
@@ -41,7 +41,7 @@ data_precision = {
     Distribution.UNIFORM_SORTED: 8,
     Distribution.NORMAL_SORTED: 8,
     Distribution.NYCT_SORTED: 6,
-    Distribution.NYCT_SORTED_10W: 6,
+    Distribution.NYCT_10W_SORTED: 6,
 }
 
 data_region = {
@@ -54,7 +54,7 @@ data_region = {
     Distribution.UNIFORM_SORTED: Region(0, 1, 0, 1),
     Distribution.NORMAL_SORTED: Region(0, 1, 0, 1),
     Distribution.NYCT_SORTED: Region(40, 42, -75, -73),
-    Distribution.NYCT_SORTED_10W: Region(40, 42, -75, -73),
+    Distribution.NYCT_10W_SORTED: Region(40, 42, -75, -73),
 }
 
 
@@ -75,7 +75,7 @@ point_query_path = {
     Distribution.UNIFORM_SORTED: '../../data/query/point_query_uniform.npy',
     Distribution.NORMAL_SORTED: '../../data/query/point_query_normal.npy',
     Distribution.NYCT_SORTED: '../../data/query/point_query_nyct.npy',
-    Distribution.NYCT_SORTED_10W: '../../data/query/point_query_nyct_10w.npy',
+    Distribution.NYCT_10W_SORTED: '../../data/query/point_query_nyct_10w.npy',
 }
 
 range_query_path = {
@@ -88,7 +88,7 @@ range_query_path = {
     Distribution.UNIFORM_SORTED: '../../data/query/range_query_uniform.npy',
     Distribution.NORMAL_SORTED: '../../data/query/range_query_normal.npy',
     Distribution.NYCT_SORTED: '../../data/query/range_query_nyct.npy',
-    Distribution.NYCT_SORTED_10W: '../../data/query/range_query_nyct_10w.npy',
+    Distribution.NYCT_10W_SORTED: '../../data/query/range_query_nyct_10w.npy',
 }
 
 knn_query_path = {
@@ -101,7 +101,7 @@ knn_query_path = {
     Distribution.UNIFORM_SORTED: '../../data/query/knn_query_uniform.npy',
     Distribution.NORMAL_SORTED: '../../data/query/knn_query_normal.npy',
     Distribution.NYCT_SORTED: '../../data/query/knn_query_nyct.npy',
-    Distribution.NYCT_SORTED_10W: '../../data/query/knn_query_nyct_10w.npy',
+    Distribution.NYCT_10W_SORTED: '../../data/query/knn_query_nyct_10w.npy',
 }
 
 

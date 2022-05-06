@@ -15,8 +15,8 @@ if __name__ == '__main__':
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
                         level=logging.INFO,
                         format="%(message)s")
-    # data_distributions = [Distribution.UNIFORM_10W, Distribution.NORMAL_10W, Distribution.NYCT_SORTED_10W]
-    data_distributions = [Distribution.UNIFORM_SORTED, Distribution.NORMAL_SORTED, Distribution.NYCT_SORTED]
+    # data_distributions = [Distribution.NYCT_10W_SORTED, Distribution.NORMAL_10W, Distribution.UNIFORM_10W]
+    data_distributions = [Distribution.NYCT_SORTED, Distribution.NORMAL_SORTED, Distribution.UNIFORM_SORTED]
     # lrs = [0.1, 0.01, 0.001, 0.0001]
     lrs = [0.1]
     batch_nums = [16, 32, 64, 128, 256, 512]

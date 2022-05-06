@@ -69,7 +69,7 @@ class SBRIN(SpatialIndex):
         2.1. init hr
         2.2. quartile recursively
         2.3. create sbrin
-        2.4. reconstruct index entries
+        2.4. reorganize index entries
         3. build learned model
         """
         # 1. order data by geohash
@@ -117,7 +117,7 @@ class SBRIN(SpatialIndex):
                                             2 << 50 - result_list[i][1] - 1) for i in range(result_len)]
         self.current_ranges = []
         self.create_cr()
-        # 2.4. reconstruct index entries
+        # 2.4. reorganize index entries
         result_data_list = []
         for i in range(result_len):
             result_data_list.extend(data_list[result_list[i][3]: result_list[i][3] + result_list[i][2]])
@@ -171,7 +171,7 @@ class SBRIN(SpatialIndex):
         gc.collect()
         tmp_dict[model_key] = abstract_index
 
-    def reconstruct_data_old(self):
+    def reorganize_data_old(self):
         """
         把数据存在predict的地方，如果pre已有数据：
         1. pre处数据的geohash==数据本身的geohash，说明数据重复，则找到离pre最近的[pre-maxerr, pre-minerr]范围内的None来存储

@@ -15,8 +15,8 @@ if __name__ == '__main__':
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
                         level=logging.INFO,
                         format="%(message)s")
-    # data_distributions = [Distribution.UNIFORM_10W, Distribution.NORMAL_10W, Distribution.NYCT_10W]
-    data_distributions = [Distribution.UNIFORM, Distribution.NORMAL, Distribution.NYCT]
+    # data_distributions = [Distribution.NYCT_10W, Distribution.NORMAL_10W, Distribution.UNIFORM_10W]
+    data_distributions = [Distribution.NYCT, Distribution.NORMAL, Distribution.UNIFORM]
     pprs = [64, 128, 256, 512, 1024, 2048]
     for data_distribution in data_distributions:
         logging.info("*************start %s************" % data_distribution)
