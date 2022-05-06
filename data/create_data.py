@@ -134,6 +134,9 @@ def create_data(output_path, data_size, scope, data_precision, type):
         y = np.random.normal(0, 1, size=data_size)
         x = np.around(x * x_redius / max(-x.min(), x.max()) + x_center, decimals=data_precision)
         y = np.around(y * y_redius / max(-y.min(), y.max()) + y_center, decimals=data_precision)
+        # 单独处理1：1作为最大值，在geohash编码时，会超出长度限制，比如8位小数，0-1范围，geohash编码为1000...000，长度31，超出30限制
+        x[x == 1] = 1 - pow(10, -data_precision)
+        y[y == 1] = 1 - pow(10, -data_precision)
     else:
         return
     np.save(output_path, np.stack((x, y), axis=1))
