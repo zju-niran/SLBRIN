@@ -58,6 +58,143 @@ class SBRIN(SpatialIndex):
         # state: 新增：状态，1=full, 2=outdated
         self.current_ranges = current_ranges
 
+        # for query
+        self.valid_position_funcs = [
+            lambda reg, window: None,
+            lambda reg, window:  # right
+            window[3] >= reg.left,
+            lambda reg, window:  # left
+            window[2] <= reg.right,
+            lambda reg, window:  # left-right
+            window[2] <= reg.right and reg.left <= window[3],
+            lambda reg, window:  # up
+            window[1] >= reg.bottom,
+            lambda reg, window:  # up-right
+            window[3] >= reg.left and window[1] >= reg.bottom,
+            lambda reg, window:  # up-left
+            window[2] <= reg.right and window[1] >= reg.bottom,
+            lambda reg, window:  # up-left-right
+            window[2] <= reg.right and reg.left <= window[3] and window[1] >= reg.bottom,
+            lambda reg, window:  # bottom
+            window[0] <= reg.up,
+            lambda reg, window:  # bottom-right
+            window[3] >= reg.left and window[0] <= reg.up,
+            lambda reg, window:  # bottom-left
+            window[2] <= reg.right and window[0] <= reg.up,
+            lambda reg, window:  # bottom-left-right
+            window[2] <= reg.right and reg.left <= window[3] and window[0] <= reg.up,
+            lambda reg, window:  # bottom-up
+            window[0] <= reg.up and reg.bottom <= window[1],
+            lambda reg, window:  # bottom-up-right
+            window[3] >= reg.left and reg.right and window[0] <= reg.up and reg.bottom <= window[1],
+            lambda reg, window:  # bottom-up-left
+            window[2] <= reg.right and window[0] <= reg.up and reg.bottom <= window[1],
+            lambda reg, window:  # bottom-up-left-right
+            window[2] <= reg.right and reg.left <= window[3] and window[0] <= reg.up and reg.bottom <= window[1]]
+        self.range_position_funcs = [
+            lambda reg, window, gh1, gh2: (None, None, None, None),
+            lambda reg, window, gh1, gh2: (  # right
+                None,
+                self.meta.geohash.encode(window[3], reg.up),
+                lambda x: window[3] >= x[0]),
+            lambda reg, window, gh1, gh2: (  # left
+                self.meta.geohash.encode(window[2], reg.bottom),
+                None,
+                lambda x: window[2] <= x[0]),
+            lambda reg, window, gh1, gh2: (  # left-right
+                self.meta.geohash.encode(window[2], reg.bottom),
+                self.meta.geohash.encode(window[3], reg.up),
+                lambda x: window[2] <= x[0] <= window[3]),
+            lambda reg, window, gh1, gh2: (  # up
+                None,
+                self.meta.geohash.encode(reg.right, window[1]),
+                lambda x: window[1] >= x[1]),
+            lambda reg, window, gh1, gh2: (  # up-right
+                None,
+                gh2,
+                lambda x: window[3] >= x[0] and window[1] >= x[1]),
+            lambda reg, window, gh1, gh2: (  # up-left
+                self.meta.geohash.encode(window[2], reg.bottom),
+                self.meta.geohash.encode(reg.right, window[1]),
+                lambda x: window[2] <= x[0] and window[1] >= x[1]),
+            lambda reg, window, gh1, gh2: (  # up-left-right
+                self.meta.geohash.encode(window[2], reg.bottom),
+                gh2,
+                lambda x: window[2] <= x[0] <= window[3] and window[1] >= x[1]),
+            lambda reg, window, gh1, gh2: (  # bottom
+                self.meta.geohash.encode(reg.left, window[0]),
+                None,
+                lambda x: window[0] <= x[1]),
+            lambda reg, window, gh1, gh2: (  # bottom-right
+                self.meta.geohash.encode(reg.left, window[0]),
+                self.meta.geohash.encode(window[3], reg.up),
+                lambda x: window[3] >= x[0] and window[0] <= x[1]),
+            lambda reg, window, gh1, gh2: (  # bottom-left
+                gh1,
+                None,
+                lambda x: window[2] <= x[0] and window[0] <= x[1]),
+            lambda reg, window, gh1, gh2: (  # bottom-left-right
+                gh1,
+                self.meta.geohash.encode(window[3], reg.up),
+                lambda x: window[2] <= x[0] <= window[3] and window[0] <= x[1]),
+            lambda reg, window, gh1, gh2: (  # bottom-up
+                self.meta.geohash.encode(reg.left, window[0]),
+                self.meta.geohash.encode(reg.right, window[1]),
+                lambda x: window[0] <= x[1] <= window[1]),
+            lambda reg, window, gh1, gh2: (  # bottom-up-right
+                self.meta.geohash.encode(reg.left, window[0]),
+                gh2,
+                lambda x: window[3] >= x[0] and window[0] <= x[1] <= window[1]),
+            lambda reg, window, gh1, gh2: (  # bottom-up-left
+                gh1,
+                self.meta.geohash.encode(reg.right, window[1]),
+                lambda x: window[2] <= x[0] and window[0] <= x[1] <= window[1]),
+            lambda reg, window, gh1, gh2: (  # bottom-up-left-right
+                gh1,
+                gh2,
+                lambda x: window[2] <= x[0] <= window[3] and window[0] <= x[1] <= window[1])]
+        self.knn_position_funcs = [
+            lambda reg, window, gh1, gh2: (None, None),  # window contain hr
+            lambda reg, window, gh1, gh2: (  # right
+                None,
+                self.meta.geohash.encode(window[3], reg.up)),
+            lambda reg, window, gh1, gh2: (  # left
+                self.meta.geohash.encode(window[2], reg.bottom),
+                None),
+            None,  # left-right
+            lambda reg, window, gh1, gh2: (  # up
+                None,
+                self.meta.geohash.encode(reg.right, window[1])),
+            lambda reg, window, gh1, gh2: (  # up-right
+                None,
+                gh2),
+            lambda reg, window, gh1, gh2: (  # up-left
+                self.meta.geohash.encode(window[2], reg.bottom),
+                self.meta.geohash.encode(reg.right, window[1])),
+            lambda reg, window, gh1, gh2: (None, None),  # up-left-right
+            lambda reg, window, gh1, gh2: (  # bottom
+                self.meta.geohash.encode(reg.left, window[0]),
+                None),
+            lambda reg, window, gh1, gh2: (  # bottom-right
+                self.meta.geohash.encode(reg.left, window[0]),
+                self.meta.geohash.encode(window[3], reg.up)),
+            lambda reg, window, gh1, gh2: (  # bottom-left
+                gh1,
+                None),
+            lambda reg, window, gh1, gh2: (  # bottom-left-right
+                gh1,
+                self.meta.geohash.encode(window[3], reg.up)),
+            None,
+            lambda reg, window, gh1, gh2: (  # bottom-up-right
+                self.meta.geohash.encode(reg.left, window[0]),
+                gh2),
+            lambda reg, window, gh1, gh2: (  # bottom-up-left
+                gh1,
+                self.meta.geohash.encode(reg.right, window[1])),
+            lambda reg, window, gh1, gh2: (  # bottom-up-left-right
+                gh1,
+                gh2)]
+
     def build(self, data_list, is_sorted, threshold_number, data_precision, region, threshold_err,
               threshold_summary, threshold_merge,
               use_threshold, threshold, core, train_step, batch_num, learning_rate, retrain_time_limit,
@@ -110,7 +247,7 @@ class SBRIN(SpatialIndex):
         # 2.3. create sbrin
         result_len = len(result_list)
         self.meta = Meta(result_len - 1, -1, threshold_number, threshold_length, threshold_err, threshold_summary,
-                         threshold_merge, max([result[1] for result in result_list]), geohash)
+                         threshold_merge, geohash)
         region_offset = pow(10, -data_precision - 1)
         self.history_ranges = [HistoryRange(result_list[i][0], result_list[i][1], result_list[i][2], None, 0,
                                             result_list[i][4].up_right_less_region(region_offset),
@@ -411,19 +548,33 @@ class SBRIN(SpatialIndex):
         if hr_key1 == hr_key2:
             return {hr_key1: 15}
         else:
-            org_geohash_list = self.meta.geohash.ranges_by_int(point1, point2, self.meta.max_length)
+            max_length = max(self.history_ranges[hr_key1].length, self.history_ranges[hr_key2].length)
+            org_geohash_list = self.meta.geohash.ranges_by_int(point1, point2, max_length)
             # 2. 通过前缀匹配过滤org_geohash来找到tgt_geohash
             # 3. 根据tgt_geohash分组并合并position
             size = len(org_geohash_list) - 1
             i = 1
             tgt_geohash_dict = {hr_key1: org_geohash_list[0][1],
                                 hr_key2: org_geohash_list[-1][1]}
-            while i < size and hr_key1 <= self.meta.last_hr:
+            while True:
                 if self.history_ranges[hr_key1].value > org_geohash_list[i][0]:
-                    tgt_geohash_dict[hr_key1 - 1] = tgt_geohash_dict.get(hr_key1 - 1, 0) | org_geohash_list[i][1]
+                    key = hr_key1 - 1
+                    pos = org_geohash_list[i][1]
+                    if self.history_ranges[key].length > max_length:
+                        tgt_geohash_dict[key] = pos
+                        tgt_geohash_dict[key + 1] = pos
+                        tgt_geohash_dict[key + 2] = pos
+                        tgt_geohash_dict[key + 3] = pos
+                    else:
+                        tgt_geohash_dict[key] = tgt_geohash_dict.get(key, 0) | org_geohash_list[i][1]
                     i += 1
+                    if i >= size:
+                        break
                 else:
                     hr_key1 += 1
+                    if hr_key1 > self.meta.last_hr:
+                        tgt_geohash_dict[hr_key2] = tgt_geohash_dict[hr_key2] | org_geohash_list[i][1]
+                        break
             return tgt_geohash_dict
             # 前缀匹配太慢：时间复杂度=O(len(window对应的geohash个数)*(j-i))
 
@@ -441,19 +592,33 @@ class SBRIN(SpatialIndex):
         if hr_key1 == hr_key2:
             return [[hr_key1, 15, 0]]
         else:
-            org_geohash_list = self.meta.geohash.ranges_by_int(point1, point2, self.meta.max_length)
+            max_length = max(self.history_ranges[hr_key1].length, self.history_ranges[hr_key2].length)
+            org_geohash_list = self.meta.geohash.ranges_by_int(point1, point2, max_length)
             # 2. 通过前缀匹配过滤org_geohash来找到tgt_geohash
             # 3. 根据tgt_geohash分组并合并position
             size = len(org_geohash_list) - 1
             i = 1
             tgt_geohash_dict = {hr_key1: org_geohash_list[0][1],
                                 hr_key2: org_geohash_list[-1][1]}
-            while i < size and hr_key1 <= self.meta.last_hr:
+            while True:
                 if self.history_ranges[hr_key1].value > org_geohash_list[i][0]:
-                    tgt_geohash_dict[hr_key1 - 1] = tgt_geohash_dict.get(hr_key1 - 1, 0) | org_geohash_list[i][1]
+                    key = hr_key1 - 1
+                    pos = org_geohash_list[i][1]
+                    if self.history_ranges[key].length > max_length:
+                        tgt_geohash_dict[key] = pos
+                        tgt_geohash_dict[key + 1] = pos
+                        tgt_geohash_dict[key + 2] = pos
+                        tgt_geohash_dict[key + 3] = pos
+                    else:
+                        tgt_geohash_dict[key] = tgt_geohash_dict.get(key, 0) | org_geohash_list[i][1]
                     i += 1
+                    if i >= size:
+                        break
                 else:
                     hr_key1 += 1
+                    if hr_key1 > self.meta.last_hr:
+                        tgt_geohash_dict[hr_key2] = tgt_geohash_dict[hr_key2] | org_geohash_list[i][1]
+                        break
             # 4. 计算每个tgt_geohash和point3的距离，并进行降序排序
             return sorted([[tgt_geohash,
                             tgt_geohash_dict[tgt_geohash],
@@ -579,67 +744,6 @@ class SBRIN(SpatialIndex):
         hr_list = self.range_query_hr(gh1, gh2)
         result = []
         # 3. get min_geohash and max_geohash of every hr for different relation
-        position_func_list = [lambda reg: (None, None, None),
-                              lambda reg: (  # right
-                                  None,
-                                  self.meta.geohash.encode(window[3], reg.up),
-                                  lambda x: window[3] >= x[0]),
-                              lambda reg: (  # left
-                                  self.meta.geohash.encode(window[2], reg.bottom),
-                                  None,
-                                  lambda x: window[2] <= x[0]),
-                              lambda reg: (  # left-right
-                                  self.meta.geohash.encode(window[2], reg.bottom),
-                                  self.meta.geohash.encode(window[3], reg.up),
-                                  lambda x: window[2] <= x[0] <= window[3]),
-                              lambda reg: (  # up
-                                  None,
-                                  self.meta.geohash.encode(reg.right, window[1]),
-                                  lambda x: window[1] >= x[1]),
-                              lambda reg: (  # up-right
-                                  None,
-                                  gh2,
-                                  lambda x: window[3] >= x[0] and window[1] >= x[1]),
-                              lambda reg: (  # up-left
-                                  self.meta.geohash.encode(window[2], reg.bottom),
-                                  self.meta.geohash.encode(reg.right, window[1]),
-                                  lambda x: window[2] <= x[0] and window[1] >= x[1]),
-                              lambda reg: (  # up-left-right
-                                  self.meta.geohash.encode(window[2], reg.bottom),
-                                  gh2,
-                                  lambda x: window[2] <= x[0] <= window[3] and window[1] >= x[1]),
-                              lambda reg: (  # bottom
-                                  self.meta.geohash.encode(reg.left, window[0]),
-                                  None,
-                                  lambda x: window[0] <= x[1]),
-                              lambda reg: (  # bottom-right
-                                  self.meta.geohash.encode(reg.left, window[0]),
-                                  self.meta.geohash.encode(window[3], reg.up),
-                                  lambda x: window[3] >= x[0] and window[0] <= x[1]),
-                              lambda reg: (  # bottom-left
-                                  gh1,
-                                  None,
-                                  lambda x: window[2] <= x[0] and window[0] <= x[1]),
-                              lambda reg: (  # bottom-left-right
-                                  gh1,
-                                  self.meta.geohash.encode(window[3], reg.up),
-                                  lambda x: window[2] <= x[0] <= window[3] and window[0] <= x[1]),
-                              lambda reg: (  # bottom-up
-                                  self.meta.geohash.encode(reg.left, window[0]),
-                                  self.meta.geohash.encode(reg.right, window[1]),
-                                  lambda x: window[0] <= x[1] <= window[1]),
-                              lambda reg: (  # bottom-up-right
-                                  self.meta.geohash.encode(reg.left, window[0]),
-                                  gh2,
-                                  lambda x: window[3] >= x[0] and window[0] <= x[1] <= window[1]),
-                              lambda reg: (  # bottom-up-left
-                                  gh1,
-                                  self.meta.geohash.encode(reg.right, window[1]),
-                                  lambda x: window[2] <= x[0] and window[0] <= x[1] <= window[1]),
-                              lambda reg: (  # bottom-up-left-right
-                                  gh1,
-                                  gh2,
-                                  lambda x: window[2] <= x[0] <= window[3] and window[0] <= x[1] <= window[1])]
         for hr_key in hr_list:
             hr = self.history_ranges[hr_key]
             if hr.number == 0:  # hr is empty
@@ -651,8 +755,12 @@ class SBRIN(SpatialIndex):
             if position == 0:  # window contain hr
                 result.extend(list(range(key_left, key_right + 1)))
             else:
+                # wrong child hr from range_by_int
+                is_valid = self.valid_position_funcs[position](hr.scope, window)
+                if not is_valid:
+                    continue
                 # if-elif-else->lambda, 30->4
-                gh_new1, gh_new2, compare_func = position_func_list[position](hr.scope)
+                gh_new1, gh_new2, compare_func = self.range_position_funcs[position](hr.scope, window, gh1, gh2)
                 # 4 predict min_key/max_key by nn
                 if gh_new1:
                     pre1 = hr.model_predict(gh_new1)
@@ -737,46 +845,6 @@ class SBRIN(SpatialIndex):
         gh1 = self.meta.geohash.encode(window[2], window[0])
         gh2 = self.meta.geohash.encode(window[3], window[1])
         tp_window_hrs = self.knn_query_hr(gh1, gh2, knn)
-        position_func_list = [lambda reg: (None, None),  # window contain hr
-                              lambda reg: (  # right
-                                  None,
-                                  self.meta.geohash.encode(window[3], reg.up)),
-                              lambda reg: (  # left
-                                  self.meta.geohash.encode(window[2], reg.bottom),
-                                  None),
-                              None,  # left-right
-                              lambda reg: (  # up
-                                  None,
-                                  self.meta.geohash.encode(reg.right, window[1])),
-                              lambda reg: (  # up-right
-                                  None,
-                                  gh2),
-                              lambda reg: (  # up-left
-                                  self.meta.geohash.encode(window[2], reg.bottom),
-                                  self.meta.geohash.encode(reg.right, window[1])),
-                              lambda reg: (None, None),  # up-left-right
-                              lambda reg: (  # bottom
-                                  self.meta.geohash.encode(reg.left, window[0]),
-                                  None),
-                              lambda reg: (  # bottom-right
-                                  self.meta.geohash.encode(reg.left, window[0]),
-                                  self.meta.geohash.encode(window[3], reg.up)),
-                              lambda reg: (  # bottom-left
-                                  gh1,
-                                  None),
-                              lambda reg: (  # bottom-left-right
-                                  gh1,
-                                  self.meta.geohash.encode(window[3], reg.up)),
-                              None,
-                              lambda reg: (  # bottom-up-right
-                                  self.meta.geohash.encode(reg.left, window[0]),
-                                  gh2),
-                              lambda reg: (  # bottom-up-left
-                                  gh1,
-                                  self.meta.geohash.encode(reg.right, window[1])),
-                              lambda reg: (  # bottom-up-left-right
-                                  gh1,
-                                  gh2)]
         tp_list = []
         for tp_window_hr in tp_window_hrs:
             if tp_window_hr[2] > max_dist:
@@ -787,7 +855,7 @@ class SBRIN(SpatialIndex):
             offset = tp_window_hr[0] * self.meta.threshold_number
             key_left = offset
             key_right = key_left + hr.max_key
-            gh_new1, gh_new2 = position_func_list[tp_window_hr[1]](hr.scope)
+            gh_new1, gh_new2 = self.knn_position_funcs[tp_window_hr[1]](hr.scope, window, gh1, gh2)
             if gh_new1:
                 pre1 = hr.model_predict(gh_new1)
                 l_bound1 = max(pre1 - hr.model.max_err, 0)
@@ -811,12 +879,12 @@ class SBRIN(SpatialIndex):
         sbrin_meta = np.array((self.meta.last_hr, self.meta.last_cr,
                                self.meta.threshold_number, self.meta.threshold_length,
                                self.meta.threshold_err, self.meta.threshold_summary, self.meta.threshold_merge,
-                               self.meta.max_length, self.meta.geohash.data_precision,
+                               self.meta.geohash.data_precision,
                                self.meta.geohash.region.bottom, self.meta.geohash.region.up,
                                self.meta.geohash.region.left, self.meta.geohash.region.right),
                               dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i2'), ("3", 'i2'), ("4", 'i2'), ("5", 'i2'),
-                                     ("6", 'i2'), ("7", 'i1'), ("8", 'i1'),
-                                     ("9", 'f8'), ("10", 'f8'), ("11", 'f8'), ("12", 'f8')])
+                                     ("6", 'i2'), ("7", 'i1'),
+                                     ("8", 'f8'), ("9", 'f8'), ("10", 'f8'), ("11", 'f8')])
         sbrin_models = np.array([hr.model for hr in self.history_ranges])
         sbrin_hrs = np.array([(hr.value, hr.length, hr.number, hr.state, hr.value_diff,
                                hr.scope.bottom, hr.scope.up, hr.scope.left, hr.scope.right)
@@ -840,15 +908,15 @@ class SBRIN(SpatialIndex):
         np.save(os.path.join(self.model_path, 'sbrin_data.npy'), index_entries)
 
     def load(self):
-        sbrin_meta = np.load(self.model_path + 'sbrin_meta.npy', allow_pickle=True).item()
-        sbrin_hrs = np.load(self.model_path + 'sbrin_hrs.npy', allow_pickle=True)
-        sbrin_models = np.load(self.model_path + 'sbrin_models.npy', allow_pickle=True)
-        sbrin_crs = np.load(self.model_path + 'sbrin_crs.npy', allow_pickle=True)
-        index_entries = np.load(self.model_path + 'sbrin_data.npy', allow_pickle=True)
-        region = Region(sbrin_meta[9], sbrin_meta[10], sbrin_meta[11], sbrin_meta[12])
-        geohash = Geohash.init_by_precision(data_precision=sbrin_meta[8], region=region)
+        sbrin_meta = np.load(os.path.join(self.model_path, 'sbrin_meta.npy'), allow_pickle=True).item()
+        sbrin_hrs = np.load(os.path.join(self.model_path, 'sbrin_hrs.npy'), allow_pickle=True)
+        sbrin_models = np.load(os.path.join(self.model_path, 'sbrin_models.npy'), allow_pickle=True)
+        sbrin_crs = np.load(os.path.join(self.model_path, 'sbrin_crs.npy'), allow_pickle=True)
+        index_entries = np.load(os.path.join(self.model_path, 'sbrin_data.npy'), allow_pickle=True)
+        region = Region(sbrin_meta[8], sbrin_meta[9], sbrin_meta[10], sbrin_meta[11])
+        geohash = Geohash.init_by_precision(data_precision=sbrin_meta[7], region=region)
         self.meta = Meta(sbrin_meta[0], sbrin_meta[1], sbrin_meta[2], sbrin_meta[3], sbrin_meta[4], sbrin_meta[5],
-                         sbrin_meta[6], sbrin_meta[7], geohash)
+                         sbrin_meta[6], geohash)
         self.history_ranges = [
             HistoryRange(sbrin_hrs[i][0], sbrin_hrs[i][1], sbrin_hrs[i][2], sbrin_models[i], sbrin_hrs[i][3],
                          Region(sbrin_hrs[i][5], sbrin_hrs[i][6], sbrin_hrs[i][7], sbrin_hrs[i][8]),
@@ -869,7 +937,7 @@ class SBRIN(SpatialIndex):
         size = sbrin_meta.npy + sbrin_hrs.npy + sbrin_models.npy + sbrin_crs.npy + sbrin_data.npy
         """
         # 实际上：
-        # meta=os.path.getsize(os.path.join(self.model_path, "sbrin_meta.npy"))-128-64*2=1*2+2*5+4*2+8*4=52
+        # meta=os.path.getsize(os.path.join(self.model_path, "sbrin_meta.npy"))-128-64*2=1*1+2*5+4*2+8*4=51
         # hr=os.path.getsize(os.path.join(self.model_path, "sbrin_hrs.npy"))-128-64=hr_size*(1*2+2*1+8*6)=hr_size*52
         # model一致=os.path.getsize(os.path.join(self.model_path, "sbrin_models.npy"))-128=hr_size*model_size
         # cr=os.path.getsize(os.path.join(self.model_path, "sbrin_crs.npy"))-128-64=cr_size*(1*1+2*1+8*4)=cr_size*35
@@ -892,7 +960,7 @@ class SBRIN(SpatialIndex):
 
 class Meta:
     def __init__(self, last_hr, last_cr, threshold_number, threshold_length, threshold_err, threshold_summary,
-                 threshold_merge, max_length, geohash):
+                 threshold_merge, geohash):
         # BRIN
         # SBRIN
         self.last_hr = last_hr
@@ -902,7 +970,7 @@ class Meta:
         self.threshold_err = threshold_err
         self.threshold_summary = threshold_summary
         self.threshold_merge = threshold_merge
-        self.max_length = max_length
+        # self.max_length = max_length, =geohash.sum_bits
         # For compute
         self.geohash = geohash
 
@@ -991,9 +1059,9 @@ def main():
         # model体积=2009，一个page存2个model
         # data体积=x/y/g/key=8*3+4=28，一个page存146个data
         # 10w数据，[1000]参数下：大约有289个cr
-        # 1meta page，289/256=2hr page，0cr page, 289/2=145model page，10w/146=685data page
-        # 单次扫描IO=读取sbrin+读取对应model+读取model对应geohash数据=1+1+误差范围/146/512
-        # 索引体积=geohash索引+meta+hrs+model+crs
+        # 1meta page，289/256=2hr page，1cr page, 289/2=145model page，10w/146=685data page
+        # 单次扫描IO=读取sbrin+读取对应model+读取model对应索引项=1+1+误差范围/146/256
+        # 索引体积=meta+hrs+crs+model+索引项
         index.build(data_list=data_list,
                     is_sorted=True,
                     threshold_number=1000,
@@ -1042,15 +1110,15 @@ def main():
     logging.info("KNN query time: %s" % search_time)
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     path = '../../data/table/trip_data_2_filter_10w.npy'
-    insert_data_list = np.load(path, allow_pickle=True)[:, [10, 11, -1]]
+    # insert_data_list = np.load(path, allow_pickle=True)[:, [10, 11, -1]]
     # profile = line_profiler.LineProfiler(index.update_hr)
     # profile.enable()
-    index.insert(insert_data_list.tolist())
+    # index.insert(insert_data_list.tolist())
     # profile.disable()
     # profile.print_stats()
-    start_time = time.time()
-    end_time = time.time()
-    logging.info("Insert time: %s" % (end_time - start_time))
+    # start_time = time.time()
+    # end_time = time.time()
+    # logging.info("Insert time: %s" % (end_time - start_time))
 
 
 if __name__ == '__main__':

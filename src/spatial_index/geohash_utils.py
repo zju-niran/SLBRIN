@@ -13,7 +13,7 @@ class Geohash:
         self.sum_bits = sum_bits
         self.dim_bits = sum_bits // 2
         self.max_num = 1 << self.dim_bits
-        self.geohash_template = [''] * sum_bits
+        self.geohash_template = ['0'] * sum_bits
         self.data_precision = data_precision
         self.region = region
         self.region_width = region.right - region.left
@@ -48,7 +48,7 @@ class Geohash:
         """
         lng_zoom = round((lng - self.region.left) * self.max_num / self.region_width)
         lat_zoom = round((lat - self.region.bottom) * self.max_num / self.region_height)
-        return int(self.merge_bits(lng_zoom, lat_zoom), 2)
+        return self.merge_bits(lng_zoom, lat_zoom)
 
     def decode(self, geohash_int):
         """
@@ -64,10 +64,26 @@ class Geohash:
         return round(lng, self.data_precision), round(lat, self.data_precision)
 
     def merge_bits(self, int1, int2):
-        result = self.geohash_template
-        result[1::2] = bin(int1)[2:].rjust(self.dim_bits, '0')
-        result[0::2] = bin(int2)[2:].rjust(self.dim_bits, '0')
-        return ''.join(result)
+        self.geohash_template[1::2] = bin(int1)[2:].rjust(self.dim_bits, '0')
+        self.geohash_template[0::2] = bin(int2)[2:].rjust(self.dim_bits, '0')
+        return int(''.join(self.geohash_template), 2)
+
+    def batch_merge_bits(self, int_range1, int_range2, diff_dim_bits, range_size):
+        """
+        优化：merge_bits需要range_size次单维度geohash计算，batch后只需要宽*高次单维度geohash计算
+        """
+        result = [None] * range_size
+        i = 0
+        geohash_list1 = [bin(int1 << diff_dim_bits)[2:].rjust(self.dim_bits, '0') for int1 in int_range1]
+        geohash_list2 = [bin(int2 << diff_dim_bits)[2:].rjust(self.dim_bits, '0') for int2 in int_range2]
+        for geohash2 in geohash_list2:
+            self.geohash_template[0::2] = geohash2
+            for geohash1 in geohash_list1:
+                self.geohash_template[1::2] = geohash1
+                result[i] = [int(''.join(self.geohash_template), 2), 0]
+                i += 1
+        return result
+
 
     @staticmethod
     def merge_bits_by_length(result, int1, int2, length):
@@ -79,7 +95,7 @@ class Geohash:
         geohash = bin(geohash_int)[2:].rjust(self.sum_bits, '0')
         return int(geohash[1::2], 2), int(geohash[0::2], 2)
 
-    def point_to_geohash(self, lng: float, lat: float) -> str:
+    def point_to_geohash(self, lng: float, lat: float) -> int:
         lng_zoom = int((lng - self.region.left) * self.max_num / self.region_width)
         lat_zoom = int((lat - self.region.bottom) * self.max_num / self.region_height)
         return self.merge_bits(lng_zoom, lat_zoom)
@@ -112,9 +128,8 @@ class Geohash:
         lat_int2 = int(geohash2[0::2], 2) + 1
         lng_length = lng_int2 - lng_int1
         lat_length = lat_int2 - lat_int1
-        result = [[int(self.merge_bits(i << diff_dim_bits, j << diff_dim_bits), 2), 0]
-                  for j in range(lat_int1, lat_int2)
-                  for i in range(lng_int1, lng_int2)]
+        result = self.batch_merge_bits(range(lng_int1, lng_int2), range(lat_int1, lat_int2), diff_dim_bits,
+                                       lng_length * lat_length)
         # 优化：只计算边界点的grid_num，77mil=>6.7mil
         for j in range(lat_length):
             result[j * lng_length][1] += 2
@@ -449,15 +464,20 @@ def compare_with_python_geohash():
 
 
 if __name__ == '__main__':
-    import geohash as pygeohash
+    # import geohash as pygeohash
 
-    print(pygeohash.encode(-88.41707557084398, -165.9706735611812, precision=12))
-    print(Geohash(60).point_to_geohash(-165.9706735611812, -88.41707557084398))
-    print(Geohash2().encode(-165.9706735611812, -88.41707557084398, precision=60))
-    print(Geohash2().encode_base32(-165.9706735611812, -88.41707557084398, precision=12))
-    print(Geohash3().encode(-165.9706735611812, -88.41707557084398, precision=60))
-    print(Geohash4().encode(-165.9706735611812, -88.41707557084398, precision=60))
-    print(Geohash(60).neighbors('0011'))
-    print(Geohash3().neighbors('0011'))
+    # print(pygeohash.encode(-88.41707557084398, -165.9706735611812, precision=12))
+    # print(Geohash(60).point_to_geohash(-165.9706735611812, -88.41707557084398))
+    # print(Geohash2().encode(-165.9706735611812, -88.41707557084398, precision=60))
+    # print(Geohash2().encode_base32(-165.9706735611812, -88.41707557084398, precision=12))
+    # print(Geohash3().encode(-165.9706735611812, -88.41707557084398, precision=60))
+    # print(Geohash4().encode(-165.9706735611812, -88.41707557084398, precision=60))
+    # print(Geohash(60).neighbors('0011'))
+    # print(Geohash3().neighbors('0011'))
     # print(pygeohash.neighbors('023cp0pv4yxb'))
     # compare_with_python_geohash()
+    geohash = Geohash(6)
+    a = geohash.merge_bits(1, 2)
+    geohash.geohash_template = ['0'] * 6
+    b = geohash.merge_bits1(1, 2)
+    print(1)
