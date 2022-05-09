@@ -32,6 +32,7 @@ class RTree(SpatialIndex):
         self.index.delete(point.key, (point.lng, point.lat))
 
     def build(self, data_list, fill_factor, leaf_node_capacity, non_leaf_node_capacity, buffering_capacity):
+        self.fill_factor = fill_factor
         self.leaf_node_capacity = leaf_node_capacity
         self.non_leaf_node_capacity = non_leaf_node_capacity
         self.buffering_capacity = buffering_capacity
@@ -65,13 +66,12 @@ class RTree(SpatialIndex):
         return list(self.index.nearest((knn[0], knn[1]), knn[2]))[:knn[2]]
 
     def save(self):
-        rtree_meta = [self.fill_factor, self.leaf_node_capacity, self.non_leaf_node_capacity]
-        if self.buffering_capacity:
-            rtree_meta.append(self.buffering_capacity)
-        np.save(os.path.join(self.model_path, 'rtree_meta.npy'), np.array(rtree_meta))
+        rtree_meta = (self.fill_factor, self.leaf_node_capacity, self.non_leaf_node_capacity, self.buffering_capacity)
+        np.save(os.path.join(self.model_path, 'rtree_meta.npy'),
+                np.array(rtree_meta, dtype=[("0", 'f8'), ("1", 'i1'), ("2", 'i1'), ("3", 'i2')]))
 
     def load(self):
-        rtree_meta = np.load(self.model_path + 'rtree_meta.npy')
+        rtree_meta = np.load(os.path.join(self.model_path, 'rtree_meta.npy'), allow_pickle=True).item()
         p = index.Property()
         p.dimension = 2
         p.dat_extension = "data"
@@ -81,10 +81,9 @@ class RTree(SpatialIndex):
         p.fill_factor = rtree_meta[0]
         p.leaf_capacity = rtree_meta[1]
         p.index_capacity = rtree_meta[2]
-        if rtree_meta.size == 4:
+        if rtree_meta[3]:
             p.buffering_capacity = rtree_meta[3]
-        self.index = index.Index(os.path.join(self.model_path, 'rtree'), interleaved=False, properties=p,
-                                 overwrite=False)
+        self.index = index.Index(os.path.join(self.model_path, 'rtree'), properties=p, overwrite=False)
 
     def size(self):
         """
@@ -128,7 +127,7 @@ def main():
                     fill_factor=0.7,
                     leaf_node_capacity=113,
                     non_leaf_node_capacity=113,
-                    buffering_capacity=None)
+                    buffering_capacity=0)
         index.save()
         end_time = time.time()
         build_time = end_time - start_time

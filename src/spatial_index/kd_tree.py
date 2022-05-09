@@ -419,7 +419,7 @@ class KDTree(SpatialIndex):
         np.save(os.path.join(self.model_path, 'kd_tree.npy'), kd_tree)
 
     def load(self):
-        kd_tree = np.load(self.model_path + 'kd_tree.npy', allow_pickle=True)
+        kd_tree = np.load(os.path.join(self.model_path, 'kd_tree.npy'), allow_pickle=True)
         self.root_node = self.list_to_tree(kd_tree)
 
     def size(self):

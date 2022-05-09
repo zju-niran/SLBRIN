@@ -147,9 +147,9 @@ class BRINSpatial(SpatialIndex):
         np.save(os.path.join(self.model_path, 'xy_index.npy'), xy_index)
 
     def load(self):
-        brins_meta = np.load(self.model_path + 'brins_meta.npy')
-        brins_blk = np.load(self.model_path + 'brins_blk.npy', allow_pickle=True)
-        xy_index = np.load(self.model_path + 'xy_index.npy', allow_pickle=True)
+        brins_meta = np.load(os.path.join(self.model_path, 'brins_meta.npy'))
+        brins_blk = np.load(os.path.join(self.model_path, 'brins_blk.npy'), allow_pickle=True)
+        xy_index = np.load(os.path.join(self.model_path, 'xy_index.npy'), allow_pickle=True)
         self.meta = Meta(brins_meta[0], brins_meta[1], brins_meta[2])
         blks = []
         for i in range(len(brins_blk)):

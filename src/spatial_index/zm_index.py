@@ -162,9 +162,9 @@ class ZMIndex(SpatialIndex):
         np.save(os.path.join(self.model_path, 'geohash_index.npy'), self.geohash_index)
 
     def load(self):
-        zmin_rmi = np.load(self.model_path + 'zmin_rmi.npy', allow_pickle=True)
-        zmin_meta = np.load(self.model_path + 'zmin_meta.npy', allow_pickle=True).item()
-        geohash_index = np.load(self.model_path + 'geohash_index.npy', allow_pickle=True)
+        zmin_rmi = np.load(os.path.join(self.model_path, 'zmin_rmi.npy'), allow_pickle=True)
+        zmin_meta = np.load(os.path.join(self.model_path, 'zmin_meta.npy'), allow_pickle=True).item()
+        geohash_index = np.load(os.path.join(self.model_path, 'geohash_index.npy'), allow_pickle=True)
         region = Region(zmin_meta[1], zmin_meta[2], zmin_meta[3], zmin_meta[4])
         self.geohash = Geohash.init_by_precision(data_precision=zmin_meta[0], region=region)
         self.stage_length = zmin_meta[5]

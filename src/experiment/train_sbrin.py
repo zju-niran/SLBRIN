@@ -57,7 +57,6 @@ if __name__ == '__main__':
                                 for hr in index.history_ranges]
             model_precisions_avg = sum(model_precisions) / model_num
             logging.info("Model precision avg: %s" % model_precisions_avg)
-            path = '../../data/query/point_query.npy'
             point_query_list = load_query(data_distribution, "point").tolist()
             start_time = time.time()
             index.test_point_query(point_query_list)

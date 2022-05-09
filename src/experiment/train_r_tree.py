@@ -38,7 +38,6 @@ if __name__ == '__main__':
             build_time = end_time - start_time
             logging.info("Build time: %s" % build_time)
             logging.info("Index size: %s" % index.size())
-            path = '../../data/query/point_query.npy'
             point_query_list = load_query(data_distribution, "point").tolist()
             start_time = time.time()
             index.test_point_query(point_query_list)

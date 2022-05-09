@@ -26,7 +26,7 @@ data_path = {
     Distribution.NORMAL_10W: "../../data/table/normal_10w.npy",
     Distribution.NYCT_10W: "../../data/table/trip_data_1_filter_10w.npy",
     Distribution.UNIFORM_SORTED: "../../data/index/uniform_sorted.npy",
-    Distribution.NORMAL_SORTED: "../../data/table/normal_sorted.npy",
+    Distribution.NORMAL_SORTED: "../../data/index/normal_sorted.npy",
     Distribution.NYCT_SORTED: "../../data/index/nyct_sorted.npy",
     Distribution.NYCT_10W_SORTED: "../../data/index/nyct_10w_sorted.npy",
 }
@@ -71,11 +71,11 @@ point_query_path = {
     Distribution.NYCT: '../../data/query/point_query_nyct.npy',
     Distribution.UNIFORM_10W: '../../data/query/point_query_uniform.npy',
     Distribution.NORMAL_10W: '../../data/query/point_query_normal.npy',
-    Distribution.NYCT_10W: '../../data/query/point_query_nyct_10w.npy',
+    Distribution.NYCT_10W: '../../data/query/point_query_nyct.npy',
     Distribution.UNIFORM_SORTED: '../../data/query/point_query_uniform.npy',
     Distribution.NORMAL_SORTED: '../../data/query/point_query_normal.npy',
     Distribution.NYCT_SORTED: '../../data/query/point_query_nyct.npy',
-    Distribution.NYCT_10W_SORTED: '../../data/query/point_query_nyct_10w.npy',
+    Distribution.NYCT_10W_SORTED: '../../data/query/point_query_nyct.npy',
 }
 
 range_query_path = {
@@ -97,11 +97,11 @@ knn_query_path = {
     Distribution.NYCT: '../../data/query/knn_query_nyct.npy',
     Distribution.UNIFORM_10W: '../../data/query/knn_query_uniform.npy',
     Distribution.NORMAL_10W: '../../data/query/knn_query_normal.npy',
-    Distribution.NYCT_10W: '../../data/query/knn_query_nyct_10w.npy',
+    Distribution.NYCT_10W: '../../data/query/knn_query_nyct.npy',
     Distribution.UNIFORM_SORTED: '../../data/query/knn_query_uniform.npy',
     Distribution.NORMAL_SORTED: '../../data/query/knn_query_normal.npy',
     Distribution.NYCT_SORTED: '../../data/query/knn_query_nyct.npy',
-    Distribution.NYCT_10W_SORTED: '../../data/query/knn_query_nyct_10w.npy',
+    Distribution.NYCT_10W_SORTED: '../../data/query/knn_query_nyct.npy',
 }
 
 

@@ -370,9 +370,9 @@ class PRQuadTree(SpatialIndex):
         np.save(os.path.join(self.model_path, 'prquadtree_meta.npy'), prqt_meta)
 
     def load(self):
-        prqt_tree = np.load(self.model_path + 'prquadtree_tree.npy', allow_pickle=True)
-        prqt_item = np.load(self.model_path + 'prquadtree_item.npy', allow_pickle=True)
-        prqt_meta = np.load(self.model_path + 'prquadtree_meta.npy')
+        prqt_tree = np.load(os.path.join(self.model_path, 'prquadtree_tree.npy'), allow_pickle=True)
+        prqt_item = np.load(os.path.join(self.model_path, 'prquadtree_item.npy'), allow_pickle=True)
+        prqt_meta = np.load(os.path.join(self.model_path, 'prquadtree_meta.npy'))
         self.root_node = self.list_to_tree(prqt_tree, prqt_item)
         self.max_depth = prqt_meta[0]
         self.threshold_number = prqt_meta[1]
