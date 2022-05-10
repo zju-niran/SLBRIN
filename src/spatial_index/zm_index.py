@@ -70,9 +70,9 @@ class ZMIndex(SpatialIndex):
                     divisor = stages[i + 1] * 1.0 / (self.train_data_length + 1)
                     labels = [int(k * divisor) for k in train_labels[i][j]]
                     # train model
-                    self.build_nn(i, j, inputs, labels, use_thresholds[i], thresholds[i], cores[i],
-                                  train_steps[i], batch_nums[i], learning_rates[i], retrain_time_limits[i],
-                                  save_nn, weight)
+                    build_nn(self.model_path, i, j, inputs, labels, use_thresholds[i], thresholds[i], cores[i],
+                             train_steps[i], batch_nums[i], learning_rates[i], retrain_time_limits[i],
+                             save_nn, weight, None, self.rmi)
                     # allocate data into training set for models in next stage
                     for ind in range(len(train_inputs[i][j])):
                         # pick model in next stage with output of this model
@@ -90,38 +90,13 @@ class ZMIndex(SpatialIndex):
             labels = train_labels[i][j]
             if labels is None or len(labels) == 0:
                 continue
-            pool.apply_async(self.build_nn,
-                             (i, j, inputs, labels, use_thresholds[i], thresholds[i], cores[i], train_steps[i],
-                              batch_nums[i], learning_rates[i], retrain_time_limits[i], save_nn, weight, mp_list))
+            pool.apply_async(build_nn,
+                             (self.model_path, i, j, inputs, labels,
+                              use_thresholds[i], thresholds[i], cores[i], train_steps[i], batch_nums[i],
+                              learning_rates[i], retrain_time_limits[i], save_nn, weight, mp_list, None))
         pool.close()
         pool.join()
         self.rmi[i] = [model for model in mp_list]
-
-    def build_nn(self, curr_stage, current_stage_step, inputs, labels, use_threshold, threshold, core,
-                 train_step, batch_num, learning_rate, retrain_time_limit, save_nn, weight, mp_list=None):
-        batch_size = 2 ** math.ceil(math.log(len(inputs) / batch_num, 2))
-        if batch_size < 1:
-            batch_size = 1
-        i = curr_stage
-        j = current_stage_step
-        model_key = "%s_%s" % (i, j)
-        if save_nn is False:
-            tmp_index = TrainedNN_Simple(self.model_path, model_key, inputs, labels, core, train_step, batch_size,
-                                         learning_rate, weight)
-        else:
-            tmp_index = TrainedNN(self.model_path, model_key, inputs, labels, use_threshold, threshold, core,
-                                  train_step, batch_size, learning_rate, retrain_time_limit, weight)
-        tmp_index.train()
-        abstract_index = AbstractNN(tmp_index.get_weights(), core,
-                                    int(tmp_index.train_x_min), int(tmp_index.train_x_max),
-                                    int(tmp_index.train_y_min), int(tmp_index.train_y_max),
-                                    math.ceil(tmp_index.min_err), math.ceil(tmp_index.max_err))
-        del tmp_index
-        gc.collect()
-        if mp_list:
-            mp_list[j] = abstract_index
-        else:
-            self.rmi[i][j] = abstract_index
 
     def predict(self, key):
         """
@@ -228,6 +203,33 @@ class ZMIndex(SpatialIndex):
         # 4. filter all the point of scope[key1, key2] by range(x1/y1/x2/y2).contain(point)
         return [self.geohash_index[key][3] for key in range(key_left, key_right + 1)
                 if region.contain_and_border_by_list(self.geohash_index[key])]
+
+
+def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, use_threshold, threshold, core,
+             train_step, batch_num, learning_rate, retrain_time_limit, save_nn, weight, mp_list=None, rmi=None):
+    batch_size = 2 ** math.ceil(math.log(len(inputs) / batch_num, 2))
+    if batch_size < 1:
+        batch_size = 1
+    i = curr_stage
+    j = current_stage_step
+    model_key = "%s_%s" % (i, j)
+    if save_nn is False:
+        tmp_index = TrainedNN_Simple(model_path, model_key, inputs, labels, core, train_step, batch_size,
+                                     learning_rate, weight)
+    else:
+        tmp_index = TrainedNN(model_path, model_key, inputs, labels, use_threshold, threshold, core,
+                              train_step, batch_size, learning_rate, retrain_time_limit, weight)
+    tmp_index.train()
+    abstract_index = AbstractNN(tmp_index.get_weights(), core,
+                                int(tmp_index.train_x_min), int(tmp_index.train_x_max),
+                                int(tmp_index.train_y_min), int(tmp_index.train_y_max),
+                                math.ceil(tmp_index.min_err), math.ceil(tmp_index.max_err))
+    del tmp_index
+    gc.collect()
+    if mp_list:
+        mp_list[j] = abstract_index
+    else:
+        rmi[i][j] = abstract_index
 
 
 class AbstractNN:

@@ -148,28 +148,13 @@ class SBRIN(SpatialIndex):
             if batch_size < 1:
                 batch_size = 1
             # batch_size = batch_num
-            pool.apply_async(self.build_nn,
-                             (i, inputs, labels, use_threshold, threshold, core, train_step, batch_size, learning_rate,
-                              retrain_time_limit, save_nn, weight, mp_dict))
+            pool.apply_async(build_nn, (self.model_path, i, inputs, labels,
+                                        use_threshold, threshold, core, train_step, batch_size, learning_rate,
+                                        retrain_time_limit, save_nn, weight, mp_dict))
         pool.close()
         pool.join()
         for (key, value) in mp_dict.items():
             self.history_ranges[key].model = value
-
-    def build_nn(self, model_key, inputs, labels, use_threshold, threshold, core, train_step, batch_size,
-                 learning_rate, retrain_time_limit, save_nn, weight, tmp_dict=None):
-        if save_nn is False:
-            tmp_index = TrainedNN_Simple(self.model_path, model_key, inputs, labels, core, train_step, batch_size,
-                                         learning_rate, weight)
-        else:
-            tmp_index = TrainedNN(self.model_path, str(model_key), inputs, labels, use_threshold, threshold, core,
-                                  train_step, batch_size, learning_rate, retrain_time_limit, weight)
-        tmp_index.train()
-        abstract_index = AbstractNN(tmp_index.weights, len(core) - 2,
-                                    math.ceil(tmp_index.min_err), math.ceil(tmp_index.max_err))
-        del tmp_index
-        gc.collect()
-        tmp_dict[model_key] = abstract_index
 
     def reorganize_data_old(self):
         """
@@ -958,6 +943,24 @@ knn_position_funcs = [
     lambda reg, window, gh1, gh2, geohash: (  # bottom-up-left-right
         gh1,
         gh2)]
+
+
+# for train
+def build_nn(model_path, model_key, inputs, labels, use_threshold, threshold, core, train_step, batch_size,
+             learning_rate, retrain_time_limit, save_nn, weight, tmp_dict=None):
+    if save_nn is False:
+        tmp_index = TrainedNN_Simple(model_path, model_key, inputs, labels, core, train_step, batch_size,
+                                     learning_rate, weight)
+    else:
+        tmp_index = TrainedNN(model_path, str(model_key), inputs, labels, use_threshold, threshold, core,
+                              train_step, batch_size, learning_rate, retrain_time_limit, weight)
+    tmp_index.train()
+    abstract_index = AbstractNN(tmp_index.weights, len(core) - 2,
+                                math.ceil(tmp_index.min_err),
+                                math.ceil(tmp_index.max_err))
+    del tmp_index
+    gc.collect()
+    tmp_dict[model_key] = abstract_index
 
 
 class Meta:
