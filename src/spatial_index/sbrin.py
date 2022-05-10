@@ -58,143 +58,6 @@ class SBRIN(SpatialIndex):
         # state: 新增：状态，1=full, 2=outdated
         self.current_ranges = current_ranges
 
-        # for query
-        self.valid_position_funcs = [
-            lambda reg, window: None,
-            lambda reg, window:  # right
-            window[3] >= reg.left,
-            lambda reg, window:  # left
-            window[2] <= reg.right,
-            lambda reg, window:  # left-right
-            window[2] <= reg.right and reg.left <= window[3],
-            lambda reg, window:  # up
-            window[1] >= reg.bottom,
-            lambda reg, window:  # up-right
-            window[3] >= reg.left and window[1] >= reg.bottom,
-            lambda reg, window:  # up-left
-            window[2] <= reg.right and window[1] >= reg.bottom,
-            lambda reg, window:  # up-left-right
-            window[2] <= reg.right and reg.left <= window[3] and window[1] >= reg.bottom,
-            lambda reg, window:  # bottom
-            window[0] <= reg.up,
-            lambda reg, window:  # bottom-right
-            window[3] >= reg.left and window[0] <= reg.up,
-            lambda reg, window:  # bottom-left
-            window[2] <= reg.right and window[0] <= reg.up,
-            lambda reg, window:  # bottom-left-right
-            window[2] <= reg.right and reg.left <= window[3] and window[0] <= reg.up,
-            lambda reg, window:  # bottom-up
-            window[0] <= reg.up and reg.bottom <= window[1],
-            lambda reg, window:  # bottom-up-right
-            window[3] >= reg.left and reg.right and window[0] <= reg.up and reg.bottom <= window[1],
-            lambda reg, window:  # bottom-up-left
-            window[2] <= reg.right and window[0] <= reg.up and reg.bottom <= window[1],
-            lambda reg, window:  # bottom-up-left-right
-            window[2] <= reg.right and reg.left <= window[3] and window[0] <= reg.up and reg.bottom <= window[1]]
-        self.range_position_funcs = [
-            lambda reg, window, gh1, gh2: (None, None, None, None),
-            lambda reg, window, gh1, gh2: (  # right
-                None,
-                self.meta.geohash.encode(window[3], reg.up),
-                lambda x: window[3] >= x[0]),
-            lambda reg, window, gh1, gh2: (  # left
-                self.meta.geohash.encode(window[2], reg.bottom),
-                None,
-                lambda x: window[2] <= x[0]),
-            lambda reg, window, gh1, gh2: (  # left-right
-                self.meta.geohash.encode(window[2], reg.bottom),
-                self.meta.geohash.encode(window[3], reg.up),
-                lambda x: window[2] <= x[0] <= window[3]),
-            lambda reg, window, gh1, gh2: (  # up
-                None,
-                self.meta.geohash.encode(reg.right, window[1]),
-                lambda x: window[1] >= x[1]),
-            lambda reg, window, gh1, gh2: (  # up-right
-                None,
-                gh2,
-                lambda x: window[3] >= x[0] and window[1] >= x[1]),
-            lambda reg, window, gh1, gh2: (  # up-left
-                self.meta.geohash.encode(window[2], reg.bottom),
-                self.meta.geohash.encode(reg.right, window[1]),
-                lambda x: window[2] <= x[0] and window[1] >= x[1]),
-            lambda reg, window, gh1, gh2: (  # up-left-right
-                self.meta.geohash.encode(window[2], reg.bottom),
-                gh2,
-                lambda x: window[2] <= x[0] <= window[3] and window[1] >= x[1]),
-            lambda reg, window, gh1, gh2: (  # bottom
-                self.meta.geohash.encode(reg.left, window[0]),
-                None,
-                lambda x: window[0] <= x[1]),
-            lambda reg, window, gh1, gh2: (  # bottom-right
-                self.meta.geohash.encode(reg.left, window[0]),
-                self.meta.geohash.encode(window[3], reg.up),
-                lambda x: window[3] >= x[0] and window[0] <= x[1]),
-            lambda reg, window, gh1, gh2: (  # bottom-left
-                gh1,
-                None,
-                lambda x: window[2] <= x[0] and window[0] <= x[1]),
-            lambda reg, window, gh1, gh2: (  # bottom-left-right
-                gh1,
-                self.meta.geohash.encode(window[3], reg.up),
-                lambda x: window[2] <= x[0] <= window[3] and window[0] <= x[1]),
-            lambda reg, window, gh1, gh2: (  # bottom-up
-                self.meta.geohash.encode(reg.left, window[0]),
-                self.meta.geohash.encode(reg.right, window[1]),
-                lambda x: window[0] <= x[1] <= window[1]),
-            lambda reg, window, gh1, gh2: (  # bottom-up-right
-                self.meta.geohash.encode(reg.left, window[0]),
-                gh2,
-                lambda x: window[3] >= x[0] and window[0] <= x[1] <= window[1]),
-            lambda reg, window, gh1, gh2: (  # bottom-up-left
-                gh1,
-                self.meta.geohash.encode(reg.right, window[1]),
-                lambda x: window[2] <= x[0] and window[0] <= x[1] <= window[1]),
-            lambda reg, window, gh1, gh2: (  # bottom-up-left-right
-                gh1,
-                gh2,
-                lambda x: window[2] <= x[0] <= window[3] and window[0] <= x[1] <= window[1])]
-        self.knn_position_funcs = [
-            lambda reg, window, gh1, gh2: (None, None),  # window contain hr
-            lambda reg, window, gh1, gh2: (  # right
-                None,
-                self.meta.geohash.encode(window[3], reg.up)),
-            lambda reg, window, gh1, gh2: (  # left
-                self.meta.geohash.encode(window[2], reg.bottom),
-                None),
-            None,  # left-right
-            lambda reg, window, gh1, gh2: (  # up
-                None,
-                self.meta.geohash.encode(reg.right, window[1])),
-            lambda reg, window, gh1, gh2: (  # up-right
-                None,
-                gh2),
-            lambda reg, window, gh1, gh2: (  # up-left
-                self.meta.geohash.encode(window[2], reg.bottom),
-                self.meta.geohash.encode(reg.right, window[1])),
-            lambda reg, window, gh1, gh2: (None, None),  # up-left-right
-            lambda reg, window, gh1, gh2: (  # bottom
-                self.meta.geohash.encode(reg.left, window[0]),
-                None),
-            lambda reg, window, gh1, gh2: (  # bottom-right
-                self.meta.geohash.encode(reg.left, window[0]),
-                self.meta.geohash.encode(window[3], reg.up)),
-            lambda reg, window, gh1, gh2: (  # bottom-left
-                gh1,
-                None),
-            lambda reg, window, gh1, gh2: (  # bottom-left-right
-                gh1,
-                self.meta.geohash.encode(window[3], reg.up)),
-            None,
-            lambda reg, window, gh1, gh2: (  # bottom-up-right
-                self.meta.geohash.encode(reg.left, window[0]),
-                gh2),
-            lambda reg, window, gh1, gh2: (  # bottom-up-left
-                gh1,
-                self.meta.geohash.encode(reg.right, window[1])),
-            lambda reg, window, gh1, gh2: (  # bottom-up-left-right
-                gh1,
-                gh2)]
-
     def build(self, data_list, is_sorted, threshold_number, data_precision, region, threshold_err,
               threshold_summary, threshold_merge,
               use_threshold, threshold, core, train_step, batch_num, learning_rate, retrain_time_limit,
@@ -756,11 +619,12 @@ class SBRIN(SpatialIndex):
                 result.extend(list(range(key_left, key_right + 1)))
             else:
                 # wrong child hr from range_by_int
-                is_valid = self.valid_position_funcs[position](hr.scope, window)
+                is_valid = valid_position_funcs[position](hr.scope, window)
                 if not is_valid:
                     continue
                 # if-elif-else->lambda, 30->4
-                gh_new1, gh_new2, compare_func = self.range_position_funcs[position](hr.scope, window, gh1, gh2)
+                gh_new1, gh_new2, compare_func = \
+                    range_position_funcs[position](hr.scope, window, gh1, gh2, self.meta.geohash)
                 # 4 predict min_key/max_key by nn
                 if gh_new1:
                     pre1 = hr.model_predict(gh_new1)
@@ -855,7 +719,7 @@ class SBRIN(SpatialIndex):
             offset = tp_window_hr[0] * self.meta.threshold_number
             key_left = offset
             key_right = key_left + hr.max_key
-            gh_new1, gh_new2 = self.knn_position_funcs[tp_window_hr[1]](hr.scope, window, gh1, gh2)
+            gh_new1, gh_new2 = knn_position_funcs[tp_window_hr[1]](hr.scope, window, gh1, gh2, self.meta.geohash)
             if gh_new1:
                 pre1 = hr.model_predict(gh_new1)
                 l_bound1 = max(pre1 - hr.model.max_err, 0)
@@ -956,6 +820,144 @@ class SBRIN(SpatialIndex):
                os.path.getsize(os.path.join(self.model_path, "sbrin_models.npy")) - 128 + \
                cr_size * 35 + \
                data_len * 28
+
+
+# for query
+valid_position_funcs = [
+    lambda reg, window: None,
+    lambda reg, window:  # right
+    window[3] >= reg.left,
+    lambda reg, window:  # left
+    window[2] <= reg.right,
+    lambda reg, window:  # left-right
+    window[2] <= reg.right and reg.left <= window[3],
+    lambda reg, window:  # up
+    window[1] >= reg.bottom,
+    lambda reg, window:  # up-right
+    window[3] >= reg.left and window[1] >= reg.bottom,
+    lambda reg, window:  # up-left
+    window[2] <= reg.right and window[1] >= reg.bottom,
+    lambda reg, window:  # up-left-right
+    window[2] <= reg.right and reg.left <= window[3] and window[1] >= reg.bottom,
+    lambda reg, window:  # bottom
+    window[0] <= reg.up,
+    lambda reg, window:  # bottom-right
+    window[3] >= reg.left and window[0] <= reg.up,
+    lambda reg, window:  # bottom-left
+    window[2] <= reg.right and window[0] <= reg.up,
+    lambda reg, window:  # bottom-left-right
+    window[2] <= reg.right and reg.left <= window[3] and window[0] <= reg.up,
+    lambda reg, window:  # bottom-up
+    window[0] <= reg.up and reg.bottom <= window[1],
+    lambda reg, window:  # bottom-up-right
+    window[3] >= reg.left and reg.right and window[0] <= reg.up and reg.bottom <= window[1],
+    lambda reg, window:  # bottom-up-left
+    window[2] <= reg.right and window[0] <= reg.up and reg.bottom <= window[1],
+    lambda reg, window:  # bottom-up-left-right
+    window[2] <= reg.right and reg.left <= window[3] and window[0] <= reg.up and reg.bottom <= window[1]]
+range_position_funcs = [
+    lambda reg, window, gh1, gh2, geohash: (None, None, None, None),
+    lambda reg, window, gh1, gh2, geohash: (  # right
+        None,
+        geohash.encode(window[3], reg.up),
+        lambda x: window[3] >= x[0]),
+    lambda reg, window, gh1, gh2, geohash: (  # left
+        geohash.encode(window[2], reg.bottom),
+        None,
+        lambda x: window[2] <= x[0]),
+    lambda reg, window, gh1, gh2, geohash: (  # left-right
+        geohash.encode(window[2], reg.bottom),
+        geohash.encode(window[3], reg.up),
+        lambda x: window[2] <= x[0] <= window[3]),
+    lambda reg, window, gh1, gh2, geohash: (  # up
+        None,
+        geohash.encode(reg.right, window[1]),
+        lambda x: window[1] >= x[1]),
+    lambda reg, window, gh1, gh2, geohash: (  # up-right
+        None,
+        gh2,
+        lambda x: window[3] >= x[0] and window[1] >= x[1]),
+    lambda reg, window, gh1, gh2, geohash: (  # up-left
+        geohash.encode(window[2], reg.bottom),
+        geohash.encode(reg.right, window[1]),
+        lambda x: window[2] <= x[0] and window[1] >= x[1]),
+    lambda reg, window, gh1, gh2, geohash: (  # up-left-right
+        geohash.encode(window[2], reg.bottom),
+        gh2,
+        lambda x: window[2] <= x[0] <= window[3] and window[1] >= x[1]),
+    lambda reg, window, gh1, gh2, geohash: (  # bottom
+        geohash.encode(reg.left, window[0]),
+        None,
+        lambda x: window[0] <= x[1]),
+    lambda reg, window, gh1, gh2, geohash: (  # bottom-right
+        geohash.encode(reg.left, window[0]),
+        geohash.encode(window[3], reg.up),
+        lambda x: window[3] >= x[0] and window[0] <= x[1]),
+    lambda reg, window, gh1, gh2, geohash: (  # bottom-left
+        gh1,
+        None,
+        lambda x: window[2] <= x[0] and window[0] <= x[1]),
+    lambda reg, window, gh1, gh2, geohash: (  # bottom-left-right
+        gh1,
+        geohash.encode(window[3], reg.up),
+        lambda x: window[2] <= x[0] <= window[3] and window[0] <= x[1]),
+    lambda reg, window, gh1, gh2, geohash: (  # bottom-up
+        geohash.encode(reg.left, window[0]),
+        geohash.encode(reg.right, window[1]),
+        lambda x: window[0] <= x[1] <= window[1]),
+    lambda reg, window, gh1, gh2, geohash: (  # bottom-up-right
+        geohash.encode(reg.left, window[0]),
+        gh2,
+        lambda x: window[3] >= x[0] and window[0] <= x[1] <= window[1]),
+    lambda reg, window, gh1, gh2, geohash: (  # bottom-up-left
+        gh1,
+        geohash.encode(reg.right, window[1]),
+        lambda x: window[2] <= x[0] and window[0] <= x[1] <= window[1]),
+    lambda reg, window, gh1, gh2, geohash: (  # bottom-up-left-right
+        gh1,
+        gh2,
+        lambda x: window[2] <= x[0] <= window[3] and window[0] <= x[1] <= window[1])]
+knn_position_funcs = [
+    lambda reg, window, gh1, gh2, geohash: (None, None),  # window contain hr
+    lambda reg, window, gh1, gh2, geohash: (  # right
+        None,
+        geohash.encode(window[3], reg.up)),
+    lambda reg, window, gh1, gh2, geohash: (  # left
+        geohash.encode(window[2], reg.bottom),
+        None),
+    None,  # left-right
+    lambda reg, window, gh1, gh2, geohash: (  # up
+        None,
+        geohash.encode(reg.right, window[1])),
+    lambda reg, window, gh1, gh2, geohash: (  # up-right
+        None,
+        gh2),
+    lambda reg, window, gh1, gh2, geohash: (  # up-left
+        geohash.encode(window[2], reg.bottom),
+        geohash.encode(reg.right, window[1])),
+    lambda reg, window, gh1, gh2, geohash: (None, None),  # up-left-right
+    lambda reg, window, gh1, gh2, geohash: (  # bottom
+        geohash.encode(reg.left, window[0]),
+        None),
+    lambda reg, window, gh1, gh2, geohash: (  # bottom-right
+        geohash.encode(reg.left, window[0]),
+        geohash.encode(window[3], reg.up)),
+    lambda reg, window, gh1, gh2, geohash: (  # bottom-left
+        gh1,
+        None),
+    lambda reg, window, gh1, gh2, geohash: (  # bottom-left-right
+        gh1,
+        geohash.encode(window[3], reg.up)),
+    None,
+    lambda reg, window, gh1, gh2, geohash: (  # bottom-up-right
+        geohash.encode(reg.left, window[0]),
+        gh2),
+    lambda reg, window, gh1, gh2, geohash: (  # bottom-up-left
+        gh1,
+        geohash.encode(reg.right, window[1])),
+    lambda reg, window, gh1, gh2, geohash: (  # bottom-up-left-right
+        gh1,
+        gh2)]
 
 
 class Meta:
