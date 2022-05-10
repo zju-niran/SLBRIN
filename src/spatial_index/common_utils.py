@@ -271,6 +271,19 @@ class Region:
         RU = Region(y_center, self.up, x_center, self.right)
         return LB, RB, LU, RU
 
+    def clip_region(self, region, precision):
+        """
+        把region剪到自己的范围内，precision是为了右上角会超出编码长度，所以往左下偏移
+        """
+        if region[0] < self.bottom:
+            region[0] = self.bottom
+        if region[1] > self.up:
+            region[1] = self.up - pow(10, -precision)
+        if region[2] < self.left:
+            region[2] = self.left
+        if region[3] > self.right:
+            region[3] = self.right - pow(10, -precision)
+
 
 # python sys.getsizeof无法对自定义类统计内存，提出以下方法
 # 代码来自：https://code.activestate.com/recipes/577504

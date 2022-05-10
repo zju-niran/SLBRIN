@@ -691,6 +691,8 @@ class SBRIN(SpatialIndex):
             return [tp[1] for tp in tp_list]
         max_dist_pow = max_dist ** 0.5
         window = [knn[1] - max_dist_pow, knn[1] + max_dist_pow, knn[0] - max_dist_pow, knn[0] + max_dist_pow]
+        # 处理超出边界的情况
+        self.meta.geohash.region.clip_region(window, self.meta.geohash.data_precision)
         gh1 = self.meta.geohash.encode(window[2], window[0])
         gh2 = self.meta.geohash.encode(window[3], window[1])
         tp_window_hrs = self.knn_query_hr(gh1, gh2, knn)
