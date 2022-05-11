@@ -20,7 +20,7 @@ if __name__ == '__main__':
     stage2_nums = [500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 10000]
     for data_distribution in data_distributions:
         for stage2_num in stage2_nums:
-            model_path = "model/zmindex/%s/stage2_num_%s/" % (data_distribution.name, stage2_num)
+            model_path = "model/zmindex/%s/stage2_num_%s" % (data_distribution.name, stage2_num)
             if os.path.exists(model_path) is False:
                 os.makedirs(model_path)
             index = ZMIndex(model_path=model_path)
@@ -65,10 +65,8 @@ if __name__ == '__main__':
             range_query_list = load_query(data_distribution, "range").tolist()
             for i in range(len(range_query_list) // 1000):
                 tmp_range_query_list = range_query_list[i * 1000:(i + 1) * 1000]
-                range_ratio = tmp_range_query_list[0][-1]
                 start_time = time.time()
                 index.test_range_query(tmp_range_query_list)
                 end_time = time.time()
                 search_time = (end_time - start_time) / 1000
-                logging.info("Range query ratio: %s" % range_ratio)
                 logging.info("Range query time: %s" % search_time)

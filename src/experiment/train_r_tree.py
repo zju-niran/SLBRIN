@@ -17,7 +17,7 @@ if __name__ == '__main__':
                         format="%(message)s")
     # data_distributions = [Distribution.NYCT_10W, Distribution.NORMAL_10W, Distribution.UNIFORM_10W]
     data_distributions = [Distribution.NYCT, Distribution.NORMAL, Distribution.UNIFORM]
-    fill_factors = [0.1, 0.3, 0.5, 0.7, 0.9]
+    fill_factors = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
     for data_distribution in data_distributions:
         for fill_factor in fill_factors:
             model_path = "model/rtree/%s/fill_factor_%s" % (data_distribution.name, fill_factor)
@@ -47,20 +47,16 @@ if __name__ == '__main__':
             range_query_list = load_query(data_distribution, "range").tolist()
             for i in range(len(range_query_list) // 1000):
                 tmp_range_query_list = range_query_list[i * 1000:(i + 1) * 1000]
-                range_ratio = tmp_range_query_list[0][-1]
                 start_time = time.time()
                 index.test_range_query(tmp_range_query_list)
                 end_time = time.time()
                 search_time = (end_time - start_time) / 1000
-                logging.info("Range query ratio: %s" % range_ratio)
                 logging.info("Range query time: %s" % search_time)
             knn_query_list = load_query(data_distribution, "knn").tolist()
             for i in range(len(knn_query_list) // 1000):
                 tmp_knn_query_list = knn_query_list[i * 1000:(i + 1) * 1000]
-                n = tmp_knn_query_list[0][-1]
                 start_time = time.time()
                 index.test_knn_query(tmp_knn_query_list)
                 end_time = time.time()
                 search_time = (end_time - start_time) / 1000
-                logging.info("KNN query n: %s" % n)
                 logging.info("KNN query time: %s" % search_time)

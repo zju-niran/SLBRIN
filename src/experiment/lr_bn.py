@@ -23,7 +23,7 @@ if __name__ == '__main__':
     for data_distribution in data_distributions:
         for lr in lrs:
             for batch_num in batch_nums:
-                model_path = "model/sbrin/%s/lr_bn_%s_%s/" % (data_distribution.name, lr, batch_num)
+                model_path = "model/sbrin/%s/lr_bn_%s_%s" % (data_distribution.name, lr, batch_num)
                 if not os.path.exists(model_path):
                     os.makedirs(model_path)
                 index = SBRIN(model_path=model_path)
