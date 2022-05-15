@@ -1,9 +1,12 @@
 import logging
+import math
 import os
+import sys
 import time
 
 import numpy as np
 
+sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.common_utils import Region, get_mbr_by_points
 from src.spatial_index.spatial_index import SpatialIndex
 
@@ -12,13 +15,17 @@ from src.spatial_index.spatial_index import SpatialIndex
 1. tmp blk永远有一个，新数据插入只会插入tmp blk，tmp blk满了就转为blk同时创建新的tmp blk
 """
 
-PAGE_SZIE = 4096
+PREFETCH_SIZE = 256
+PAGE_SIZE = 4096
+RANGE_SIZE = 8 * 4 + 2  # 34
+REVMAP_SIZE = 4 + 2  # 6
+ITEM_SIZE = 8 * 2 + 4  # 20
 
 
 class BRINSpatial(SpatialIndex):
     def __init__(self, model_path=None, meta=None, block_ranges=None):
         super(BRINSpatial, self).__init__("BRIN Spatial")
-        self.xy_index = None
+        self.index_entries = None
         self.model_path = model_path
         logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
                             level=logging.INFO,
@@ -42,10 +49,10 @@ class BRINSpatial(SpatialIndex):
 
     def insert_single(self, point):
         # 1. append in xy index
-        self.xy_index.append(point)
+        self.index_entries.append(point)
         # 2. create tmp blk if point is on the breakpoint
         if point[-1] % self.meta.datas_per_range == 0:
-            self.block_ranges[-1].value = get_mbr_by_points(self.xy_index[-self.meta.datas_per_range:])
+            self.block_ranges[-1].value = get_mbr_by_points(self.index_entries[-self.meta.datas_per_range:])
             self.create_tmp_blk()
 
     def create_tmp_blk(self):
@@ -54,7 +61,7 @@ class BRINSpatial(SpatialIndex):
     def build(self, data_list, pages_per_range):
         # 1. save xy index
         data_list = [tuple(data) for data in data_list.tolist()]
-        self.xy_index = data_list
+        self.index_entries = data_list
         # 2. create meta
         self.meta = Meta(1, pages_per_range, 0)
         # 3. create blk by data
@@ -91,15 +98,15 @@ class BRINSpatial(SpatialIndex):
         # 1. 根据xy找到可能存在的blks
         blks = self.point_query_blk(point)
         # 2. 精确过滤tmp blk对应磁盘范围内的数据
-        result = [xy[2]
-                  for xy in self.xy_index[self.block_ranges[-1].blknum * self.meta.datas_per_page:]
-                  if xy[0] == point[0] and xy[1] == point[1]]
+        result = [ie[2]
+                  for ie in self.index_entries[self.block_ranges[-1].blknum * self.meta.datas_per_page:]
+                  if ie[0] == point[0] and ie[1] == point[1]]
         # 2. 精确过滤blks对应磁盘范围内的数据
-        result.extend([xy[2]
+        result.extend([ie[2]
                        for blk in blks
-                       for xy in self.xy_index[blk.blknum * self.meta.datas_per_page:
-                                               (blk.blknum + self.meta.pages_per_range) * self.meta.datas_per_page]
-                       if xy[0] == point[0] and xy[1] == point[1]])
+                       for ie in self.index_entries[blk.blknum * self.meta.datas_per_page:
+                                                    (blk.blknum + self.meta.pages_per_range) * self.meta.datas_per_page]
+                       if ie[0] == point[0] and ie[1] == point[1]])
         return result
 
     def range_query_single(self, window):
@@ -111,23 +118,23 @@ class BRINSpatial(SpatialIndex):
         # 1. 根据window找到相交和包含的blks
         target_blks = self.range_query_blk(window)
         # 2. 精确过滤相交的tmp blk对应磁盘范围内的数据
-        result = [xy[2] for xy in self.xy_index[self.block_ranges[-1].blknum * self.meta.datas_per_page:]
-                  if window[0] <= xy[0] <= window[1] and window[2] <= xy[1] <= window[3]]
+        result = [ie[2] for ie in self.index_entries[self.block_ranges[-1].blknum * self.meta.datas_per_page:]
+                  if window[0] <= ie[0] <= window[1] and window[2] <= ie[1] <= window[3]]
         for target_blk in target_blks:
             if target_blk[1] == 0:
                 continue
             # 3. 直接添加包含的blks对应磁盘范围内的数据
             elif target_blk[1] == 2:
                 blk = target_blk[0]
-                result.extend(self.xy_index[blk.blknum * self.meta.datas_per_page:
-                                            (blk.blknum + + self.meta.pages_per_range) * self.meta.datas_per_page])
+                result.extend(self.index_entries[blk.blknum * self.meta.datas_per_page:
+                                                 (blk.blknum + + self.meta.pages_per_range) * self.meta.datas_per_page])
             # 2. 精确过滤相交的blks对应磁盘范围内的数据
             else:
                 blk = target_blk[0]
-                result.extend([xy[2] for xy in self.xy_index[
+                result.extend([ie[2] for ie in self.index_entries[
                                                blk.blknum * self.meta.datas_per_page:
                                                (blk.blknum + + self.meta.pages_per_range) * self.meta.datas_per_page]
-                               if window[0] <= xy[1] <= window[1] and window[2] <= xy[0] <= window[3]])
+                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
         return result
 
     def save(self):
@@ -143,13 +150,13 @@ class BRINSpatial(SpatialIndex):
         brins_blk = np.array(brins_blk, dtype=[("0", 'i2'), ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8')])
         np.save(os.path.join(self.model_path, 'brins_meta.npy'), brins_meta)
         np.save(os.path.join(self.model_path, 'brins_blk.npy'), brins_blk)
-        xy_index = np.array(self.xy_index, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i4')])
-        np.save(os.path.join(self.model_path, 'xy_index.npy'), xy_index)
+        index_entries = np.array(self.index_entries, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i4')])
+        np.save(os.path.join(self.model_path, 'index_entries.npy'), index_entries)
 
     def load(self):
         brins_meta = np.load(os.path.join(self.model_path, 'brins_meta.npy'))
         brins_blk = np.load(os.path.join(self.model_path, 'brins_blk.npy'), allow_pickle=True)
-        xy_index = np.load(os.path.join(self.model_path, 'xy_index.npy'), allow_pickle=True)
+        index_entries = np.load(os.path.join(self.model_path, 'index_entries.npy'), allow_pickle=True)
         self.meta = Meta(brins_meta[0], brins_meta[1], brins_meta[2])
         blks = []
         for i in range(len(brins_blk)):
@@ -160,24 +167,38 @@ class BRINSpatial(SpatialIndex):
                 region = Region(blk[1], blk[2], blk[3], blk[4])
             blks.append(BlockRange(blk[0], region))
         self.block_ranges = blks
-        self.xy_index = xy_index.tolist()
+        self.index_entries = index_entries.tolist()
 
     def size(self):
         """
-        size = brins_meta.npy + brins_blk.npy + xy_index.npy
+        size = brins_meta.npy + brins_blk.npy + index_entries.npy
         """
         # 实际上：
         # meta一致为为os.path.getsize(os.path.join(self.model_path, "brins_meta.npy"))-128=4*3=12
         # blk一致为os.path.getsize(os.path.join(self.model_path, "brins_blk.npy"))-128-64=blk_size*(8*4+2)=blk_size*34
         # revmap为none
-        # xy_index一致为os.path.getsize(os.path.join(self.model_path, "xy_index.npy"))-128=data_len*(8*2+4)=data_len*20
+        # index_entries一致为os.path.getsize(os.path.join(self.model_path, "index_entries.npy"))-128=data_len*(8*2+4)=data_len*20
         # 理论上：
         # revmap存blk id/pointer=meta.size*(2+4)=meta.size*6
         blk_size = len(self.block_ranges)
         return 12 + \
                blk_size * 34 + \
                blk_size * 6 + \
-               os.path.getsize(os.path.join(self.model_path, "xy_index.npy")) - 128
+               os.path.getsize(os.path.join(self.model_path, "index_entries.npy")) - 128
+
+    def io(self):
+        """
+        io=获取brin的io+获取data
+        """
+        range_len = len(self.block_ranges)
+        meta_page_len = 1
+        regular_page_len = math.ceil(range_len * RANGE_SIZE / PAGE_SIZE)
+        revmap_page_len = math.ceil(range_len * REVMAP_SIZE / PAGE_SIZE)
+        # io when load brin
+        brin_io = math.ceil((meta_page_len + regular_page_len + revmap_page_len) / PREFETCH_SIZE)
+        # io when load data
+        data_io = math.ceil(self.meta.pages_per_range / PREFETCH_SIZE)
+        return brin_io + data_io
 
 
 class Meta:
@@ -187,8 +208,8 @@ class Meta:
         self.pages_per_range = pages_per_range
         self.last_revmap_page = last_revmap_page
         # For compute
-        self.datas_per_range = int(PAGE_SZIE / 20) * pages_per_range
-        self.datas_per_page = int(PAGE_SZIE / 20)
+        self.datas_per_range = int(PAGE_SIZE / 20) * pages_per_range
+        self.datas_per_page = int(PAGE_SIZE / 20)
 
 
 class BlockRange:
@@ -220,7 +241,7 @@ def main():
         # data体积=x/y/key=8*2+4=20，一个page存204个data
         # 10w数据，[5]参数下：大约有10w/5/204=99blk
         # 1meta page，99/120=1regular page，99/682=1revmap page，10w/204=491data page
-        # 单次扫描IO为读取brin+读取blk对应xy数据=1+0
+        # 单次扫描IO为读取brin+读取blk对应ie=1+0
         # 索引体积=xy索引+meta+blk+revmap
         index.build(data_list=data_list,
                     pages_per_range=5)
@@ -229,6 +250,7 @@ def main():
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
     logging.info("Index size: %s" % index.size())
+    logging.info("IO cost: %s" % index.io())
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()

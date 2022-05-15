@@ -10,7 +10,6 @@ import time
 import numpy as np
 
 sys.path.append('/home/zju/wlj/st-learned-index')
-
 from src.learned_model import TrainedNN
 from src.learned_model_simple import TrainedNN as TrainedNN_Simple
 from src.spatial_index.common_utils import Region, binary_search_less_max, get_nearest_none, sigmoid, Point, \
@@ -18,7 +17,13 @@ from src.spatial_index.common_utils import Region, binary_search_less_max, get_n
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 
-PAGE_SZIE = 4096
+PREFETCH_SIZE = 256
+PAGE_SIZE = 4096
+HR_SIZE = 8 + 1 + 2 + 4 + 1  # 16
+CR_SIZE = 8 * 4 + 2 + 1  # 35
+MODEL_SIZE = 2000
+ITEM_SIZE = 8 * 3 + 4  # 28
+ITEMS_PER_PF = PREFETCH_SIZE * int(PAGE_SIZE / ITEM_SIZE)
 
 
 # TODO 检索的时候要检索crs
@@ -164,9 +169,9 @@ class SBRIN(SpatialIndex):
         存在问题：这种重构相当于在存储数据的时候依旧保持数据分布的稀疏性，但是密集的地方后续往往更加密集，导致这些地方的数据存储位置更加紧张
         这个问题往往在大数据量或误差大或分布不均匀的hr更容易出现，即最后"超出边界"的报错
         """
-        hr_size = len(self.history_ranges)
-        result_data_list = [None] * hr_size * self.meta.threshold_number
-        for i in range(hr_size):
+        hr_len = len(self.history_ranges)
+        result_data_list = [None] * hr_len * self.meta.threshold_number
+        for i in range(hr_len):
             hr = self.history_ranges[i]
             hr.model.output_min = self.meta.threshold_number * i
             hr.model.output_max = self.meta.threshold_number * (i + 1) - 1
@@ -789,24 +794,50 @@ class SBRIN(SpatialIndex):
         """
         # 实际上：
         # meta=os.path.getsize(os.path.join(self.model_path, "sbrin_meta.npy"))-128-64*2=1*1+2*5+4*2+8*4=51
-        # hr=os.path.getsize(os.path.join(self.model_path, "sbrin_hrs.npy"))-128-64=hr_size*(1*2+2*1+8*6)=hr_size*52
-        # model一致=os.path.getsize(os.path.join(self.model_path, "sbrin_models.npy"))-128=hr_size*model_size
-        # cr=os.path.getsize(os.path.join(self.model_path, "sbrin_crs.npy"))-128-64=cr_size*(1*1+2*1+8*4)=cr_size*35
+        # hr=os.path.getsize(os.path.join(self.model_path, "sbrin_hrs.npy"))-128-64=hr_len*(1*2+2*1+8*6)=hr_len*52
+        # model一致=os.path.getsize(os.path.join(self.model_path, "sbrin_models.npy"))-128=hr_len*model_size
+        # cr=os.path.getsize(os.path.join(self.model_path, "sbrin_crs.npy"))-128-64=cr_len*(1*1+2*1+8*4)=cr_len*35
         # index_entries=os.path.getsize(os.path.join(self.model_path, "sbrin_data.npy"))-128
-        # =hr_size*meta.threashold_number*(8*3+4)
+        # =hr_len*meta.threashold_number*(8*3+4)
         # 理论上：
         # meta只存last_hr/last_cr/5*ts/max_length=4+4+5*2+1=19
-        # hr只存value/length/number/state=hr_size*(8+1+2+4+1)=hr_size*16
-        # cr只存value/number/state=cr_size*(8*4+2+1)=cr_size*35
+        # hr只存value/length/number/*model/state=hr_len*(8+1+2+4+1)=hr_len*16
+        # cr只存value/number/state=cr_len*(8*4+2+1)=cr_len*35
         # index_entries为data_len*(8*3+4)=data_len*28
         data_len = len([geohash for geohash in self.index_entries if geohash[2] != 0])
-        hr_size = len(self.history_ranges)
-        cr_size = len(self.current_ranges)
+        hr_len = len(self.history_ranges)
+        cr_len = len(self.current_ranges)
         return 19 + \
-               hr_size * 16 + \
+               hr_len * 16 + \
                os.path.getsize(os.path.join(self.model_path, "sbrin_models.npy")) - 128 + \
-               cr_size * 35 + \
+               cr_len * 35 + \
                data_len * 28
+
+    def io(self):
+        """
+        假设查询条件和数据分布一致，io=获取meta的io+获取hr的io+获取cr的io+对应model的io+获取model内数据的io
+        一次pf可以加载meta+hr+cr和部分的model, 其他model需要第二次pf，model内数据单独一次pf
+        先计算单个model的model io和data io，然后乘以model的数据量，最后除以总数据量，来计算整体的平均io
+        """
+        hr_len = self.meta.last_hr + 1
+        meta_page_len = 1
+        hr_page_len = math.ceil((self.meta.last_hr + 1) * HR_SIZE / PAGE_SIZE)
+        cr_page_len = math.ceil((self.meta.last_cr + 1) * CR_SIZE / PAGE_SIZE)
+        model_page_len = math.ceil((self.meta.last_hr + 1) * MODEL_SIZE / PAGE_SIZE)
+        origin_page_len = meta_page_len + hr_page_len + cr_page_len + model_page_len
+        # io when load model
+        model_page_len = math.ceil(hr_len * MODEL_SIZE / PAGE_SIZE)
+        if origin_page_len < PREFETCH_SIZE:
+            model_io_list = [1] * hr_len
+        else:
+            model_io_list = [1] * origin_page_len
+            model_io_list.extend([2] * (hr_len - origin_page_len))
+        # io when load data
+        data_io_list = [math.ceil((hr.model.max_err - hr.model.min_err) / ITEMS_PER_PF) for hr in self.history_ranges]
+        # compute avg io
+        data_num_list = [hr.number for hr in self.history_ranges]
+        io_list = [(model_io_list[i] + data_io_list[i]) * data_num_list[i] for i in range(hr_len)]
+        return sum(io_list) / sum(data_num_list)
 
 
 # for query
@@ -1092,6 +1123,7 @@ def main():
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
     logging.info("Index size: %s" % index.size())
+    logging.info("IO cost: %s" % index.io())
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()

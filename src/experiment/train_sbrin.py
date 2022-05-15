@@ -4,7 +4,7 @@ import sys
 import time
 
 sys.path.append('/home/zju/wlj/st-learned-index')
-from src.experiment.common_utils import Distribution, load_data, data_region, data_precision, load_query
+from src.experiment.common_utils import Distribution, load_query, load_data, data_precision, data_region
 from src.spatial_index.sbrin import SBRIN
 
 if __name__ == '__main__':
@@ -51,6 +51,7 @@ if __name__ == '__main__':
             build_time = end_time - start_time
             logging.info("Build time: %s" % build_time)
             logging.info("Index size: %s" % index.size())
+            logging.info("IO cost: %s" % index.io())
             model_num = index.meta.last_hr + 1
             logging.info("Model num: %s" % model_num)
             model_precisions = [(hr.model.max_err - hr.model.min_err)

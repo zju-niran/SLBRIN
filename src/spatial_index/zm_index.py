@@ -18,9 +18,9 @@ from src.learned_model_simple import TrainedNN as TrainedNN_Simple
 
 PREFETCH_SIZE = 256
 PAGE_SIZE = 4096
-NODE_SIZE = 2000
+MODEL_SIZE = 2000
 ITEM_SIZE = 8 * 3 + 4  # 28
-NODES_PER_PF = PREFETCH_SIZE * int(PAGE_SIZE / NODE_SIZE)
+MODELS_PER_PF = PREFETCH_SIZE * int(PAGE_SIZE / MODEL_SIZE)
 ITEMS_PER_PF = PREFETCH_SIZE * int(PAGE_SIZE / ITEM_SIZE)
 
 
@@ -225,11 +225,11 @@ class ZMIndex(SpatialIndex):
         """
         stage2_model_num = len([model for model in self.rmi[1] if model])
         # io when load node
-        if stage2_model_num + 1 < NODES_PER_PF:
+        if stage2_model_num + 1 < MODELS_PER_PF:
             model_io_list = [1] * stage2_model_num
         else:
-            model_io_list = [1] * (NODES_PER_PF - 1)
-            model_io_list.extend([2] * (stage2_model_num + 1 - NODES_PER_PF))
+            model_io_list = [1] * (MODELS_PER_PF - 1)
+            model_io_list.extend([2] * (stage2_model_num + 1 - MODELS_PER_PF))
         # io when load data
         data_io_list = [math.ceil((model.max_err - model.min_err) / ITEMS_PER_PF) for model in self.rmi[1] if model]
         # compute avg io
