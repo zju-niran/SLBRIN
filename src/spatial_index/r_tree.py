@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import sys
 import time
@@ -8,6 +9,8 @@ from rtree import index
 
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.spatial_index import SpatialIndex
+
+PAGE_SIZE = 4096
 
 
 class RTree(SpatialIndex):
@@ -44,7 +47,7 @@ class RTree(SpatialIndex):
         # TODO: 增大buffer可以提高查询效率，而且10w数据下build和insert影响不大，当前单位Byte
         if buffering_capacity:
             p.buffering_capacity = buffering_capacity
-        p.pagesize = 4096
+        p.pagesize = PAGE_SIZE
         p.fill_factor = fill_factor
         p.leaf_capacity = leaf_node_capacity
         p.index_capacity = non_leaf_node_capacity
@@ -71,7 +74,16 @@ class RTree(SpatialIndex):
                 np.array(rtree_meta, dtype=[("0", 'f8'), ("1", 'i1'), ("2", 'i1'), ("3", 'i2')]))
 
     def load(self):
-        rtree_meta = np.load(os.path.join(self.model_path, 'rtree_meta.npy'), allow_pickle=True).item()
+        try:
+            rtree_meta = np.load(os.path.join(self.model_path, 'rtree_meta.npy'), allow_pickle=True).item()
+        except Exception:
+            rtree_meta_old = np.load(os.path.join(self.model_path, 'rtree_meta.npy'), allow_pickle=True).tolist()
+            fill_factor = float(self.model_path.split("_")[-1])
+            buffer_capacity = 0
+            rtree_meta_new = (fill_factor, rtree_meta_old[1], rtree_meta_old[2], buffer_capacity)
+            np.save(os.path.join(self.model_path, 'rtree_meta.npy'),
+                    np.array(rtree_meta_new, dtype=[("0", 'f8'), ("1", 'i1'), ("2", 'i1'), ("3", 'i2')]))
+            rtree_meta = np.load(os.path.join(self.model_path, 'rtree_meta.npy'), allow_pickle=True).item()
         p = index.Property()
         p.dimension = 2
         p.dat_extension = "data"
@@ -91,6 +103,14 @@ class RTree(SpatialIndex):
         """
         return os.path.getsize(os.path.join(self.model_path, "rtree.data")) + \
                os.path.getsize(os.path.join(self.model_path, "rtree_meta.npy")) - 128
+
+    def io(self):
+        """
+        io = 树高
+        """
+        data_num = 1  # 获取数据量
+        tree_depth = math.ceil(math.log(data_num, self.leaf_node_capacity))
+        return tree_depth
 
 
 def main():
@@ -133,6 +153,7 @@ def main():
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
     logging.info("Index size: %s" % index.size())
+    logging.info("IO cost: %s" % index.io())
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()

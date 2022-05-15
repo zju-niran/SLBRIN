@@ -16,6 +16,13 @@ from src.spatial_index.spatial_index import SpatialIndex
 from src.learned_model import TrainedNN
 from src.learned_model_simple import TrainedNN as TrainedNN_Simple
 
+PREFETCH_SIZE = 256
+PAGE_SIZE = 4096
+NODE_SIZE = 2000
+ITEM_SIZE = 8 * 3 + 4  # 28
+NODES_PER_PF = PREFETCH_SIZE * int(PAGE_SIZE / NODE_SIZE)
+ITEMS_PER_PF = PREFETCH_SIZE * int(PAGE_SIZE / ITEM_SIZE)
+
 
 class ZMIndex(SpatialIndex):
     def __init__(self, model_path=None, geohash=None, train_data_length=None, stage_length=0, rmi=None):
@@ -124,41 +131,6 @@ class ZMIndex(SpatialIndex):
         pre = leaf_model.predict(key)
         return pre, leaf_model.min_err, leaf_model.max_err
 
-    def save(self):
-        zmin_meta = np.array((self.geohash.data_precision,
-                              self.geohash.region.bottom, self.geohash.region.up,
-                              self.geohash.region.left, self.geohash.region.right,
-                              self.stage_length, self.train_data_length),
-                             dtype=[("0", 'i4'),
-                                    ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8'),
-                                    ("5", 'i4'), ("6", 'i4')])
-        np.save(os.path.join(self.model_path, 'zmin_meta.npy'), zmin_meta)
-        np.save(os.path.join(self.model_path, 'zmin_rmi.npy'), self.rmi)
-        np.save(os.path.join(self.model_path, 'geohash_index.npy'), self.geohash_index)
-
-    def load(self):
-        zmin_rmi = np.load(os.path.join(self.model_path, 'zmin_rmi.npy'), allow_pickle=True)
-        zmin_meta = np.load(os.path.join(self.model_path, 'zmin_meta.npy'), allow_pickle=True).item()
-        geohash_index = np.load(os.path.join(self.model_path, 'geohash_index.npy'), allow_pickle=True)
-        region = Region(zmin_meta[1], zmin_meta[2], zmin_meta[3], zmin_meta[4])
-        self.geohash = Geohash.init_by_precision(data_precision=zmin_meta[0], region=region)
-        self.stage_length = zmin_meta[5]
-        self.train_data_length = zmin_meta[6]
-        self.rmi = zmin_rmi.tolist()
-        self.geohash_index = geohash_index
-
-    def size(self):
-        """
-        size = zmin_rmi.npy + zmin_meta.npy + geohash_index.npy
-        """
-        # 实际上：
-        # meta=os.path.getsize(os.path.join(self.model_path, "zmin_meta.npy"))-128-64=4*3+8*4=44
-        # 理论上：
-        # meta只存geohash_length/stage_length/train_data_length=4*3=12
-        return os.path.getsize(os.path.join(self.model_path, "zmin_rmi.npy")) - 128 + \
-               12 + \
-               os.path.getsize(os.path.join(self.model_path, "geohash_index.npy")) - 128
-
     def point_query_single(self, point):
         """
         1. compute geohash from x/y of point
@@ -203,6 +175,67 @@ class ZMIndex(SpatialIndex):
         # 4. filter all the point of scope[key1, key2] by range(x1/y1/x2/y2).contain(point)
         return [self.geohash_index[key][3] for key in range(key_left, key_right + 1)
                 if region.contain_and_border_by_list(self.geohash_index[key])]
+
+    def save(self):
+        zmin_meta = np.array((self.geohash.data_precision,
+                              self.geohash.region.bottom, self.geohash.region.up,
+                              self.geohash.region.left, self.geohash.region.right,
+                              self.stage_length, self.train_data_length),
+                             dtype=[("0", 'i4'),
+                                    ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8'),
+                                    ("5", 'i4'), ("6", 'i4')])
+        np.save(os.path.join(self.model_path, 'zmin_meta.npy'), zmin_meta)
+        rmi_list = []
+        for stage in self.rmi:
+            rmi_list.extend(stage)
+        np.save(os.path.join(self.model_path, 'zmin_rmi.npy'), rmi_list)
+        np.save(os.path.join(self.model_path, 'geohash_index.npy'), self.geohash_index)
+
+    def load(self):
+        zmin_meta = np.load(os.path.join(self.model_path, 'zmin_meta.npy'), allow_pickle=True).item()
+        region = Region(zmin_meta[1], zmin_meta[2], zmin_meta[3], zmin_meta[4])
+        self.geohash = Geohash.init_by_precision(data_precision=zmin_meta[0], region=region)
+        self.stage_length = zmin_meta[5]
+        self.train_data_length = zmin_meta[6]
+        geohash_index = np.load(os.path.join(self.model_path, 'geohash_index.npy'), allow_pickle=True)
+        self.geohash_index = geohash_index
+        zmin_rmi = np.load(os.path.join(self.model_path, 'zmin_rmi.npy'), allow_pickle=True)
+        self.rmi = []
+        self.rmi.append([zmin_rmi[0]])
+        self.rmi.append(zmin_rmi[1:].tolist())
+
+    def size(self):
+        """
+        size = zmin_rmi.npy + zmin_meta.npy + geohash_index.npy
+        """
+        # 实际上：
+        # meta=os.path.getsize(os.path.join(self.model_path, "zmin_meta.npy"))-128-64=4*3+8*4=44
+        # 理论上：
+        # meta只存geohash_length/stage_length/train_data_length=4*3=12
+        return os.path.getsize(os.path.join(self.model_path, "zmin_rmi.npy")) - 128 + \
+               12 + \
+               os.path.getsize(os.path.join(self.model_path, "geohash_index.npy")) - 128
+
+    def io(self):
+        """
+        假设查询条件和数据分布一致，io=获取meta的io+获取stage=1 node的io+获取stage=2 node的io+获取data的io
+        一次pf可以拿512个node，因此前面511个stage2 node的io是1，后面统一为2
+        data io由model误差范围决定
+        先计算单个node的node io和data io，然后乘以node的数据量，最后除以总数据量，来计算整体的平均io
+        """
+        stage2_model_num = len([model for model in self.rmi[1] if model])
+        # io when load node
+        if stage2_model_num + 1 < NODES_PER_PF:
+            model_io_list = [1] * stage2_model_num
+        else:
+            model_io_list = [1] * (NODES_PER_PF - 1)
+            model_io_list.extend([2] * (stage2_model_num + 1 - NODES_PER_PF))
+        # io when load data
+        data_io_list = [math.ceil((model.max_err - model.min_err) / ITEMS_PER_PF) for model in self.rmi[1] if model]
+        # compute avg io
+        data_num_list = [model.output_max - model.output_min + 1 for model in self.rmi[1] if model]
+        io_list = [(model_io_list[i] + data_io_list[i]) * data_num_list[i] for i in range(stage2_model_num)]
+        return sum(io_list) / sum(data_num_list)
 
 
 def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, use_threshold, threshold, core,
@@ -265,19 +298,19 @@ def main():
         os.makedirs(model_path)
     index = ZMIndex(model_path=model_path)
     index_name = index.name
-    load_index_from_json = False
+    load_index_from_json = True
     if load_index_from_json:
         index.load()
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
         data_list = np.load(data_path, allow_pickle=True)
-        # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y/g)=8, meta单独一个page, rmi(2375大小)每个模型1个page
-        # model体积=2009，一个page存2个model
-        # data体积=x/y/g/key=8*3+4=28，一个page存146个data
+        # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y/g)=8, meta单独一个page
+        # node体积=2000，一个page存2个node，单prefetch读取256*2=512node
+        # data体积=x/y/g/key=8*3+4=28，一个page存146个data，单prefetch读取256*146=37376data
         # 10w数据，[1, 100]参数下：
-        # meta+stage0 model存一个page，stage2 model需要22/2=11个page，data需要10w/146=685page
-        # 单次扫描IO=读取meta+读取每个stage的rmi+读取叶stage对应geohash数据=1+1
+        # meta+stage0 node存一个page，stage2 node需要22/2=11个page，data需要10w/146=685page
+        # 单次扫描IO=读取meta+读取每个stage的rmi+读取叶stage对应geohash数据=1+11/512+10w/37376
         # 索引体积为geohash索引+rmi+meta
         index.build(data_list=data_list,
                     is_sorted=True,
@@ -299,6 +332,7 @@ def main():
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
     logging.info("Index size: %s" % index.size())
+    logging.info("IO cost: %s" % index.io())
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()

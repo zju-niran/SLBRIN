@@ -1,5 +1,7 @@
+import copy
 import heapq
 import logging
+import math
 import os
 import sys
 import time
@@ -9,6 +11,13 @@ import numpy as np
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.spatial_index import SpatialIndex
 from src.spatial_index.common_utils import Region, Point
+
+PREFETCH_SIZE = 256
+PAGE_SIZE = 4096
+NODE_SIZE = 1 + 1 + 8 * 4 + 4 * 4 + 4 * 2  # 58
+ITEM_SIZE = 8 * 2 + 4  # 20
+NODES_PER_PF = PREFETCH_SIZE * int(PAGE_SIZE / NODE_SIZE)
+ITEMS_PER_PF = PREFETCH_SIZE * int(PAGE_SIZE / ITEM_SIZE)
 
 
 class QuadTreeNode:
@@ -317,49 +326,13 @@ class PRQuadTree(SpatialIndex):
                     stack.extend([cur.LB, cur.RB, cur.LU, cur.RU])
         return [itr[1] for itr in point_heap]
 
-    def tree_to_list(self, node, node_list, item_list):
-        if node is None:
-            return
-        old_item_len = len(item_list)
-        item_list.extend([(item.lng, item.lat, item.key) for item in node.items])
-        item_len = len(item_list)
-        node_list.append([0, 0, 0, 0, node.depth, node.is_leaf, old_item_len, item_len,
-                          node.region.bottom, node.region.up, node.region.left, node.region.right])
-        parent_key = len(node_list) - 1
-        if node.LB:
-            node_list[parent_key][0] = len(node_list)
-            self.tree_to_list(node.LB, node_list, item_list)
-        if node.LU is not None:
-            node_list[parent_key][1] = len(node_list)
-            self.tree_to_list(node.LU, node_list, item_list)
-        if node.RB is not None:
-            node_list[parent_key][2] = len(node_list)
-            self.tree_to_list(node.RB, node_list, item_list)
-        if node.RU is not None:
-            node_list[parent_key][3] = len(node_list)
-            self.tree_to_list(node.RU, node_list, item_list)
-
-    def list_to_tree(self, node_list, item_list, key=None):
-        if key is None:
-            key = 0
-        item = node_list[key]
-        region = Region(item[8], item[9], item[10], item[11])
-        items = [Point(point[0], point[1], key=point[2]) for point in item_list[item[6]:item[7]]]
-        node = QuadTreeNode(region, item[4], item[5], None, None, None, None, items)
-        if item[0] != 0:
-            node.LB = self.list_to_tree(node_list, item_list, item[0])
-        if item[1] != 0:
-            node.LU = self.list_to_tree(node_list, item_list, item[1])
-        if item[2] != 0:
-            node.RB = self.list_to_tree(node_list, item_list, item[2])
-        if item[3] != 0:
-            node.RU = self.list_to_tree(node_list, item_list, item[3])
-        return node
-
     def save(self):
+        """
+        以DFS的顺序把tree保存为list
+        """
         node_list = []
         item_list = []
-        self.tree_to_list(self.root_node, node_list, item_list)
+        tree_to_list(self.root_node, node_list, item_list)
         prqt_tree = np.array([tuple(node) for node in node_list],
                              dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'), ("3", 'i4'), ("4", 'i4'), ("5", 'i4'),
                                     ("6", 'i4'), ("7", 'i4'), ("8", 'f8'), ("9", 'f8'), ("10", 'f8'), ("11", 'f8')])
@@ -373,7 +346,7 @@ class PRQuadTree(SpatialIndex):
         prqt_tree = np.load(os.path.join(self.model_path, 'prquadtree_tree.npy'), allow_pickle=True)
         prqt_item = np.load(os.path.join(self.model_path, 'prquadtree_item.npy'), allow_pickle=True)
         prqt_meta = np.load(os.path.join(self.model_path, 'prquadtree_meta.npy'))
-        self.root_node = self.list_to_tree(prqt_tree, prqt_item)
+        self.root_node = list_to_tree(prqt_tree, prqt_item)
         self.max_depth = prqt_meta[0]
         self.threshold_number = prqt_meta[1]
 
@@ -384,6 +357,79 @@ class PRQuadTree(SpatialIndex):
         return os.path.getsize(os.path.join(self.model_path, "prquadtree_tree.npy")) - 128 + \
                os.path.getsize(os.path.join(self.model_path, "prquadtree_item.npy")) - 128 + \
                os.path.getsize(os.path.join(self.model_path, "prquadtree_meta.npy")) - 128
+
+    def io(self):
+        """
+        假设查询条件和数据分布一致，io=获取leaf node的io+获取leaf node内数据的io
+        node io由node的路径决定，data io由所在node的数据量决定
+        先计算单个node的node io和data io，然后乘以node的数据量，最后除以总数据量，来计算整体的平均io
+        """
+        # io when load node
+        prqt_tree = np.load(os.path.join(self.model_path, 'prquadtree_tree.npy'), allow_pickle=True)
+        item_len = np.load(os.path.join(self.model_path, 'prquadtree_item.npy'), allow_pickle=True).size
+        leaf_path_list = []
+        get_leaf_and_path(prqt_tree, leaf_path_list, [], 0)
+        node_io_list = [len(set([int(node_path / NODES_PER_PF) for node_path in leaf_path[0]])) * leaf_path[1]
+                        for leaf_path in leaf_path_list]
+        node_io = sum(node_io_list) / item_len
+        # io when load item
+        item_io_list = [math.ceil(leaf_path[1] / ITEMS_PER_PF) * leaf_path[1] for leaf_path in leaf_path_list]
+        item_io = sum(item_io_list) / item_len
+        return node_io + item_io
+
+
+def tree_to_list(node, node_list, item_list):
+    if node is None:
+        return
+    old_item_len = len(item_list)
+    item_list.extend([(item.lng, item.lat, item.key) for item in node.items])
+    item_len = len(item_list)
+    node_list.append([0, 0, 0, 0, node.depth, node.is_leaf, old_item_len, item_len,
+                      node.region.bottom, node.region.up, node.region.left, node.region.right])
+    parent_key = len(node_list) - 1
+    if node.LB:
+        node_list[parent_key][0] = len(node_list)
+        tree_to_list(node.LB, node_list, item_list)
+    if node.LU is not None:
+        node_list[parent_key][1] = len(node_list)
+        tree_to_list(node.LU, node_list, item_list)
+    if node.RB is not None:
+        node_list[parent_key][2] = len(node_list)
+        tree_to_list(node.RB, node_list, item_list)
+    if node.RU is not None:
+        node_list[parent_key][3] = len(node_list)
+        tree_to_list(node.RU, node_list, item_list)
+
+
+def list_to_tree(node_list, item_list, key=None):
+    if key is None:
+        key = 0
+    item = node_list[key]
+    region = Region(item[8], item[9], item[10], item[11])
+    items = [Point(point[0], point[1], key=point[2]) for point in item_list[item[6]:item[7]]]
+    node = QuadTreeNode(region, item[4], item[5], None, None, None, None, items)
+    if item[0]:
+        node.LB = list_to_tree(node_list, item_list, item[0])
+    if item[1]:
+        node.LU = list_to_tree(node_list, item_list, item[1])
+    if item[2]:
+        node.RB = list_to_tree(node_list, item_list, item[2])
+    if item[3]:
+        node.RU = list_to_tree(node_list, item_list, item[3])
+    return node
+
+
+def get_leaf_and_path(node_list, result, cur_path, key):
+    item = node_list[key]
+    cur_path.append(key)
+    if item[5]:
+        result.append([cur_path, item[7] - item[6]])
+        return
+    else:
+        get_leaf_and_path(node_list, result, copy.deepcopy(cur_path), item[0])
+        get_leaf_and_path(node_list, result, copy.deepcopy(cur_path), item[1])
+        get_leaf_and_path(node_list, result, copy.deepcopy(cur_path), item[2])
+        get_leaf_and_path(node_list, result, copy.deepcopy(cur_path), item[3])
 
 
 # @profile(precision=8)
@@ -404,7 +450,7 @@ def main():
         data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
         # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y)=8, node和data按照DFS的顺序密集存储在page中
         # tree存放所有node的深度、是否叶节点、region、四节点指针和data的始末指针:
-        # node size=1+1+8*4+4*4+4*2=58，单page存放4096/64=70node，单prefetch读取256*70=17920node
+        # node size=1+1+8*4+4*4+4*2=58，单page存放4096/58=70node，单prefetch读取256*70=17920node
         # item存放xy数据和数据指针：
         # data size=8*2+4=20，单page存放4096/20=204data，单prefetch读取256*204=52224data
         # 10w数据，[1000]参数下：
@@ -424,6 +470,7 @@ def main():
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
     logging.info("Index size: %s" % index.size())
+    logging.info("IO cost: %s" % index.io())
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()

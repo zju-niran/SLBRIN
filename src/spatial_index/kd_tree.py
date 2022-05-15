@@ -1,5 +1,6 @@
 import heapq
 import logging
+import math
 import os
 import sys
 import time
@@ -13,6 +14,10 @@ from src.spatial_index.spatial_index import SpatialIndex
 二维的话直接用bool来处理维度切换性能会高，现在axis不停+1来迭代
 """
 DIM_NUM = 2
+PREFETCH_SIZE = 256
+PAGE_SIZE = 4096
+NODE_SIZE = 1 + 4 + 4 * 2 + (8 * 2 + 4)  # 33
+NODES_PER_PF = PREFETCH_SIZE * int(PAGE_SIZE / NODE_SIZE)
 
 
 def distance_value(value1, value2):
@@ -384,35 +389,9 @@ class KDTree(SpatialIndex):
                 stack.append(cur.left)
         return [itr[1] for itr in result]
 
-    def tree_to_list(self, node, node_list):
-        if node is None:
-            return
-        node_list.append([0, 0, node.axis, node.node_num, node.value[0], node.value[1], node.value[2]])
-        parent_key = len(node_list) - 1
-        if node.left:
-            node_list[parent_key][0] = len(node_list)
-            self.tree_to_list(node.left, node_list)
-        if node.right is not None:
-            node_list[parent_key][1] = len(node_list)
-            self.tree_to_list(node.right, node_list)
-
-    def list_to_tree(self, node_list, key=None):
-        if key is None:
-            key = 0
-        item = list(node_list[key])
-        node = KDNode(item[4:], item[2])
-        node.node_num = item[3]
-        if item[0] != 0:
-            node.left = self.list_to_tree(node_list, item[0])
-        if item[1] != 0:
-            node.right = self.list_to_tree(node_list, item[1])
-        return node
-
     def save(self):
         node_list = []
-        self.tree_to_list(self.root_node, node_list)
-        result1 = []
-        self.root_node.search_linked_node([-73.954468, 40.779896], result1)
+        tree_to_list(self.root_node, node_list)
         kd_tree = np.array([tuple(node) for node in node_list],
                            dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'), ("3", 'i4'),
                                   ("4", 'f8'), ("5", 'f8'), ("6", 'i4')])
@@ -420,13 +399,53 @@ class KDTree(SpatialIndex):
 
     def load(self):
         kd_tree = np.load(os.path.join(self.model_path, 'kd_tree.npy'), allow_pickle=True)
-        self.root_node = self.list_to_tree(kd_tree)
+        self.root_node = list_to_tree(kd_tree)
 
     def size(self):
         """
         size = kd_tree.npy
         """
         return os.path.getsize(os.path.join(self.model_path, "kd_tree.npy")) - 128
+
+    def io(self):
+        """
+        假设查询条件和数据分布一致，io=获取node的io
+        第一次pf的node的io=1，第二次pf的node的io=2，以此类推
+        """
+        # io when load node
+        kd_tree = np.load(os.path.join(self.model_path, 'kd_tree.npy'), allow_pickle=True)
+        value_len = kd_tree.size
+        pf_time = math.ceil(value_len / NODES_PER_PF)
+        sum_node_io = sum([NODES_PER_PF * i for i in range(1, pf_time)]) + \
+                      (value_len - NODES_PER_PF * (pf_time - 1)) * pf_time
+        node_io = sum_node_io / value_len
+        return node_io
+
+
+def tree_to_list(node, node_list):
+    if node is None:
+        return
+    node_list.append([0, 0, node.axis, node.node_num, node.value[0], node.value[1], node.value[2]])
+    parent_key = len(node_list) - 1
+    if node.left:
+        node_list[parent_key][0] = len(node_list)
+        tree_to_list(node.left, node_list)
+    if node.right is not None:
+        node_list[parent_key][1] = len(node_list)
+        tree_to_list(node.right, node_list)
+
+
+def list_to_tree(node_list, key=None):
+    if key is None:
+        key = 0
+    item = list(node_list[key])
+    node = KDNode(item[4:], item[2])
+    node.node_num = item[3]
+    if item[0] != 0:
+        node.left = list_to_tree(node_list, item[0])
+    if item[1] != 0:
+        node.right = list_to_tree(node_list, item[1])
+    return node
 
 
 def main():
@@ -460,6 +479,7 @@ def main():
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
     logging.info("Index size: %s" % index.size())
+    logging.info("IO cost: %s" % index.io())
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()

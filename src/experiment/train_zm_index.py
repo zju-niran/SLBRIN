@@ -48,6 +48,7 @@ if __name__ == '__main__':
             build_time = end_time - start_time
             logging.info("Build time: %s" % build_time)
             logging.info("Index size: %s" % index.size())
+            logging.info("IO cost: %s" % index.io())
             stage1_model_precision = index.rmi[0][0].max_err - index.rmi[0][0].min_err
             logging.info("Stage1 model precision: %s" % stage1_model_precision)
             stage2_model_precisions = [(model.max_err - model.min_err)
