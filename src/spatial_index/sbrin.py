@@ -879,7 +879,7 @@ valid_position_funcs = [
     lambda reg, window:  # bottom-up-left-right
     window[2] <= reg.right and reg.left <= window[3] and window[0] <= reg.up and reg.bottom <= window[1]]
 range_position_funcs = [
-    lambda reg, window, gh1, gh2, geohash: (None, None, None, None),
+    lambda reg, window, gh1, gh2, geohash: (None, None, None),
     lambda reg, window, gh1, gh2, geohash: (  # right
         None,
         geohash.encode(window[3], reg.up),
