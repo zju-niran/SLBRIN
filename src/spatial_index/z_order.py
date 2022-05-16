@@ -76,11 +76,6 @@ class ZOrder:
             'region': self.region
         }
 
-    @staticmethod
-    def init_by_dict(d: dict):
-        return ZOrder(data_precision=d['data_precision'],
-                      region=d['region'])
-
     def split(self, value):
         for o in range(len(self.masks)):
             value = (value | (value << self.lshifts[o])) & self.masks[o]

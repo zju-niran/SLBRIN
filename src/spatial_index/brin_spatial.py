@@ -86,7 +86,7 @@ class BRINSpatial(SpatialIndex):
         找到可能和window相交的blk的key及其空间关系(相交=1/window包含value=2)，不包含tmp blk
         包含关系可以加速查询，即包含意味着blk内所有数据都符合条件
         """
-        return [[blk, Region.init_by_list(window).intersect(blk.value)]
+        return [[blk, Region(window[0], window[1], window[2], window[3]).intersect(blk.value)]
                 for blk in self.block_ranges[:-1]
                 if blk.value is not None]
 

@@ -54,10 +54,6 @@ class Point:
         """
         return (self.lng - other.lng) ** 2 + (self.lat - other.lat) ** 2
 
-    @staticmethod
-    def init_by_dict(d: dict):
-        return Point(lng=d['lng'], lat=d['lat'], key=d['key'])
-
 
 class Region:
     def __init__(self, bottom, up, left, right):
@@ -71,10 +67,6 @@ class Region:
             return True
         else:
             return False
-
-    @staticmethod
-    def init_by_list(window):
-        return Region(window[0], window[1], window[2], window[3])
 
     def intersect(self, other, cross=False):
         """
@@ -174,19 +166,6 @@ class Region:
                 return (self.left - point.lng) ** 2 <= distance_pow
             else:
                 return point.distance_pow(Point(self.left, self.up)) < distance_pow
-
-    @staticmethod
-    def create_region_from_points(x1, y1, x2, y2):
-        (bottom, up) = (y2, y1) if y1 > y2 else (y1, y2)
-        (left, right) = (x2, x1) if x1 > x2 else (x1, x2)
-        return Region(bottom, up, left, right)
-
-    @staticmethod
-    def init_by_dict(d: dict):
-        return Region(bottom=d['bottom'],
-                      up=d['up'],
-                      left=d['left'],
-                      right=d['right'])
 
     def get_bits_by_region_and_precision(self, precision):
         """

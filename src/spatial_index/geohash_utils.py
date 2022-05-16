@@ -24,21 +24,6 @@ class Geohash:
         sum_bits = region.get_bits_by_region_and_precision(data_precision) * 2
         return Geohash(sum_bits, region, data_precision)
 
-    def save_to_dict(self):
-        return {
-            'name': self.name,
-            'sum_bits': self.sum_bits,
-            'data_precision': self.data_precision,
-            'region': self.region
-        }
-
-    @staticmethod
-    def init_by_dict(d: dict):
-        if d['data_precision'] == 0:
-            return Geohash(sum_bits=d['sum_bits'], region=d['region'])
-        else:
-            return Geohash.init_by_precision(data_precision=d['data_precision'], region=d['region'])
-
     def encode(self, lng, lat):
         """
         计算point的geohash_int
@@ -83,7 +68,6 @@ class Geohash:
                 result[i] = [int(''.join(self.geohash_template), 2), 0]
                 i += 1
         return result
-
 
     @staticmethod
     def merge_bits_by_length(result, int1, int2, length):
