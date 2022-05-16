@@ -32,7 +32,7 @@ if __name__ == '__main__':
                         fill_factor=fill_factor,
                         leaf_node_capacity=113,
                         non_leaf_node_capacity=113,
-                        buffering_capacity=None)
+                        buffering_capacity=0)
             index.save()
             end_time = time.time()
             build_time = end_time - start_time

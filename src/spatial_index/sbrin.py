@@ -129,11 +129,8 @@ class SBRIN(SpatialIndex):
             result_data_list.extend([(0, 0, 0, 0)] * (threshold_number - result_list[i][2]))
         self.index_entries = result_data_list
         # 3. build learned model
-        start_time = time.time()
         self.build_nn_multiprocess(use_threshold, threshold, core, train_step, batch_num, learning_rate,
                                    retrain_time_limit, thread_pool_size, save_nn, weight)
-        end_time = time.time()
-        self.logging.info("Create learned model: %s" % (end_time - start_time))
 
     def build_nn_multiprocess(self, use_threshold, threshold, core, train_step, batch_num, learning_rate,
                               retrain_time_limit, thread_pool_size, save_nn, weight):
@@ -822,9 +819,9 @@ class SBRIN(SpatialIndex):
         # hr只存value/length/number/*model/state=hr_len*(8+1+2+4+1)=hr_len*16
         # cr只存value/number/state=cr_len*(8*4+2+1)=cr_len*35
         # index_entries为data_len*(8*3+4)=data_len*28
-        data_len = len([geohash for geohash in self.index_entries if geohash[2] != 0])
-        hr_len = len(self.history_ranges)
-        cr_len = len(self.current_ranges)
+        data_len = sum([hr.number for hr in self.history_ranges]) + sum([cr.number for cr in self.current_ranges])
+        hr_len = self.meta.last_hr + 1
+        cr_len = self.meta.last_cr + 1
         return 19 + \
                hr_len * 16 + \
                os.path.getsize(os.path.join(self.model_path, "sbrin_models.npy")) - 128 + \
@@ -844,7 +841,6 @@ class SBRIN(SpatialIndex):
         model_page_len = math.ceil((self.meta.last_hr + 1) * MODEL_SIZE / PAGE_SIZE)
         origin_page_len = meta_page_len + hr_page_len + cr_page_len + model_page_len
         # io when load model
-        model_page_len = math.ceil(hr_len * MODEL_SIZE / PAGE_SIZE)
         if origin_page_len < PREFETCH_SIZE:
             model_io_list = [1] * hr_len
         else:
