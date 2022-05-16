@@ -152,6 +152,34 @@ def create_distinct_data(input_path, output_path):
     np.save(output_path, distinct_data)
 
 
+def log_to_csv(input_path, output_path):
+    """
+    提取指定文件夹里的非csv文件的数据，存为同名的csv文件
+    """
+    files = os.listdir(input_path)
+    for file in files:
+        result = []
+        filename, suffix = file.split(".")
+        if suffix == "csv":
+            continue
+        output_file = filename + ".csv"
+        with open(os.path.join(input_path, file), 'r') as f1,\
+                open(os.path.join(output_path, output_file), 'w', newline='') as f2:
+            data = []
+            for line in f1.readlines():
+                if 'start' in line:
+                    result.append(data)
+                    data = []
+                else:
+                    value = line.split(':')[-1][:-1]
+                    data.append(value)
+            result.append(data)
+            csv_w = csv.writer(f2)
+            for data in result:
+                if len(data):
+                    csv_w.writerow(data)
+
+
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     headers = ['medallion',
@@ -239,10 +267,10 @@ if __name__ == '__main__':
     # output_path = './query/point_query_uniform.npy'
     # input_path = './table/normal_10000w.npy'
     # output_path = './query/point_query_normal.npy'
-    input_path = './table/trip_data_1_filter.npy'
-    output_path = './query/point_query_nyct.npy'
-    query_number_limit = 1000
-    create_point_query(input_path, output_path, query_number_limit)
+    # input_path = './table/trip_data_1_filter.npy'
+    # output_path = './query/point_query_nyct.npy'
+    # query_number_limit = 1000
+    # create_point_query(input_path, output_path, query_number_limit)
     # 2. 生成range检索范围
     # range_ratio_list = [0.001, 0.005, 0.01, 0.015, 0.02]
     # output_path = './query/range_query_uniform.npy'
@@ -262,3 +290,8 @@ if __name__ == '__main__':
     # query_number_limit = 1000
     # n_list = [4, 8, 16, 32, 64]
     # create_knn_query(input_path, output_path, query_number_limit, n_list)
+
+    # 实验结果日志转csv，把result里的所有非csv文件转成csv
+    input_path = "../result"
+    output_path = "../result"
+    log_to_csv(input_path, output_path)

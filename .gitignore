@@ -132,10 +132,8 @@ dmypy.json
 .idea/
 
 # model file
-performance
-store_performance
-data/test.graph
 **/*.csv
 **/*.npy
 **/model*
 **/*.v2
+result
