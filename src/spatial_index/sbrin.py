@@ -588,8 +588,6 @@ class SBRIN(SpatialIndex):
         5. filter all the point of scope[min_key/max_key] by range.contain(point)
         主要耗时间：range_query_hr/nn predict/精确过滤: 15/24/37.6
         """
-        if window[0] == window[1] and window[2] == window[3]:
-            return self.point_query_single([window[2], window[0]])
         # 1. compute geohash of window_left and window_right
         gh1 = self.meta.geohash.encode(window[2], window[0])
         gh2 = self.meta.geohash.encode(window[3], window[1])
@@ -602,11 +600,9 @@ class SBRIN(SpatialIndex):
             if hr.number == 0:  # hr is empty
                 continue
             position = hr_list[hr_key]
-            offset = hr_key * self.meta.threshold_number
-            key_left = offset
-            key_right = key_left + hr.max_key
             if position == 0:  # window contain hr
-                result.extend(list(range(key_left, key_right + 1)))
+                key_left = hr_key * self.meta.threshold_number
+                result.extend(list(range(key_left, key_left + hr.number)))
             else:
                 # wrong child hr from range_by_int
                 is_valid = valid_position_funcs[position](hr.scope, window)
@@ -616,21 +612,26 @@ class SBRIN(SpatialIndex):
                 gh_new1, gh_new2, compare_func = range_position_funcs[position](hr.scope, window, gh1, gh2,
                                                                                 self.meta.geohash)
                 # 4 predict min_key/max_key by nn
+                offset = hr_key * self.meta.threshold_number
                 if gh_new1:
                     pre1 = hr.model_predict(gh_new1)
                     l_bound1 = max(pre1 - hr.model.max_err, 0)
                     r_bound1 = min(pre1 - hr.model.min_err, hr.max_key)
                     key_left = min(biased_search_almost(self.index_entries, 2, gh_new1,
                                                         pre1 + offset, l_bound1 + offset, r_bound1 + offset))
+                else:
+                    key_left = offset
                 if gh_new2:
                     pre2 = hr.model_predict(gh_new2)
                     l_bound2 = max(pre2 - hr.model.max_err, 0)
-                    r_bound2 = min(pre2 - hr.model.min_err, hr.max_key)
+                    r_bound2 = min(pre2 - hr.model.min_err, hr.number)
                     key_right = max(biased_search_almost(self.index_entries, 2, gh_new2,
                                                          pre2 + offset, l_bound2 + offset, r_bound2 + offset))
+                else:
+                    key_right = key_left + hr.number
                 # 5 filter all the point of scope[min_key/max_key] by range.contain(point)
                 # 优化: region.contain->compare_func不同位置的点做不同的判断: 638->474mil
-                result.extend([ie[3] for ie in self.index_entries[key_left:key_right + 1] if compare_func(ie)])
+                result.extend([ie[3] for ie in self.index_entries[key_left:key_right] if compare_func(ie)])
         return result
 
     def knn_query_single(self, knn):
@@ -710,28 +711,38 @@ class SBRIN(SpatialIndex):
             hr = self.history_ranges[tp_window_hr[0]]
             if hr.number == 0:  # hr is empty
                 continue
-            offset = tp_window_hr[0] * self.meta.threshold_number
-            gh_new1, gh_new2, compare_func = range_position_funcs[tp_window_hr[1]](hr.scope, window, gh1, gh2,
-                                                                                   self.meta.geohash)
-            if gh_new1:
-                pre1 = hr.model_predict(gh_new1)
-                l_bound1 = max(pre1 - hr.model.max_err, 0)
-                r_bound1 = min(pre1 - hr.model.min_err, hr.max_key)
-                key_left = min(biased_search_almost(self.index_entries, 2, gh_new1,
-                                                    pre1 + offset, l_bound1 + offset, r_bound1 + offset))
+            position = tp_window_hr[1]
+            if position == 0:  # window contain hr
+                key_left = tp_window_hr[0] * self.meta.threshold_number
+                tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                                for ie in self.index_entries[key_left:key_left + hr.number]])
             else:
-                key_left = offset
-            if gh_new2:
-                pre2 = hr.model_predict(gh_new2)
-                l_bound2 = max(pre2 - hr.model.max_err, 0)
-                r_bound2 = min(pre2 - hr.model.min_err, hr.max_key)
-                key_right = max(biased_search_almost(self.index_entries, 2, gh_new2,
-                                                     pre2 + offset, l_bound2 + offset, r_bound2 + offset))
-            else:
-                key_right = key_left + hr.max_key
-            # 3. filter point by distance
-            tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                            for ie in self.index_entries[key_left:key_right + 1] if compare_func(ie)])
+                # wrong child hr from range_by_int
+                is_valid = valid_position_funcs[position](hr.scope, window)
+                if not is_valid:
+                    continue
+                gh_new1, gh_new2, compare_func = range_position_funcs[tp_window_hr[1]](hr.scope, window, gh1, gh2,
+                                                                                       self.meta.geohash)
+                offset = tp_window_hr[0] * self.meta.threshold_number
+                if gh_new1:
+                    pre1 = hr.model_predict(gh_new1)
+                    l_bound1 = max(pre1 - hr.model.max_err, 0)
+                    r_bound1 = min(pre1 - hr.model.min_err, hr.max_key)
+                    key_left = min(biased_search_almost(self.index_entries, 2, gh_new1,
+                                                        pre1 + offset, l_bound1 + offset, r_bound1 + offset))
+                else:
+                    key_left = offset
+                if gh_new2:
+                    pre2 = hr.model_predict(gh_new2)
+                    l_bound2 = max(pre2 - hr.model.max_err, 0)
+                    r_bound2 = min(pre2 - hr.model.min_err, hr.number)
+                    key_right = max(biased_search_almost(self.index_entries, 2, gh_new2,
+                                                         pre2 + offset, l_bound2 + offset, r_bound2 + offset))
+                else:
+                    key_right = offset + hr.number
+                # 3. filter point by distance
+                tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                                for ie in self.index_entries[key_left:key_right] if compare_func(ie)])
             tp_list = sorted(tp_list)[:k]
             max_dist = tp_list[-1][0]
         return [tp[1] for tp in tp_list]
