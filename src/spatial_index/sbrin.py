@@ -714,8 +714,8 @@ class SBRIN(SpatialIndex):
             position = tp_window_hr[1]
             if position == 0:  # window contain hr
                 key_left = tp_window_hr[0] * self.meta.threshold_number
-                tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                                for ie in self.index_entries[key_left:key_left + hr.number]])
+                tmp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                            for ie in self.index_entries[key_left:key_left + hr.number]]
             else:
                 # wrong child hr from range_by_int
                 is_valid = valid_position_funcs[position](hr.scope, window)
@@ -741,10 +741,12 @@ class SBRIN(SpatialIndex):
                 else:
                     key_right = offset + hr.number
                 # 3. filter point by distance
-                tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                                for ie in self.index_entries[key_left:key_right] if compare_func(ie)])
-            tp_list = sorted(tp_list)[:k]
-            max_dist = tp_list[-1][0]
+                tmp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                            for ie in self.index_entries[key_left:key_right] if compare_func(ie)]
+            if len(tmp_list) > 0:
+                tp_list.extend(tmp_list)
+                tp_list = sorted(tp_list)[:k]
+                max_dist = tp_list[-1][0]
         return [tp[1] for tp in tp_list]
 
     def save(self):
