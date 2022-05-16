@@ -32,6 +32,18 @@ def contain_value(window, value):
     return sum([window[d * 2] <= value[d] <= window[d * 2 + 1] for d in range(DIM_NUM)]) == DIM_NUM
 
 
+def equal_value_2d(value1, value2):
+    return value1[0] == value2[1] and value1[0] == value2[1]
+
+
+def distance_value_2d(value1, value2):
+    return ((value1[0] - value2[0]) ** 2 + (value1[1] - value2[1]) ** 2) ** 0.5
+
+
+def contain_value_2d(window, value):
+    return window[0] <= value[0] <= window[1] and window[2] <= value[1] <= window[3]
+
+
 class KDNode:
     def __init__(self, value=None, axis=0):
         self.value = value
@@ -61,31 +73,12 @@ class KDNode:
         """
         Search all value under the node
         """
-        if equal_value(self.value, value):
+        if equal_value_2d(self.value, value):
             result.append(self.value[-1])
         if self.left:
             self.left.search_all(value, result)
         if self.right:
             self.right.search_all(value, result)
-
-    def search_linked_node(self, value, result):
-        """
-        Search the node for a value and record all the accessed node
-        """
-        if value[self.axis] > self.value[self.axis]:
-            if self.right is None:
-                result.append([self, None])
-            else:
-                result.append([self, False])
-                self.right.search_linked_node(value, result)
-        elif value[self.axis] == self.value[self.axis]:
-            result.append([self, None])
-        else:
-            if self.left is None:
-                result.append([self, None])
-            else:
-                result.append([self, True])
-                self.left.search_linked_node(value, result)
 
     def nearest_neighbor(self, value, n, result, nearest_distance):
         """
@@ -194,17 +187,6 @@ class KDNode:
         if self.left:
             values += self.left.collect()
         return values
-
-    def collect_distance(self, value):
-        """
-        Collect all distance from specified value and all the value under the node
-        """
-        distances = [[distance_value(value, self.value), self.value[-1]]]
-        if self.right:
-            distances.extend(self.right.collect_distance(value))
-        if self.left:
-            distances.extend(self.left.collect_distance(value))
-        return distances
 
     @staticmethod
     def _initialize_recursive(sorted_values, axis):
@@ -316,7 +298,7 @@ class KDTree(SpatialIndex):
         window = [window[2], window[3], window[0], window[1]]
         while len(stack):
             cur = stack.pop(-1)
-            if contain_value(window, cur.value):
+            if contain_value_2d(window, cur.value):
                 result.append(cur.value[-1])
             if cur.left:
                 if window[cur.axis * 2] <= cur.value[cur.axis]:
@@ -328,39 +310,49 @@ class KDTree(SpatialIndex):
 
     def knn_query_single(self, knn):
         """
-        1. search the node containing value and record the search link
-        2. search node from bottom to up according to the search link
-        2.1 if result is not full or current node is closer than nearest_dist,
-            collect all the values under current node to result and update nearest_dist
-        对比stack/iter/当前方法=>时间比为50:50:0.3
+        参考：https://blog.csdn.net/qq_38019633/article/details/89555909
+        1. 从root node开始深度优先遍历
+        2. 先判断当前node value和value的大小关系，如果=大，则顺序为right-自己-left，否则left-自己-right
+        3. 对前节点，直接遍历
+        4. 对自己，直接加进优先队列，并且更新距离
+        5. 对后节点，可以借助和node的分割线的距离判断，加速过滤
+        对比stack/iter/当前方法=>时间比为50:50:0.1
         """
-        value = knn
+        value = knn[:-1]
         n = knn[-1]
-        # 1. search the node containing value and record the search link
-        linked_nodes = []
-        self.root_node.search_linked_node(value, linked_nodes)
-        nearest_distance = 0
-        result = []
-        # 2. search node from bottom to up according to the search link
-        while len(linked_nodes):
-            node, is_left = linked_nodes.pop(-1)
-            if is_left is False:
-                rest_node = node.left
-            elif is_left is True:
-                rest_node = node.right
-            else:
-                rest_node = node
-            if rest_node is None:
-                continue
-            if len(result) >= n:
-                if is_left is True and value[node.axis] + nearest_distance < rest_node.value[node.axis]:
-                    continue
-                elif is_left is False and value[node.axis] - nearest_distance > rest_node.value[node.axis]:
-                    continue
-            result.extend(rest_node.collect_distance(value))
-            result = sorted(result)[:n]
-            nearest_distance = result[-1][0]
-        return [itr[1] for itr in result]
+        result_heap = []
+        self.knn_query_node(self.root_node, value, 0, result_heap, n)
+        return [itr[1] for itr in result_heap]
+
+    def knn_query_node(self, node, value, nearest_distance, result_heap, n):
+        # 右-自己-左
+        if value[node.axis] >= node.value[node.axis]:
+            if node.right:
+                nearest_distance = self.knn_query_node(node.right, value, nearest_distance, result_heap, n)
+            dst = distance_value_2d(value, node.value)
+            if len(result_heap) < n:
+                heapq.heappush(result_heap, (-dst, node.value[2]))
+                nearest_distance = -heapq.nsmallest(1, result_heap)[0][0]
+            elif dst < nearest_distance:
+                heapq.heappop(result_heap)
+                heapq.heappush(result_heap, (-dst, node.value[2]))
+                nearest_distance = -heapq.nsmallest(1, result_heap)[0][0]
+            if node.left and value[node.axis] - nearest_distance < node.value[node.axis]:
+                nearest_distance = self.knn_query_node(node.left, value, nearest_distance, result_heap, n)
+        else:  # 左-自己-右
+            if node.left:
+                nearest_distance = self.knn_query_node(node.left, value, nearest_distance, result_heap, n)
+            dst = distance_value_2d(value, node.value)
+            if len(result_heap) < n:
+                heapq.heappush(result_heap, (-dst, node.value[2]))
+                nearest_distance = -heapq.nsmallest(1, result_heap)[0][0]
+            elif dst < nearest_distance:
+                heapq.heappop(result_heap)
+                heapq.heappush(result_heap, (-dst, node.value[2]))
+                nearest_distance = -heapq.nsmallest(1, result_heap)[0][0]
+            if node.right and value[node.axis] + nearest_distance >= node.value[node.axis]:
+                nearest_distance = self.knn_query_node(node.right, value, nearest_distance, result_heap, n)
+        return nearest_distance
 
     def knn_query_by_iter(self, knn):
         result = []
