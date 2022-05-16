@@ -12,7 +12,7 @@ import numpy as np
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.learned_model import TrainedNN
 from src.learned_model_simple import TrainedNN as TrainedNN_Simple
-from src.spatial_index.common_utils import Region, binary_search_less_max, get_nearest_none, sigmoid, Point, \
+from src.spatial_index.common_utils import Region, binary_search_less_max, get_nearest_none, sigmoid, \
     biased_search_almost, biased_search, get_mbr_by_points
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
@@ -586,7 +586,7 @@ class SBRIN(SpatialIndex):
         3. get min_geohash and max_geohash of every hr for different relation
         4. predict min_key/max_key by nn
         5. filter all the point of scope[min_key/max_key] by range.contain(point)
-        主要耗时间：sbrin.range_query.ranges_by_int/nn predict/精确过滤: 307mil/145mil/359mil
+        主要耗时间：range_query_hr/nn predict/精确过滤: 15/24/37.6
         """
         if window[0] == window[1] and window[2] == window[3]:
             return self.point_query_single([window[2], window[0]])
@@ -613,8 +613,8 @@ class SBRIN(SpatialIndex):
                 if not is_valid:
                     continue
                 # if-elif-else->lambda, 30->4
-                gh_new1, gh_new2, compare_func = \
-                    range_position_funcs[position](hr.scope, window, gh1, gh2, self.meta.geohash)
+                gh_new1, gh_new2, compare_func = range_position_funcs[position](hr.scope, window, gh1, gh2,
+                                                                                self.meta.geohash)
                 # 4 predict min_key/max_key by nn
                 if gh_new1:
                     pre1 = hr.model_predict(gh_new1)
@@ -630,8 +630,7 @@ class SBRIN(SpatialIndex):
                                                          pre2 + offset, l_bound2 + offset, r_bound2 + offset))
                 # 5 filter all the point of scope[min_key/max_key] by range.contain(point)
                 # 优化: region.contain->compare_func不同位置的点做不同的判断: 638->474mil
-                result.extend([self.index_entries[key][3] for key in range(key_left, key_right + 1)
-                               if compare_func(self.index_entries[key])])
+                result.extend([ie[3] for ie in self.index_entries[key_left:key_right + 1] if compare_func(ie)])
         return result
 
     def knn_query_single(self, knn):
@@ -639,63 +638,66 @@ class SBRIN(SpatialIndex):
         1. get the nearest key of query point
         2. get the nn points to create range query window
         3. filter point by distance
-        主要耗时间：sbrin.knn_query.ranges_by_int/nn predict/精确过滤: 4.7mil/21mil/14.4mil
+        主要耗时间：knn_query_hr/nn predict/精确过滤: 6.1/30/40.5
         """
-        k = knn[2]
+        x, y, k = knn
         # 1. get the nearest key of query point
-        qp_g = self.meta.geohash.encode(knn[0], knn[1])
+        qp_g = self.meta.geohash.encode(x, y)
         qp_hr_key = self.point_query_hr(qp_g)
         qp_hr = self.history_ranges[qp_hr_key]
         # if hr is empty, TODO
         if qp_hr.number == 0:
             return []
-        # if model, qp_key = point_query(geohash)
+        # if model, qp_ie_key = point_query(geohash)
         else:
             offset = qp_hr_key * self.meta.threshold_number
             pre = qp_hr.model_predict(qp_g)
             l_bound = max(pre - qp_hr.model.max_err, 0)
             r_bound = min(pre - qp_hr.model.min_err, qp_hr.max_key)
-            query_point_key = biased_search_almost(self.index_entries, 2, qp_g,
-                                                   pre + offset, l_bound + offset, r_bound + offset)[0]
+            qp_ie_key = biased_search_almost(self.index_entries, 2, qp_g,
+                                             pre + offset, l_bound + offset, r_bound + offset)[0]
         # 2. get the n points to create range query window
         # TODO: 两种策略，一种是左右找一半，但是如果跳跃了，window很大；
         #  还有一种是两边找n，减少跳跃，使window变小，当前是第二种
-        tp_list = [[Point.distance_pow_point_list(knn, self.index_entries[query_point_key]),
-                    self.index_entries[query_point_key][3]]]
-        cur_key = query_point_key + 1
-        cur_block_key = qp_hr_key
-        i = 0
-        while i < k - 1:
-            if self.index_entries[cur_key][2] == 0:
-                cur_block_key += 1
-                if cur_block_key > self.meta.last_hr:
-                    break
-                cur_key = cur_block_key * self.meta.threshold_number
+        tp_ie_list = [self.index_entries[qp_ie_key]]
+        cur_ie_key = qp_ie_key + 1
+        cur_hr = qp_hr
+        cur_hr_key = qp_hr_key
+        i = k
+        while i > 0:
+            right_ie_len = cur_hr.number - cur_ie_key % self.meta.threshold_number
+            if right_ie_len >= i:
+                tp_ie_list.extend(self.index_entries[cur_ie_key:cur_ie_key + i])
+                break
             else:
-                tp_list.append([Point.distance_pow_point_list(knn, self.index_entries[cur_key]),
-                                self.index_entries[cur_key][3]])
-                cur_key += 1
-                i += 1
-        cur_key = query_point_key - 1
-        cur_block_key = qp_hr_key
-        i = 0
-        while i < k - 1:
-            if self.index_entries[cur_key][2] == 0:
-                cur_block_key -= 1
-                if cur_block_key < 0:
+                tp_ie_list.extend(self.index_entries[cur_ie_key:cur_ie_key + right_ie_len])
+                i -= right_ie_len
+                cur_hr_key += 1
+                if cur_hr_key > self.meta.last_hr:
                     break
-                cur_key = cur_block_key * self.meta.threshold_number + self.history_ranges[cur_block_key].max_key
+                cur_hr = self.history_ranges[cur_hr_key]
+                cur_ie_key = cur_hr_key * self.meta.threshold_number
+        cur_ie_key = qp_ie_key
+        cur_hr_key = qp_hr_key
+        i = k
+        while i > 0:
+            left_ie_len = cur_ie_key % self.meta.threshold_number
+            if left_ie_len >= i:
+                tp_ie_list.extend(self.index_entries[cur_ie_key - i:cur_ie_key])
+                break
             else:
-                tp_list.append([Point.distance_pow_point_list(knn, self.index_entries[cur_key]),
-                                self.index_entries[cur_key][3]])
-                cur_key -= 1
-                i += 1
-        tp_list = sorted(tp_list)[:k]
+                tp_ie_list.extend(self.index_entries[cur_ie_key - left_ie_len:cur_ie_key])
+                i -= left_ie_len
+                cur_hr_key -= 1
+                if cur_hr_key < 0:
+                    break
+                cur_ie_key = cur_hr_key * self.meta.threshold_number + self.history_ranges[cur_hr_key].number
+        tp_list = sorted([[(tp_ie[0] - x) ** 2 + (tp_ie[1] - y) ** 2, tp_ie[3]] for tp_ie in tp_ie_list])[:k]
         max_dist = tp_list[-1][0]
         if max_dist == 0:
             return [tp[1] for tp in tp_list]
         max_dist_pow = max_dist ** 0.5
-        window = [knn[1] - max_dist_pow, knn[1] + max_dist_pow, knn[0] - max_dist_pow, knn[0] + max_dist_pow]
+        window = [y - max_dist_pow, y + max_dist_pow, x - max_dist_pow, x + max_dist_pow]
         # 处理超出边界的情况
         self.meta.geohash.region.clip_region(window, self.meta.geohash.data_precision)
         gh1 = self.meta.geohash.encode(window[2], window[0])
@@ -709,24 +711,27 @@ class SBRIN(SpatialIndex):
             if hr.number == 0:  # hr is empty
                 continue
             offset = tp_window_hr[0] * self.meta.threshold_number
-            key_left = offset
-            key_right = key_left + hr.max_key
-            gh_new1, gh_new2 = knn_position_funcs[tp_window_hr[1]](hr.scope, window, gh1, gh2, self.meta.geohash)
+            gh_new1, gh_new2, compare_func = range_position_funcs[tp_window_hr[1]](hr.scope, window, gh1, gh2,
+                                                                                   self.meta.geohash)
             if gh_new1:
                 pre1 = hr.model_predict(gh_new1)
                 l_bound1 = max(pre1 - hr.model.max_err, 0)
                 r_bound1 = min(pre1 - hr.model.min_err, hr.max_key)
                 key_left = min(biased_search_almost(self.index_entries, 2, gh_new1,
                                                     pre1 + offset, l_bound1 + offset, r_bound1 + offset))
+            else:
+                key_left = offset
             if gh_new2:
                 pre2 = hr.model_predict(gh_new2)
                 l_bound2 = max(pre2 - hr.model.max_err, 0)
                 r_bound2 = min(pre2 - hr.model.min_err, hr.max_key)
                 key_right = max(biased_search_almost(self.index_entries, 2, gh_new2,
                                                      pre2 + offset, l_bound2 + offset, r_bound2 + offset))
+            else:
+                key_right = key_left + hr.max_key
             # 3. filter point by distance
-            tp_list.extend([[Point.distance_pow_point_list(knn, self.index_entries[i]), self.index_entries[i][3]]
-                            for i in range(key_left, key_right + 1)])
+            tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                            for ie in self.index_entries[key_left:key_right + 1] if compare_func(ie)])
             tp_list = sorted(tp_list)[:k]
             max_dist = tp_list[-1][0]
         return [tp[1] for tp in tp_list]
@@ -935,47 +940,6 @@ range_position_funcs = [
         gh1,
         gh2,
         lambda x: window[2] <= x[0] <= window[3] and window[0] <= x[1] <= window[1])]
-knn_position_funcs = [
-    lambda reg, window, gh1, gh2, geohash: (None, None),  # window contain hr
-    lambda reg, window, gh1, gh2, geohash: (  # right
-        None,
-        geohash.encode(window[3], reg.up)),
-    lambda reg, window, gh1, gh2, geohash: (  # left
-        geohash.encode(window[2], reg.bottom),
-        None),
-    None,  # left-right
-    lambda reg, window, gh1, gh2, geohash: (  # up
-        None,
-        geohash.encode(reg.right, window[1])),
-    lambda reg, window, gh1, gh2, geohash: (  # up-right
-        None,
-        gh2),
-    lambda reg, window, gh1, gh2, geohash: (  # up-left
-        geohash.encode(window[2], reg.bottom),
-        geohash.encode(reg.right, window[1])),
-    lambda reg, window, gh1, gh2, geohash: (None, None),  # up-left-right
-    lambda reg, window, gh1, gh2, geohash: (  # bottom
-        geohash.encode(reg.left, window[0]),
-        None),
-    lambda reg, window, gh1, gh2, geohash: (  # bottom-right
-        geohash.encode(reg.left, window[0]),
-        geohash.encode(window[3], reg.up)),
-    lambda reg, window, gh1, gh2, geohash: (  # bottom-left
-        gh1,
-        None),
-    lambda reg, window, gh1, gh2, geohash: (  # bottom-left-right
-        gh1,
-        geohash.encode(window[3], reg.up)),
-    None,
-    lambda reg, window, gh1, gh2, geohash: (  # bottom-up-right
-        geohash.encode(reg.left, window[0]),
-        gh2),
-    lambda reg, window, gh1, gh2, geohash: (  # bottom-up-left
-        gh1,
-        geohash.encode(reg.right, window[1])),
-    lambda reg, window, gh1, gh2, geohash: (  # bottom-up-left-right
-        gh1,
-        gh2)]
 
 
 # for train

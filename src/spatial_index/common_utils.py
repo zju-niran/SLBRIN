@@ -55,10 +55,6 @@ class Point:
         return (self.lng - other.lng) ** 2 + (self.lat - other.lat) ** 2
 
     @staticmethod
-    def distance_pow_point_list(point1: list, point2: list):
-        return (point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2
-
-    @staticmethod
     def init_by_dict(d: dict):
         return Point(lng=d['lng'], lat=d['lat'], key=d['key'])
 
@@ -224,11 +220,11 @@ class Region:
         """
         if point[0] >= self.right:
             if point[1] >= self.up:
-                return Point.distance_pow_point_list([self.right, self.up], point)
+                return (self.right - point[0]) ** 2 + (self.up - point[1]) ** 2
             elif self.bottom < point[1] < self.up:
                 return (point[0] - self.right) ** 2
             else:
-                return Point.distance_pow_point_list([self.right, self.bottom], point)
+                return (self.right - point[0]) ** 2 + (self.bottom - point[1]) ** 2
         elif self.left < point[0] < self.right:
             if point[1] <= self.bottom:
                 return (self.bottom - point[1]) ** 2
@@ -239,11 +235,11 @@ class Region:
                 return (point[1] - self.up) ** 2
         else:
             if point[1] <= self.bottom:
-                return Point.distance_pow_point_list([self.left, self.bottom], point)
+                return (self.left - point[0]) ** 2 + (self.bottom - point[1]) ** 2
             elif self.bottom < point[1] < self.up:
                 return (self.left - point[0]) ** 2
             else:
-                return Point.distance_pow_point_list([self.left, self.up], point)
+                return (self.left - point[0]) ** 2 + (self.up - point[1]) ** 2
 
     def up_right_less(self, i):
         self.up -= i
