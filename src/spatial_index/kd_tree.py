@@ -1,3 +1,4 @@
+import gc
 import heapq
 import logging
 import math
@@ -10,9 +11,6 @@ import numpy as np
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.spatial_index import SpatialIndex
 
-"""
-二维的话直接用bool来处理维度切换性能会高，现在axis不停+1来迭代
-"""
 DIM_NUM = 2
 PREFETCH_SIZE = 256
 PAGE_SIZE = 4096
@@ -32,8 +30,9 @@ def contain_value(window, value):
     return sum([window[d * 2] <= value[d] <= window[d * 2 + 1] for d in range(DIM_NUM)]) == DIM_NUM
 
 
+# 2d下的函数效率要比多维快5倍
 def equal_value_2d(value1, value2):
-    return value1[0] == value2[1] and value1[0] == value2[1]
+    return value1[0] == value2[0] and value1[1] == value2[1]
 
 
 def distance_value_2d(value1, value2):
@@ -51,34 +50,6 @@ class KDNode:
         self.right = None
         self.axis = axis
         self.node_num = 1
-
-    def search_node(self, value):
-        """
-        Search the node for a value
-        """
-        if value[self.axis] > self.value[self.axis]:
-            if self.right is None:
-                return self.right
-            else:
-                return self.right.search_node(value)
-        elif value[self.axis] == self.value[self.axis]:
-            return self
-        else:
-            if self.left is None:
-                return self.left
-            else:
-                return self.left.search_node(value)
-
-    def search_all(self, value, result):
-        """
-        Search all value under the node
-        """
-        if equal_value_2d(self.value, value):
-            result.append(self.value[-1])
-        if self.left:
-            self.left.search_all(value, result)
-        if self.right:
-            self.right.search_all(value, result)
 
     def nearest_neighbor(self, value, n, result, nearest_distance):
         """
@@ -254,22 +225,33 @@ class KDTree(SpatialIndex):
         self.root_node = self.root_node.delete(point)
 
     def build_node(self, values, value_len, axis):
+        """
+        通过del减少内存占用
+        """
         median_key = value_len // 2
-        sorted_value = sorted(values, key=lambda x: x[axis])
-        node = KDNode(value=sorted_value[median_key], axis=axis)
+        values = sorted(values, key=lambda x: x[axis])
+        node = KDNode(value=values[median_key], axis=axis)
         left_value_len = median_key
         right_value_len = value_len - median_key - 1
         axis = axis + 1 if axis + 1 < DIM_NUM else 0
+        values_left = values[:median_key]
+        values_right = values[median_key + 1:]
+        del values
         if left_value_len > 0:
-            node.left = self.build_node(sorted_value[: median_key], left_value_len, axis)
+            node.left = self.build_node(values_left, left_value_len, axis)
+        del values_left
         if right_value_len > 0:
-            node.right = self.build_node(sorted_value[median_key + 1:], right_value_len, axis)
+            node.right = self.build_node(values_right, right_value_len, axis)
+        del values_right
         node.recalculate_nodes()
+        gc.collect(generation=0)
         return node
 
     def build(self, data_list):
-        # TODO: 对比一下两种build的结果树是否一样
-        self.root_node = self.build_node(data_list.tolist(), len(data_list), 0)
+        # 方法1：先排序后划分节点
+        data_list = data_list.tolist()
+        self.root_node = self.build_node(data_list, len(data_list), 0)
+        # 方法2：不停插入
         # data_list = np.insert(data_list, np.arange(len(data_list)), axis=1)
         # self.root_node = KDNode(value=data_list[0], axis=0)
         # self.insert(data_list[1:])
@@ -284,15 +266,45 @@ class KDTree(SpatialIndex):
                 f.write(line + '\r')
 
     def point_query_single(self, point):
-        node = self.root_node.search_node(point)
-        if node is None:
-            return []
+        result = []
+        self.point_query_node(self.root_node, point, result)
+        return result
+
+    def point_query_node(self, node, point, result):
+        if point[node.axis] > node.value[node.axis]:
+            if node.right:
+                self.point_query_node(node.right, point, result)
+        elif point[node.axis] == node.value[node.axis]:
+            if equal_value_2d(point, node.value):
+                result.append(node.value[-1])
+            if node.right:
+                self.point_query_node(node.right, point, result)
+            if node.left:
+                self.point_query_node(node.left, point, result)
         else:
-            result = []
-            node.search_all(point, result)
-            return result
+            if node.left:
+                self.point_query_node(node.left, point, result)
 
     def range_query_single(self, window):
+        """
+        优化：stack/当前方法=>时间比为2:1
+        """
+        result = []
+        window = [window[2], window[3], window[0], window[1]]
+        self.range_query_node(self.root_node, window, result)
+        return result
+
+    def range_query_node(self, node, window, result):
+        if contain_value_2d(window, node.value):
+            result.append(node.value[-1])
+        if node.left:
+            if window[node.axis * 2] <= node.value[node.axis]:
+                self.range_query_node(node.left, window, result)
+        if node.right:
+            if window[node.axis * 2 + 1] >= node.value[node.axis]:
+                self.range_query_node(node.right, window, result)
+
+    def range_query_by_stack(self, window):
         result = []
         stack = [self.root_node]
         window = [window[2], window[3], window[0], window[1]]
@@ -316,7 +328,7 @@ class KDTree(SpatialIndex):
         3. 对前节点，直接遍历
         4. 对自己，直接加进优先队列，并且更新距离
         5. 对后节点，可以借助和node的分割线的距离判断，加速过滤
-        对比stack/iter/当前方法=>时间比为50:50:0.1
+        优化：stack/iter/当前方法=>时间比为50:50:0.1
         """
         value = knn[:-1]
         n = knn[-1]

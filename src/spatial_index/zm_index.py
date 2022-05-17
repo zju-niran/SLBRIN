@@ -86,6 +86,9 @@ class ZMIndex(SpatialIndex):
                         pre = int(self.rmi[i][j].predict(train_inputs[i][j][ind]))
                         train_inputs[i + 1][pre].append(train_inputs[i][j][ind])
                         train_labels[i + 1][pre].append(train_labels[i][j][ind])
+                    # 释放已经训练完的数据
+                    train_inputs[i] = None
+                    train_labels[i] = None
         # 叶子节点使用线程池训练
         multiprocessing.set_start_method('spawn', force=True)
         pool = multiprocessing.Pool(processes=thread_pool_size)
