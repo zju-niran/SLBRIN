@@ -87,7 +87,7 @@ class BTree:
         new_node.numberOfKeys = self.degree - 1
         for j in range(0, self.degree - 1):
             new_node.items[j] = c_node.items[j + self.degree]
-        if c_node.isLeaf is False:
+        if not c_node.isLeaf:
             for j in range(0, self.degree):
                 new_node.children[j] = c_node.children[j + self.degree]
         c_node.numberOfKeys = self.degree - 1
@@ -143,7 +143,7 @@ class BTree:
     def delete(self, an_item):
         an_item = Item(an_item, 0)
         search_result = self.search(an_item)
-        if search_result[0] is False:
+        if not search_result[0]:
             return None
         r = self.rootNode
         self.delete_in_node(r, an_item, search_result)
@@ -181,7 +181,7 @@ class BTree:
                     self.delete_in_node(left, an_item, (True, left.index, k))
         else:
             i = 0
-            while i < a_node.numberOfKeys and self.get_node(a_node.children[i]).search(self, an_item)[0] is False:
+            while i < a_node.numberOfKeys and not self.get_node(a_node.children[i]).search(self, an_item)[0]:
                 i += 1
             c_node = self.get_node(a_node.children[i])
             if c_node.numberOfKeys < self.degree:

@@ -71,3 +71,11 @@ if __name__ == '__main__':
                 end_time = time.time()
                 search_time = (end_time - start_time) / 1000
                 logging.info("Range query time: %s" % search_time)
+            knn_query_list = load_query(data_distribution, "knn").tolist()
+            for i in range(len(knn_query_list) // 1000):
+                tmp_knn_query_list = knn_query_list[i * 1000:(i + 1) * 1000]
+                start_time = time.time()
+                index.test_knn_query(tmp_knn_query_list)
+                end_time = time.time()
+                search_time = (end_time - start_time) / 1000
+                logging.info("KNN query time: %s" % search_time)

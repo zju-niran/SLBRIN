@@ -877,7 +877,7 @@ range_position_funcs = [
 # for train
 def build_nn(model_path, model_key, inputs, labels, use_threshold, threshold, core, train_step, batch_size,
              learning_rate, retrain_time_limit, save_nn, weight, tmp_dict=None):
-    if save_nn is False:
+    if not save_nn:
         tmp_index = TrainedNN_Simple(model_path, model_key, inputs, labels, core, train_step, batch_size,
                                      learning_rate, weight)
     else:

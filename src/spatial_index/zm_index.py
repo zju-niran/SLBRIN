@@ -120,7 +120,7 @@ class ZMIndex(SpatialIndex):
         # 1. predict the leaf_model by rmi
         leaf_model_key = 0
         for i in range(0, self.stage_length - 1):
-            leaf_model_key = self.rmi[i][leaf_model_key].predict(key)
+            leaf_model_key = int(self.rmi[i][leaf_model_key].predict(key))
         # 2. return the less max key when leaf model is None
         if self.rmi[-1][leaf_model_key] is None:
             while self.rmi[-1][leaf_model_key] is None:
@@ -131,8 +131,26 @@ class ZMIndex(SpatialIndex):
             return self.rmi[-1][leaf_model_key].output_max, 0, 0
         # 3. predict the key by leaf_model
         leaf_model = self.rmi[-1][leaf_model_key]
-        pre = leaf_model.predict(key)
+        pre = int(leaf_model.predict(key))
         return pre, leaf_model.min_err, leaf_model.max_err
+
+    def weight(self, key):
+        """
+        calculate weight in key
+        """
+        leaf_model_key = 0
+        for i in range(0, self.stage_length - 1):
+            leaf_model_key = int(self.rmi[i][leaf_model_key].predict(key))
+        if self.rmi[-1][leaf_model_key] is None:
+            while self.rmi[-1][leaf_model_key] is None:
+                if leaf_model_key < 0:
+                    return 0, 0, 0
+                else:
+                    leaf_model_key -= 1
+            return self.rmi[-1][leaf_model_key].output_max, 0, 0
+        leaf_model = self.rmi[-1][leaf_model_key]
+        delta = (leaf_model.input_max - leaf_model.input_min) / (leaf_model.output_max - leaf_model.output_min) / 2
+        return leaf_model.predict(key + delta) - leaf_model.predict(key - delta)
 
     def point_query_single(self, point):
         """
@@ -157,7 +175,6 @@ class ZMIndex(SpatialIndex):
         3. find key_right by point query
         4. filter all the points of scope[key_left, key_right] by range(x1/y1/x2/y2).contain(point)
         """
-        region = Region(window[0], window[1], window[2], window[3])
         # 1. compute z of window_left and window_right
         gh1 = self.geohash.encode(window[2], window[0])
         gh2 = self.geohash.encode(window[3], window[1])
@@ -177,6 +194,66 @@ class ZMIndex(SpatialIndex):
         key_right = r_bound2 if len(key_right) == 0 else max(key_right)
         # 4. filter all the point of scope[key1, key2] by range(x1/y1/x2/y2).contain(point)
         return [ie[3] for ie in self.geohash_index[key_left:key_right + 1] if contain_and_border(window, ie)]
+
+    def knn_query_single(self, knn):
+        """
+        1. init window by weight on CDF(key)
+        2. iter: query target points by range query
+        3. if target points is not enough, set window = 2 * window
+        4. elif target points is enough, but some target points is in the corner, set window = dst
+        """
+        # 1. init window by weight on CDF(key)
+        x, y, k = knn
+        w = self.weight(self.geohash.encode(x, y))
+        if w > 1:  # 斜率<1的时候会增大window
+            window_ratio = (k / (self.train_data_length + 1)) ** 0.5 / w
+        else:
+            window_ratio = (k / (self.train_data_length + 1)) ** 0.5
+        window_radius = window_ratio * self.geohash.region_width / 2
+        tp_list = []
+        old_window = None
+        while True:
+            window = [y - window_radius, y + window_radius, x - window_radius, x + window_radius]
+            # 处理超出边界的情况
+            self.geohash.region.clip_region(window, self.geohash.data_precision)
+            # 2. iter: query target points by range query
+            gh1 = self.geohash.encode(window[2], window[0])
+            gh2 = self.geohash.encode(window[3], window[1])
+            pre1, min_err1, max_err1 = self.predict(gh1)
+            l_bound1 = max(pre1 - max_err1, 0)
+            r_bound1 = min(pre1 - min_err1, self.train_data_length)
+            key_left = biased_search(self.geohash_index, 2, gh1, pre1, l_bound1, r_bound1)
+            key_left = l_bound1 if len(key_left) == 0 else min(key_left)
+            pre2, min_err2, max_err2 = self.predict(gh2)
+            l_bound2 = max(pre2 - max_err2, 0)
+            r_bound2 = min(pre2 - min_err2, self.train_data_length)
+            key_right = biased_search(self.geohash_index, 2, gh2, pre2, l_bound2, r_bound2)
+            key_right = r_bound2 if len(key_right) == 0 else max(key_right)
+            if old_window:
+                tmp_tp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                               for ie in self.geohash_index[key_left:key_right + 1]
+                               if contain_and_border(window, ie) and not contain_and_border(old_window, ie)]
+            else:
+                tmp_tp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                               for ie in self.geohash_index[key_left:key_right + 1]
+                               if contain_and_border(window, ie)]
+            tp_list.extend(tmp_tp_list)
+            old_window = window
+            # 3. if target points is not enough, set window = 2 * window
+            if len(tp_list) < k:
+                window_radius *= 2
+            else:
+                # 4. elif target points is enough, but some target points is in the corner, set window = dst
+                if len(tmp_tp_list):
+                    tp_list = sorted(tp_list)
+                    dst = tp_list[k - 1][0] ** 0.5
+                    if dst > window_radius:
+                        window_radius = dst
+                    else:
+                        break
+                else:
+                    break
+        return [tp[1] for tp in tp_list[:k]]
 
     def save(self):
         zmin_meta = np.array((self.geohash.data_precision,
@@ -248,7 +325,7 @@ def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, use_thr
     i = curr_stage
     j = current_stage_step
     model_key = "%s_%s" % (i, j)
-    if save_nn is False:
+    if not save_nn:
         tmp_index = TrainedNN_Simple(model_path, model_key, inputs, labels, core, train_step, batch_size,
                                      learning_rate, weight)
     else:
@@ -278,17 +355,12 @@ class AbstractNN:
         self.min_err = min_err
         self.max_err = max_err
 
-    # @memoize
-    # model.predict有小偏差，可能是exp的e和elu的e不一致
     def predict(self, input_key):
-        """
-        单个key的矩阵计算
-        """
         y = normalize_input_minmax(input_key, self.input_min, self.input_max)
         for i in range(len(self.core_nums) - 2):
             y = sigmoid(y * self.weights[i * 2] + self.weights[i * 2 + 1])
         y = y * self.weights[-2] + self.weights[-1]
-        return int(denormalize_output_minmax(y[0, 0], self.output_min, self.output_max))
+        return denormalize_output_minmax(y[0, 0], self.output_min, self.output_max)
 
 
 # @profile(precision=8)
@@ -351,14 +423,14 @@ def main():
     search_time = (end_time - start_time) / len(range_query_list)
     logging.info("Range query time: %s" % search_time)
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    # path = '../../data/query/knn_query_nyct.npy'
-    # knn_query_list = np.load(path, allow_pickle=True).tolist()
-    # start_time = time.time()
-    # results = index.knn_query(knn_query_list)
-    # end_time = time.time()
-    # search_time = (end_time - start_time) / len(knn_query_list)
-    # logging.info("KNN query time: %s" % search_time)
-    # np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    path = '../../data/query/knn_query_nyct.npy'
+    knn_query_list = np.load(path, allow_pickle=True).tolist()
+    start_time = time.time()
+    results = index.knn_query(knn_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(knn_query_list)
+    logging.info("KNN query time: %s" % search_time)
+    np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     # path = '../../data/table/trip_data_2_filter_10w.npy'
     # insert_data_list = np.load(path, allow_pickle=True)[:, [10, 11, -1]]
     # start_time = time.time()
