@@ -412,17 +412,33 @@ class KDTree(SpatialIndex):
 
     def io(self):
         """
-        假设查询条件和数据分布一致，io=获取node的io
-        第一次pf的node的io=1，第二次pf的node的io=2，以此类推
+        假设查询条件和数据分布一致，且kdtree完全平衡，io=获取node的io
+        每次检索的node路径长度<=树高
+        先计算每层的io，然后乘以该层节点数，最后除以总数据量，来计算整体的平均io
+        1. 1-14层的节点共16383只需要一次df
+        2. 15层即其上每层的节点一部分是1，一部分是2，且1/2随着层数递增
+        3. 最后一层不满要根据实际数据量缩放
         """
         # io when load node
         kd_tree = np.load(os.path.join(self.model_path, 'kd_tree.npy'), allow_pickle=True)
-        value_len = kd_tree.size
-        pf_time = math.ceil(value_len / NODES_PER_PF)
-        sum_node_io = sum([NODES_PER_PF * i for i in range(1, pf_time)]) + \
-                      (value_len - NODES_PER_PF * (pf_time - 1)) * pf_time
-        node_io = sum_node_io / value_len
-        return node_io
+        data_len = kd_tree.size
+        tree_depth = math.ceil(math.log(data_len, 2))
+        if tree_depth <= 14:
+            return 1
+        else:
+            # 1-14层统一为1
+            node_len_1_14 = 2 ** 14 - 1
+            node_io_1_14 = 1 * node_len_1_14
+            # 15层开始，左边一部分是1，右边剩下的是2，每加一层则1/2加1
+            node_len_15 = 2 ** (15 - 1)
+            node_io_15_top = [2 ** i * ((NODES_PER_PF - node_io_1_14) * (1 + i)
+                                        + (node_len_15 - NODES_PER_PF + node_io_1_14) * (2 + i))
+                              for i in range(tree_depth - 15 + 1)]
+            # 最后一层不满，因此最后一层的io总量要用最后一层的数据量缩放下
+            node_len_top = data_len - 2 ** (tree_depth - 1) + 1
+            node_capacity_top = 2 ** (tree_depth - 1)
+            node_io_15_top[-1] = node_io_15_top[-1] * node_len_top / node_capacity_top
+            return (node_len_1_14 + sum(node_io_15_top)) / data_len
 
 
 def tree_to_list(node, node_list):
