@@ -18,7 +18,6 @@ if __name__ == '__main__':
     # data_distributions = [Distribution.NYCT_10W, Distribution.NORMAL_10W, Distribution.UNIFORM_10W]
     data_distributions = [Distribution.NYCT, Distribution.NORMAL, Distribution.UNIFORM]
     for data_distribution in data_distributions:
-        logging.info("*************start %s************" % data_distribution)
         model_path = "model/kdtree/%s" % data_distribution.name
         if os.path.exists(model_path) is False:
             os.makedirs(model_path)

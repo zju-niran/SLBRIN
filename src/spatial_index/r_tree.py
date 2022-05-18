@@ -128,7 +128,7 @@ def main():
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
         data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
-        # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y)=8, 一个page存放一个node
+        # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y)=8, 一个page存放一个node
         # leaf node存放xyxy数据、数据指针、指向下一个leaf node的指针
         # leaf_node_capacity=(pagesize-size(pointer))/(size(x)*4+size(pointer))=(4096-4)/(8*4+4*1)=113
         # non leaf node存放MBR、指向MBR对应子节点的指针

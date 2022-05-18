@@ -12,10 +12,10 @@ sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.spatial_index import SpatialIndex
 
 DIM_NUM = 2
-PREFETCH_SIZE = 256
+RA_PAGES = 256
 PAGE_SIZE = 4096
 NODE_SIZE = 1 + 4 + 4 * 2 + (8 * 2 + 4)  # 33
-NODES_PER_PF = PREFETCH_SIZE * int(PAGE_SIZE / NODE_SIZE)
+NODES_PER_RA = RA_PAGES * int(PAGE_SIZE / NODE_SIZE)
 
 
 def distance_value(value1, value2):
@@ -415,7 +415,7 @@ class KDTree(SpatialIndex):
         假设查询条件和数据分布一致，且kdtree完全平衡，io=获取node的io
         每次检索的node路径长度<=树高
         先计算每层的io，然后乘以该层节点数，最后除以总数据量，来计算整体的平均io
-        1. 1-14层的节点共16383只需要一次df
+        1. 1-14层的节点共16383只需要一次read_ahead
         2. 15层即其上每层的节点一部分是1，一部分是2，且1/2随着层数递增
         3. 最后一层不满要根据实际数据量缩放
         """
@@ -431,8 +431,8 @@ class KDTree(SpatialIndex):
             node_io_1_14 = 1 * node_len_1_14
             # 15层开始，左边一部分是1，右边剩下的是2，每加一层则1/2加1
             node_len_15 = 2 ** (15 - 1)
-            node_io_15_top = [2 ** i * ((NODES_PER_PF - node_io_1_14) * (1 + i)
-                                        + (node_len_15 - NODES_PER_PF + node_io_1_14) * (2 + i))
+            node_io_15_top = [2 ** i * ((NODES_PER_RA - node_io_1_14) * (1 + i)
+                                        + (node_len_15 - NODES_PER_RA + node_io_1_14) * (2 + i))
                               for i in range(tree_depth - 15 + 1)]
             # 最后一层不满，因此最后一层的io总量要用最后一层的数据量缩放下
             node_len_top = data_len - 2 ** (tree_depth - 1) + 1
@@ -482,9 +482,9 @@ def main():
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
         data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
-        # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y)=8, node按照DFS的顺序密集存储在page中
+        # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y)=8, node按照DFS的顺序密集存储在page中
         # tree存放所有node的axis、数据量、左右节点指针、data:
-        # node size=1+4+4*2+(8*2+4)=33，单page存放4096/36=124node，单prefetch读取256*124=31744node
+        # node size=1+4+4*2+(8*2+4)=33，单page存放4096/36=124node，单read_ahead读取256*124=31744node
         # 15层节点数=2^(15-1)=16384，之后每一层对应1次IO
         # 10w数据，[]参数下：
         # 树高=log2(10w)=17, IO=前15层IO+后17-15层IO=1~2+2=3~4

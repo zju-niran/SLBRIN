@@ -16,12 +16,12 @@ from src.spatial_index.spatial_index import SpatialIndex
 from src.learned_model import TrainedNN
 from src.learned_model_simple import TrainedNN as TrainedNN_Simple
 
-PREFETCH_SIZE = 256
+RA_PAGES = 256
 PAGE_SIZE = 4096
 MODEL_SIZE = 2000
 ITEM_SIZE = 8 * 3 + 4  # 28
-MODELS_PER_PF = PREFETCH_SIZE * int(PAGE_SIZE / MODEL_SIZE)
-ITEMS_PER_PF = PREFETCH_SIZE * int(PAGE_SIZE / ITEM_SIZE)
+MODELS_PER_RA = RA_PAGES * int(PAGE_SIZE / MODEL_SIZE)
+ITEMS_PER_RA = RA_PAGES * int(PAGE_SIZE / ITEM_SIZE)
 
 
 class ZMIndex(SpatialIndex):
@@ -222,19 +222,19 @@ class ZMIndex(SpatialIndex):
     def io(self):
         """
         假设查询条件和数据分布一致，io=获取meta的io+获取stage=1 node的io+获取stage=2 node的io+获取data的io
-        一次pf可以拿512个node，因此前面511个stage2 node的io是1，后面统一为2
+        一次read_ahead可以拿512个node，因此前面511个stage2 node的io是1，后面统一为2
         data io由model误差范围决定
         先计算单个node的node io和data io，然后乘以node的数据量，最后除以总数据量，来计算整体的平均io
         """
         stage2_model_num = len([model for model in self.rmi[1] if model])
         # io when load node
-        if stage2_model_num + 1 < MODELS_PER_PF:
+        if stage2_model_num + 1 < MODELS_PER_RA:
             model_io_list = [1] * stage2_model_num
         else:
-            model_io_list = [1] * (MODELS_PER_PF - 1)
-            model_io_list.extend([2] * (stage2_model_num + 1 - MODELS_PER_PF))
+            model_io_list = [1] * (MODELS_PER_RA - 1)
+            model_io_list.extend([2] * (stage2_model_num + 1 - MODELS_PER_RA))
         # io when load data
-        data_io_list = [math.ceil((model.max_err - model.min_err) / ITEMS_PER_PF) for model in self.rmi[1] if model]
+        data_io_list = [math.ceil((model.max_err - model.min_err) / ITEMS_PER_RA) for model in self.rmi[1] if model]
         # compute avg io
         data_num_list = [model.output_max - model.output_min + 1 for model in self.rmi[1] if model]
         io_list = [(model_io_list[i] + data_io_list[i]) * data_num_list[i] for i in range(stage2_model_num)]
@@ -308,9 +308,9 @@ def main():
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
         data_list = np.load(data_path, allow_pickle=True)
-        # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y/g)=8, meta单独一个page
-        # node体积=2000，一个page存2个node，单prefetch读取256*2=512node
-        # data体积=x/y/g/key=8*3+4=28，一个page存146个data，单prefetch读取256*146=37376data
+        # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y/g)=8, meta单独一个page
+        # node体积=2000，一个page存2个node，单read_ahead读取256*2=512node
+        # data体积=x/y/g/key=8*3+4=28，一个page存146个data，单read_ahead读取256*146=37376data
         # 10w数据，[1, 100]参数下：
         # meta+stage0 node存一个page，stage2 node需要22/2=11个page，data需要10w/146=685page
         # 单次扫描IO=读取meta+读取每个stage的rmi+读取叶stage对应geohash数据=1+11/512+10w/37376

@@ -19,7 +19,6 @@ if __name__ == '__main__':
     data_distributions = [Distribution.NYCT, Distribution.NORMAL, Distribution.UNIFORM]
     pprs = [64, 128, 256, 512, 1024, 2048]
     for data_distribution in data_distributions:
-        logging.info("*************start %s************" % data_distribution)
         for ppr in pprs:
             model_path = "model/brinspatial/%s/ppr_%s" % (data_distribution.name, ppr)
             if os.path.exists(model_path) is False:

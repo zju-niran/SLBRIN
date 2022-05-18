@@ -17,13 +17,13 @@ from src.spatial_index.common_utils import Region, binary_search_less_max, get_n
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 
-PREFETCH_SIZE = 256
+RA_PAGES = 256
 PAGE_SIZE = 4096
 HR_SIZE = 8 + 1 + 2 + 4 + 1  # 16
 CR_SIZE = 8 * 4 + 2 + 1  # 35
 MODEL_SIZE = 2000
 ITEM_SIZE = 8 * 3 + 4  # 28
-ITEMS_PER_PF = PREFETCH_SIZE * int(PAGE_SIZE / ITEM_SIZE)
+ITEMS_PER_RA = RA_PAGES * int(PAGE_SIZE / ITEM_SIZE)
 
 
 # TODO 检索的时候要检索crs
@@ -831,7 +831,7 @@ class SBRIN(SpatialIndex):
     def io(self):
         """
         假设查询条件和数据分布一致，io=获取meta的io+获取hr的io+获取cr的io+对应model的io+获取model内数据的io
-        一次pf可以加载meta+hr+cr和部分的model, 其他model需要第二次pf，model内数据单独一次pf
+        一次read_ahead可以加载meta+hr+cr和部分的model, 其他model需要第二次read_ahead，model内数据单独一次read_ahead
         先计算单个model的model io和data io，然后乘以model的数据量，最后除以总数据量，来计算整体的平均io
         """
         hr_len = self.meta.last_hr + 1
@@ -841,13 +841,13 @@ class SBRIN(SpatialIndex):
         model_page_len = math.ceil((self.meta.last_hr + 1) * MODEL_SIZE / PAGE_SIZE)
         origin_page_len = meta_page_len + hr_page_len + cr_page_len + model_page_len
         # io when load model
-        if origin_page_len < PREFETCH_SIZE:
+        if origin_page_len < RA_PAGES:
             model_io_list = [1] * hr_len
         else:
             model_io_list = [1] * origin_page_len
             model_io_list.extend([2] * (hr_len - origin_page_len))
         # io when load data
-        data_io_list = [math.ceil((hr.model.max_err - hr.model.min_err) / ITEMS_PER_PF) for hr in self.history_ranges]
+        data_io_list = [math.ceil((hr.model.max_err - hr.model.min_err) / ITEMS_PER_RA) for hr in self.history_ranges]
         # compute avg io
         data_num_list = [hr.number for hr in self.history_ranges]
         io_list = [(model_io_list[i] + data_io_list[i]) * data_num_list[i] for i in range(hr_len)]
@@ -1064,7 +1064,7 @@ def main():
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
         data_list = np.load(data_path, allow_pickle=True)
-        # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y/g)=8, sbrin整体连续存, meta一个page, br分页存，model(2009大小)单独存
+        # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y/g)=8, sbrin整体连续存, meta一个page, br分页存，model(2009大小)单独存
         # hr体积=value/length/number=16，一个page存256个hr
         # cr体积=value/number=35，一个page存117个cr
         # model体积=2009，一个page存2个model

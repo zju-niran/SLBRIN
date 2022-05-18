@@ -15,7 +15,7 @@ from src.spatial_index.spatial_index import SpatialIndex
 1. tmp blk永远有一个，新数据插入只会插入tmp blk，tmp blk满了就转为blk同时创建新的tmp blk
 """
 
-PREFETCH_SIZE = 256
+RA_PAGES = 256
 PAGE_SIZE = 4096
 RANGE_SIZE = 8 * 4 + 2  # 34
 REVMAP_SIZE = 4 + 2  # 6
@@ -195,9 +195,9 @@ class BRINSpatial(SpatialIndex):
         regular_page_len = math.ceil(range_len * RANGE_SIZE / PAGE_SIZE)
         revmap_page_len = math.ceil(range_len * REVMAP_SIZE / PAGE_SIZE)
         # io when load brin
-        brin_io = math.ceil((meta_page_len + regular_page_len + revmap_page_len) / PREFETCH_SIZE)
+        brin_io = math.ceil((meta_page_len + regular_page_len + revmap_page_len) / RA_PAGES)
         # io when load data
-        data_io = math.ceil(self.meta.pages_per_range / PREFETCH_SIZE)
+        data_io = math.ceil(self.meta.pages_per_range / RA_PAGES)
         return brin_io + data_io
 
 
@@ -235,7 +235,7 @@ def main():
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
         data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
-        # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y)=8, brin整体连续存, meta一个page, blk分页存
+        # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y)=8, brin整体连续存, meta一个page, blk分页存
         # blk体积=blknum/value=2+4*8=34，一个page存120个blk
         # revmap体积=blkid+blk指针=2+4=6，一个page存682个blk
         # data体积=x/y/key=8*2+4=20，一个page存204个data

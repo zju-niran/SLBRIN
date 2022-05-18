@@ -12,12 +12,12 @@ sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.spatial_index import SpatialIndex
 from src.spatial_index.common_utils import Region, Point
 
-PREFETCH_SIZE = 256
+RA_PAGES = 256
 PAGE_SIZE = 4096
 NODE_SIZE = 1 + 1 + 8 * 4 + 4 * 4 + 4 * 2  # 58
 ITEM_SIZE = 8 * 2 + 4  # 20
-NODES_PER_PF = PREFETCH_SIZE * int(PAGE_SIZE / NODE_SIZE)
-ITEMS_PER_PF = PREFETCH_SIZE * int(PAGE_SIZE / ITEM_SIZE)
+NODES_PER_RA = RA_PAGES * int(PAGE_SIZE / NODE_SIZE)
+ITEMS_PER_RA = RA_PAGES * int(PAGE_SIZE / ITEM_SIZE)
 
 
 class QuadTreeNode:
@@ -369,11 +369,11 @@ class PRQuadTree(SpatialIndex):
         item_len = np.load(os.path.join(self.model_path, 'prquadtree_item.npy'), allow_pickle=True).size
         leaf_path_list = []
         get_leaf_and_path(prqt_tree, leaf_path_list, [], 0)
-        node_io_list = [len(set([int(node_path / NODES_PER_PF) for node_path in leaf_path[0]])) * leaf_path[1]
+        node_io_list = [len(set([int(node_path / NODES_PER_RA) for node_path in leaf_path[0]])) * leaf_path[1]
                         for leaf_path in leaf_path_list]
         node_io = sum(node_io_list) / item_len
         # io when load item
-        item_io_list = [math.ceil(leaf_path[1] / ITEMS_PER_PF) * leaf_path[1] for leaf_path in leaf_path_list]
+        item_io_list = [math.ceil(leaf_path[1] / ITEMS_PER_RA) * leaf_path[1] for leaf_path in leaf_path_list]
         item_io = sum(item_io_list) / item_len
         return node_io + item_io
 
@@ -448,11 +448,11 @@ def main():
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
         data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
-        # 按照pagesize=4096, prefetch=256, size(pointer)=4, size(x/y)=8, node和data按照DFS的顺序密集存储在page中
+        # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y)=8, node和data按照DFS的顺序密集存储在page中
         # tree存放所有node的深度、是否叶节点、region、四节点指针和data的始末指针:
-        # node size=1+1+8*4+4*4+4*2=58，单page存放4096/58=70node，单prefetch读取256*70=17920node
+        # node size=1+1+8*4+4*4+4*2=58，单page存放4096/58=70node，单read_ahead读取256*70=17920node
         # item存放xy数据和数据指针：
-        # data size=8*2+4=20，单page存放4096/20=204data，单prefetch读取256*204=52224data
+        # data size=8*2+4=20，单page存放4096/20=204data，单read_ahead读取256*204=52224data
         # 10w数据，[1000]参数下：
         # 叶节点平均数据约为0.5*1000=500，叶节点约有10w/500=200个，非叶节点数量由数据分布决定，节点大约280个
         # 单次扫描IO=读取node+读取node对应数据=280/17920+500/52224=2
