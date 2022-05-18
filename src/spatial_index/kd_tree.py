@@ -396,9 +396,8 @@ class KDTree(SpatialIndex):
     def save(self):
         node_list = []
         tree_to_list(self.root_node, node_list)
-        kd_tree = np.array([tuple(node) for node in node_list],
-                           dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'), ("3", 'i4'),
-                                  ("4", 'f8'), ("5", 'f8'), ("6", 'i4')])
+        kd_tree = np.array(node_list, dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'), ("3", 'i4'),
+                                             ("4", 'f8'), ("5", 'f8'), ("6", 'i4')])
         np.save(os.path.join(self.model_path, 'kd_tree.npy'), kd_tree)
 
     def load(self):
@@ -429,13 +428,13 @@ class KDTree(SpatialIndex):
 def tree_to_list(node, node_list):
     if node is None:
         return
-    node_list.append([0, 0, node.axis, node.node_num, node.value[0], node.value[1], node.value[2]])
+    node_list.append((0, 0, node.axis, node.node_num, node.value[0], node.value[1], node.value[2]))
     parent_key = len(node_list) - 1
     if node.left:
-        node_list[parent_key][0] = len(node_list)
+        node_list[parent_key] = (len(node_list),) + node_list[parent_key][1:]
         tree_to_list(node.left, node_list)
     if node.right is not None:
-        node_list[parent_key][1] = len(node_list)
+        node_list[parent_key] = node_list[parent_key][:1] + (len(node_list),) + node_list[parent_key][2:]
         tree_to_list(node.right, node_list)
 
 
