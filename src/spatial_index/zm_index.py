@@ -10,7 +10,7 @@ import numpy as np
 
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.common_utils import Region, biased_search, normalize_input_minmax, denormalize_output_minmax, \
-    sigmoid
+    sigmoid, contain_and_border
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 from src.learned_model import TrainedNN
@@ -176,8 +176,7 @@ class ZMIndex(SpatialIndex):
         key_right = biased_search(self.geohash_index, 2, gh2, pre2, l_bound2, r_bound2)
         key_right = r_bound2 if len(key_right) == 0 else max(key_right)
         # 4. filter all the point of scope[key1, key2] by range(x1/y1/x2/y2).contain(point)
-        return [self.geohash_index[key][3] for key in range(key_left, key_right + 1)
-                if region.contain_and_border_by_list(self.geohash_index[key])]
+        return [ie[3] for ie in self.geohash_index[key_left:key_right + 1] if contain_and_border(window, ie)]
 
     def save(self):
         zmin_meta = np.array((self.geohash.data_precision,

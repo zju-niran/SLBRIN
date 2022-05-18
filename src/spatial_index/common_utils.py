@@ -55,6 +55,49 @@ class Point:
         return (self.lng - other.lng) ** 2 + (self.lat - other.lat) ** 2
 
 
+def contain_and_border(window, point):
+    return window[0] <= point[1] <= window[1] and window[2] <= point[0] <= window[3]
+
+
+def intersect(window, other, cross=False):
+    """
+    a和b相交：两个矩形中心点的xy距离 <= 两个矩形xy边长之和
+    a包含b：两个矩形中心点的xy距离 <= 两个矩形xy边长之差(a-b)
+    # b包含a：两个矩形中心点的xy距离 <= 两个矩形xy边长之差(b-a)
+    :param cross: 是否返回相交部分的region
+    :return: 1=intersect, 2=self contain other, 3=other contain self
+    """
+    center_distance_x = abs(window[2] + window[3] - other[2] - other[3])
+    edge_sum_x = window[3] - window[2] + other[3] - other[2]
+    if center_distance_x <= edge_sum_x:
+        center_distance_y = abs(window[0] + window[1] - other[0] - other[1])
+        edge_sum_y = window[1] - window[0] + other[1] - other[0]
+        if center_distance_y <= edge_sum_y:
+            edge_divide_x = window[3] - window[2] - other[3] + other[2]
+            if center_distance_x <= edge_divide_x:
+                edge_divide_y = window[1] - window[0] - other[1] + other[0]
+                if center_distance_y <= edge_divide_y:
+                    if cross:
+                        return 2, None
+                    else:
+                        return 2
+            edge_divide_x2 = other[3] - other[2] - window[3] + window[2]
+            if center_distance_x <= edge_divide_x2:
+                edge_divide_y2 = other[1] - other[0] - window[1] + window[0]
+                if center_distance_y <= edge_divide_y2:
+                    if cross:
+                        return 3, None
+                    else:
+                        return 3
+            if cross:
+                return 1, Region(max(window[0], other[0]), min(window[1], other[1]), max(window[2], other[2]),
+                                 min(window[3], other[3]))
+            else:
+                return 1
+    if cross:
+        return 0, None
+    else:
+        return 0
 class Region:
     def __init__(self, bottom, up, left, right):
         self.bottom = bottom
@@ -68,55 +111,12 @@ class Region:
         else:
             return False
 
-    def intersect(self, other, cross=False):
-        """
-        a和b相交：两个矩形中心点的xy距离 <= 两个矩形xy边长之和
-        a包含b：两个矩形中心点的xy距离 <= 两个矩形xy边长之差(a-b)
-        # b包含a：两个矩形中心点的xy距离 <= 两个矩形xy边长之差(b-a)
-        :param cross: 是否返回相交部分的region
-        :return: 1=intersect, 2=self contain other, 3=other contain self
-        """
-        center_distance_x = abs(self.left + self.right - other.left - other.right)
-        edge_sum_x = self.right - self.left + other.right - other.left
-        if center_distance_x <= edge_sum_x:
-            center_distance_y = abs(self.bottom + self.up - other.bottom - other.up)
-            edge_sum_y = self.up - self.bottom + other.up - other.bottom
-            if center_distance_y <= edge_sum_y:
-                edge_divide_x = self.right - self.left - other.right + other.left
-                if center_distance_x <= edge_divide_x:
-                    edge_divide_y = self.up - self.bottom - other.up + other.bottom
-                    if center_distance_y <= edge_divide_y:
-                        if cross:
-                            return 2, None
-                        else:
-                            return 2
-                edge_divide_x2 = other.right - other.left - self.right + self.left
-                if center_distance_x <= edge_divide_x2:
-                    edge_divide_y2 = other.up - other.bottom - self.up + self.bottom
-                    if center_distance_y <= edge_divide_y2:
-                        if cross:
-                            return 3, None
-                        else:
-                            return 3
-                if cross:
-                    return 1, Region(max(self.bottom, other.bottom), min(self.up, other.up), max(self.left, other.left),
-                                     min(self.right, other.right))
-                else:
-                    return 1
-        if cross:
-            return 0, None
-        else:
-            return 0
-
     def contain(self, point):
         return self.bottom == point.lat or self.left == point.lng or (
                 self.up > point.lat > self.bottom and self.right > point.lng > self.left)
 
     def contain_and_border_by_point(self, point):
         return self.up >= point.lat >= self.bottom and self.right >= point.lng >= self.left
-
-    def contain_and_border_by_list(self, lt):
-        return self.up >= lt[1] >= self.bottom and self.right >= lt[0] >= self.left
 
     def contain_and_border(self, lng, lat):
         return self.up >= lat >= self.bottom and self.right >= lng >= self.left
@@ -587,7 +587,7 @@ def get_mbr_by_points(points):
             x_min = point[0]
         elif x_max < point[0]:
             x_max = point[0]
-    return Region(y_min, y_max, x_min, x_max)
+    return [y_min, y_max, x_min, x_max]
 
 
 def fun100(data):

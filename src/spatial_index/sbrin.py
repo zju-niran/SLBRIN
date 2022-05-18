@@ -370,21 +370,6 @@ class SBRIN(SpatialIndex):
         """
         return self.binary_search_less_max(point, 0, self.meta.last_hr)
 
-    def range_query_hr_old(self, point1, point2, window):
-        """
-        根据geohash1/geohash2找到之间所有hr以及hr和window的相交关系
-        1. 使用point_query_hr查找geohash1/geohash2所在hr
-        2. 返回hr1和hr2之间的所有hr，以及他们和window的的包含关系
-        TODO: intersect函数还可以改进，改为能判断window对于region的上下左右关系
-        """
-        i = self.binary_search_less_max(point1, 0, self.meta.last_hr)
-        j = self.binary_search_less_max(point2, i, self.meta.last_hr)
-        if i == j:
-            return [((3, None), self.history_ranges[i])]
-        else:
-            return [(window.intersect(self.history_ranges[k].scope, cross=True), self.history_ranges[k])
-                    for k in range(i, j - 1)]
-
     def range_query_hr(self, point1, point2):
         """
         根据geohash1/geohash2找到之间所有hr的key以及和window的位置关系
@@ -513,68 +498,6 @@ class SBRIN(SpatialIndex):
                     for key in biased_search(self.index_entries, 2, gh, offset + pre,
                                              offset + max(pre - hr.model.max_err, 0),
                                              offset + min(pre - hr.model.min_err, hr.max_key))]
-
-    def range_query_single_old(self, window):
-        """
-        1. compute geohash from window_left and window_right
-        2. get all the hr and its relationship with window between geohash1/geohash2 by sbrin.range_query
-        3. for different relation, use different method to handle the points
-        3.1 if window contain the hr, add all the items into results
-        3.2 if window intersect or within the hr
-        3.2.1 get the min_geohash/max_geohash of intersect part
-        3.2.2 get the min_key/max_key by nn predict and biased search
-        3.2.3 filter all the point of scope[min_key/max_key] by range.contain(point)
-        主要耗时间：两次geohash, predict和最后的精确过滤，0.1, 0.1 , 0.6
-        # TODO: 由于build sbrin的时候region移动了，导致这里的查询不准确
-        """
-        region = Region(window[0], window[1], window[2], window[3])
-        # 1. compute geohash of window_left and window_right
-        gh1 = self.meta.geohash.encode(window[2], window[0])
-        gh2 = self.meta.geohash.encode(window[3], window[1])
-        # 2. get all the hr and its relationship with window between geohash1/geohash2 by sbrin.range_query
-        hr_list = self.range_query_hr_old(gh1, gh2, region)
-        result = []
-        # 3. for different relation, use different method to handle the points
-        for hr in hr_list:
-            # 0 2 1 3的顺序是按照频率降序
-            if hr[0][0] == 0:  # no relation
-                continue
-            else:
-                if hr[1].number == 0:  # hr is empty
-                    continue
-                # 3.1 if window contain the hr, add all the items into results
-                if hr[0][0] == 2:  # window contain hr
-                    result.extend(list(range(hr[1].key[0], hr[1].key[1] + 1)))
-                # 3.2 if window intersect or within the hr
-                else:
-                    # 3.2.1 get the min_geohash/max_geohash of intersect part
-                    if hr[0][0] == 1:  # intersect
-                        gh1 = self.meta.geohash.encode(hr[0][1].left, hr[0][1].bottom)
-                        gh2 = self.meta.geohash.encode(hr[0][1].right, hr[0][1].up)
-                    # 3.2.2 get the min_key/max_key by nn predict and biased search
-                    pre1 = hr[1].model_predict(gh1)
-                    pre2 = hr[1].model_predict(gh2)
-                    min_err = hr[1].model.min_err
-                    max_err = hr[1].model.max_err
-                    l_bound1 = max(pre1 - max_err, hr[1].key[0])
-                    r_bound1 = min(pre1 - min_err, hr[1].key[1])
-                    key_left = biased_search_almost(self.index_entries, 0, gh1, pre1, l_bound1, r_bound1)
-                    if gh1 == gh2:
-                        if len(key_left) > 0:
-                            result.extend(key_left)
-                    else:
-                        key_left = l_bound1 if len(key_left) == 0 else min(key_left)
-                        l_bound2 = max(pre2 - max_err, hr[1].key[0])
-                        r_bound2 = min(pre2 - min_err, hr[1].key[1])
-                        key_right = biased_search_almost(self.index_entries, 0, gh2, pre2, l_bound2, r_bound2)
-                        key_right = r_bound2 if len(key_right) == 0 else max(key_right)
-                        # 3.2.3 filter all the point of scope[min_key/max_key] by range.contain(point)
-                        result.extend([self.index_entries[key][3] for key in range(key_left, key_right + 1)
-                                       if region.contain_and_border_by_list(self.index_entries[key])])
-        return result
-
-    def range_query_old(self, windows):
-        return [self.range_query_single_old(window) for window in windows]
 
     def range_query_single(self, window):
         """
