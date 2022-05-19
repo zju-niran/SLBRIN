@@ -198,7 +198,7 @@ class SBRIN(SpatialIndex):
         self.index_entries = result_data_list
 
     def insert_single(self, point):
-        # 1. encode p to geohash and create item entry(geohash, x, y, pointer)
+        # 1. encode p to geohash and create index entry(geohash, x, y, pointer)
         point.insert(-1, self.meta.geohash.encode(point[0], point[1]))
         # 2. insert into cr
         self.current_ranges[-1].number += 1
@@ -272,7 +272,7 @@ class SBRIN(SpatialIndex):
                 else:
                     self.update_hr(hr_key - 1, old_data[tmp_r_key:])
                     break
-            # 3. delete crs/item entries
+            # 3. delete crs/index entries
             del self.current_ranges[:self.meta.threshold_merge]
             self.meta.last_cr -= self.meta.threshold_merge
             del self.index_entries[first_key:first_key + old_data_len]
@@ -313,11 +313,11 @@ class SBRIN(SpatialIndex):
             hr.max_key += points_len
             hr.model_update([[point[2]] for point in points])
             self.get_retrain_inefficient_model(hr)
-            # update item entries
+            # update index entries
             self.index_entries[offset:offset + hr.number] = points
 
     def split_hr(self, hr, hr_key, offset, points):
-        # 1. create child hrs, of which model is inherited from parent hr and update err by inherited item entries
+        # 1. create child hrs, of which model is inherited from parent hr and update err by inherited index entries
         length = hr.length + 2
         value_diff = hr.value_diff >> 2
         region_offset = pow(10, -self.meta.geohash.data_precision - 1)
@@ -358,7 +358,7 @@ class SBRIN(SpatialIndex):
         self.meta.last_hr += 3
         if length > self.meta.max_length:
             self.meta.max_length = length
-        # 5. update item entries
+        # 5. update index entries
         self.index_entries = self.index_entries[:offset] + child_index_entries + \
                              self.index_entries[offset + self.meta.threshold_number:]
 
@@ -729,7 +729,7 @@ class SBRIN(SpatialIndex):
     def size(self):
         """
         structure_size = sbrin_meta.npy + sbrin_hrs.npy + sbrin_models.npy + sbrin_crs.npy
-        item_entry_size = sbrin_data.npy
+        ie_size = sbrin_data.npy
         """
         # 实际上：
         # meta=os.path.getsize(os.path.join(self.model_path, "sbrin_meta.npy"))-128-64*2=1*1+2*5+4*2+8*4=51
@@ -1020,7 +1020,7 @@ def main():
         index.logging.info("Build time: %s" % build_time)
     structure_size, ie_size = index.size()
     logging.info("Structure size: %s" % structure_size)
-    logging.info("Item entry size: %s" % ie_size)
+    logging.info("Index entry size: %s" % ie_size)
     logging.info("IO cost: %s" % index.io())
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()

@@ -74,7 +74,7 @@ def main():
         index.logging.info("Build time: %s" % build_time)
     structure_size, ie_size = index.size()
     logging.info("Structure size: %s" % structure_size)
-    logging.info("Item entry size: %s" % ie_size)
+    logging.info("Index entry size: %s" % ie_size)
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()

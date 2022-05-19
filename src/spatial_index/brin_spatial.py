@@ -170,7 +170,7 @@ class BRINSpatial(SpatialIndex):
     def size(self):
         """
         structure_size = brins_meta.npy + brins_blk.npy
-        item_entry_size = index_entries.npy
+        ie_size = index_entries.npy
         """
         # 实际上：
         # meta一致为为os.path.getsize(os.path.join(self.model_path, "brins_meta.npy"))-128=4*3=12
@@ -250,7 +250,7 @@ def main():
         index.logging.info("Build time: %s" % build_time)
     structure_size, ie_size = index.size()
     logging.info("Structure size: %s" % structure_size)
-    logging.info("Item entry size: %s" % ie_size)
+    logging.info("Index entry size: %s" % ie_size)
     logging.info("IO cost: %s" % index.io())
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()
