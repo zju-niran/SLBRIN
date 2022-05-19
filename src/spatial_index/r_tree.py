@@ -74,16 +74,7 @@ class RTree(SpatialIndex):
                 np.array(rtree_meta, dtype=[("0", 'f8'), ("1", 'i1'), ("2", 'i1'), ("3", 'i2')]))
 
     def load(self):
-        try:
-            rtree_meta = np.load(os.path.join(self.model_path, 'rtree_meta.npy'), allow_pickle=True).item()
-        except Exception:
-            rtree_meta_old = np.load(os.path.join(self.model_path, 'rtree_meta.npy'), allow_pickle=True).tolist()
-            fill_factor = float(self.model_path.split("_")[-1])
-            buffer_capacity = 0
-            rtree_meta_new = (fill_factor, rtree_meta_old[1], rtree_meta_old[2], buffer_capacity)
-            np.save(os.path.join(self.model_path, 'rtree_meta.npy'),
-                    np.array(rtree_meta_new, dtype=[("0", 'f8'), ("1", 'i1'), ("2", 'i1'), ("3", 'i2')]))
-            rtree_meta = np.load(os.path.join(self.model_path, 'rtree_meta.npy'), allow_pickle=True).item()
+        rtree_meta = np.load(os.path.join(self.model_path, 'rtree_meta.npy'), allow_pickle=True).item()
         p = index.Property()
         p.dimension = 2
         p.dat_extension = "data"
@@ -95,6 +86,10 @@ class RTree(SpatialIndex):
         p.index_capacity = rtree_meta[2]
         if rtree_meta[3]:
             p.buffering_capacity = rtree_meta[3]
+        self.fill_factor = rtree_meta[0]
+        self.leaf_node_capacity = rtree_meta[1]
+        self.non_leaf_node_capacity = rtree_meta[2]
+        self.buffering_capacity = rtree_meta[3]
         self.index = index.Index(os.path.join(self.model_path, 'rtree'), properties=p, overwrite=False)
 
     def size(self):

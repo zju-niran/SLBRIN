@@ -17,7 +17,7 @@ if __name__ == '__main__':
                         format="%(message)s")
     # data_distributions = [Distribution.NYCT_10W, Distribution.NORMAL_10W, Distribution.UNIFORM_10W]
     data_distributions = [Distribution.NYCT, Distribution.NORMAL, Distribution.UNIFORM]
-    fill_factors = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    fill_factors = [0.4, 0.5, 0.6, 0.7, 0.8]
     for data_distribution in data_distributions:
         for fill_factor in fill_factors:
             model_path = "model/rtree/%s/fill_factor_%s" % (data_distribution.name, fill_factor)
