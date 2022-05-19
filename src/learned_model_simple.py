@@ -25,7 +25,7 @@ class TrainedNN:
         self.model_path = model_path
         self.model_key = model_key
         self.min_err, self.max_err = 0, 0
-        self.weights = None
+        self.matrices = None
         logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
                             level=logging.INFO,
                             format="%(asctime)s - %(levelname)s - %(message)s",
@@ -67,12 +67,12 @@ class TrainedNN:
                        verbose=0,
                        callbacks=callbacks_list)
         self.min_err, self.max_err = self.get_err()
-        self.weights = self.get_weights()
+        self.matrices = self.get_matrices()
         end_time = time.time()
         self.logging.info("Model key: %s, Train time: %s" % (self.model_key, end_time - start_time))
 
-    def get_weights(self):
-        return [np.mat(weight) for weight in self.model.get_weights()]
+    def get_matrices(self):
+        return [np.mat(matrix) for matrix in self.model.get_weights()]
 
     def score(self, y_true, y_pred):
         y_pred_clip = tf.keras.backend.clip(y_pred, 0, 1)

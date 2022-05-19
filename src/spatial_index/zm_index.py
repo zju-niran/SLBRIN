@@ -333,7 +333,7 @@ def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, use_thr
         tmp_index = TrainedNN(model_path, model_key, inputs, labels, use_threshold, threshold, core,
                               train_step, batch_size, learning_rate, retrain_time_limit, weight)
     tmp_index.train()
-    abstract_index = AbstractNN(tmp_index.get_weights(), core,
+    abstract_index = AbstractNN(tmp_index.get_matrices(), core,
                                 int(tmp_index.train_x_min), int(tmp_index.train_x_max),
                                 int(tmp_index.train_y_min), int(tmp_index.train_y_max),
                                 math.ceil(tmp_index.min_err), math.ceil(tmp_index.max_err))
@@ -346,8 +346,8 @@ def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, use_thr
 
 
 class AbstractNN:
-    def __init__(self, weights, core_nums, input_min, input_max, output_min, output_max, min_err, max_err):
-        self.weights = weights
+    def __init__(self, matrices, core_nums, input_min, input_max, output_min, output_max, min_err, max_err):
+        self.matrices = matrices
         self.core_nums = core_nums
         self.input_min = input_min
         self.input_max = input_max
@@ -359,9 +359,25 @@ class AbstractNN:
     def predict(self, input_key):
         y = normalize_input_minmax(input_key, self.input_min, self.input_max)
         for i in range(len(self.core_nums) - 2):
-            y = sigmoid(y * self.weights[i * 2] + self.weights[i * 2 + 1])
-        y = y * self.weights[-2] + self.weights[-1]
+            y = sigmoid(y * self.matrices[i * 2] + self.matrices[i * 2 + 1])
+        y = y * self.matrices[-2] + self.matrices[-1]
         return denormalize_output_minmax(y[0, 0], self.output_min, self.output_max)
+
+    def tolist(self):
+        result = [self.input_min, self.input_max, self.output_min, self.output_max, self.min_err, self.max_err]
+        result.extend(self.core_nums)
+        # 处理非输出层
+        for i in range(len(self.core_nums) - 2):
+            weight = self.matrices[2 * i].tolist()
+            bias = self.matrices[2 * i + 1].tolist()
+            for j in range(self.core_nums[i]):
+                result.extend(weight[j])
+            for j in range(self.core_nums[i]):
+                result.extend(bias[j])
+        # 输出层，输出层weight=hl_nums*1, bias=1*1
+        result.extend(self.matrices[-2].flatten().tolist()[0])
+        result.extend(self.matrices[-1].tolist()[0])
+        return result
 
 
 # @profile(precision=8)

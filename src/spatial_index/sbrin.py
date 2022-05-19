@@ -884,7 +884,7 @@ def build_nn(model_path, model_key, inputs, labels, use_threshold, threshold, co
         tmp_index = TrainedNN(model_path, str(model_key), inputs, labels, use_threshold, threshold, core,
                               train_step, batch_size, learning_rate, retrain_time_limit, weight)
     tmp_index.train()
-    abstract_index = AbstractNN(tmp_index.weights, len(core) - 2,
+    abstract_index = AbstractNN(tmp_index.matrices, len(core) - 2,
                                 math.ceil(tmp_index.min_err),
                                 math.ceil(tmp_index.max_err))
     del tmp_index
@@ -953,8 +953,8 @@ class CurrentRange:
 
 
 class AbstractNN:
-    def __init__(self, weights, hl_nums, min_err, max_err):
-        self.weights = weights
+    def __init__(self, matrices, hl_nums, min_err, max_err):
+        self.matrices = matrices
         self.hl_nums = hl_nums
         self.min_err = min_err
         self.max_err = max_err
@@ -962,13 +962,13 @@ class AbstractNN:
     # model.predict有小偏差，可能是exp的e和elu的e不一致
     def predict(self, x):
         for i in range(self.hl_nums):
-            x = sigmoid(x * self.weights[i * 2] + self.weights[i * 2 + 1])
-        return (x * self.weights[-2] + self.weights[-1])[0, 0]
+            x = sigmoid(x * self.matrices[i * 2] + self.matrices[i * 2 + 1])
+        return (x * self.matrices[-2] + self.matrices[-1])[0, 0]
 
     def predicts(self, xs):
         for i in range(self.hl_nums):
-            xs = sigmoid(xs * self.weights[i * 2] + self.weights[i * 2 + 1])
-        return (xs * self.weights[-2] + self.weights[-1]).T.A
+            xs = sigmoid(xs * self.matrices[i * 2] + self.matrices[i * 2 + 1])
+        return (xs * self.matrices[-2] + self.matrices[-1]).T.A
 
 
 # @profile(precision=8)

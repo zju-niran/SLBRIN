@@ -34,7 +34,7 @@ class TrainedNN:
         self.threshold = threshold
         self.model = None
         self.min_err, self.max_err = 0, 0
-        self.weights = None
+        self.matrices = None
         self.retrain_times = 0
         self.retrain_time_limit = retrain_time_limit
         self.model_path = model_path
@@ -144,7 +144,7 @@ class TrainedNN:
         else:
             self.logging.info("Stop train when train early stop or epoch finish: Model %s, Err %f, Threshold %f" % (
                 self.model_hdf_file, err_length, self.threshold))
-        self.weights = self.get_weights()
+        self.matrices = self.get_matrices()
         end_time = time.time()
         self.logging.info("Model key: %s, Train time: %s" % (self.model_key, end_time - start_time))
 
@@ -157,8 +157,8 @@ class TrainedNN:
             # {OSError}SavedModel file does not exist
             return False
 
-    def get_weights(self):
-        return [np.mat(weight) for weight in self.model.get_weights()]
+    def get_matrices(self):
+        return [np.mat(matrix) for matrix in self.model.get_weights()]
 
     def score(self, y_true, y_pred):
         # 对比mse/mae/mae+minmax，最后选择mse+minmax
