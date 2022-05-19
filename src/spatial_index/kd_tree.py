@@ -406,9 +406,15 @@ class KDTree(SpatialIndex):
 
     def size(self):
         """
-        size = kd_tree.npy
+        item_entry_size = data_len * data_size
+        structure_size = kd_tree.npy - item_entry_size
         """
-        return os.path.getsize(os.path.join(self.model_path, "kd_tree.npy")) - 128
+        size = os.path.getsize(os.path.join(self.model_path, "kd_tree.npy")) - 128
+        data_len = self.root_node.node_num
+        data_size = 20
+        ie_size = data_len * data_size
+        structure_size = size - ie_size
+        return structure_size, ie_size
 
     def io(self):
         """
@@ -497,7 +503,9 @@ def main():
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
-    logging.info("Index size: %s" % index.size())
+    structure_size, ie_size = index.size()
+    logging.info("Structure size: %s" % structure_size)
+    logging.info("Item entry size: %s" % ie_size)
     logging.info("IO cost: %s" % index.io())
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()

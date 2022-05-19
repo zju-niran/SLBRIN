@@ -285,14 +285,15 @@ class ZMIndex(SpatialIndex):
 
     def size(self):
         """
-        size = zmin_rmi.npy + zmin_meta.npy + geohash_index.npy
+        structure_size = zmin_rmi.npy + zmin_meta.npy
+        ie_size = geohash_index.npy
         """
         # 实际上：
         # meta=os.path.getsize(os.path.join(self.model_path, "zmin_meta.npy"))-128-64=4*3+8*4=44
         # 理论上：
         # meta只存geohash_length/stage_length/train_data_length=4*3=12
         return os.path.getsize(os.path.join(self.model_path, "zmin_rmi.npy")) - 128 + \
-               12 + \
+               12, \
                os.path.getsize(os.path.join(self.model_path, "geohash_index.npy")) - 128
 
     def io(self):
@@ -405,7 +406,9 @@ def main():
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
-    logging.info("Index size: %s" % index.size())
+    structure_size, ie_size = index.size()
+    logging.info("Structure size: %s" % structure_size)
+    logging.info("Item entry size: %s" % ie_size)
     logging.info("IO cost: %s" % index.io())
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()

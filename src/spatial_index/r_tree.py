@@ -99,17 +99,23 @@ class RTree(SpatialIndex):
 
     def size(self):
         """
-        size = rtree.data + rtree_meta.npy
+        ie_size = data_len * data_size
+        structure_size = rtree.data + rtree_meta.npy - ie_size
         """
-        return os.path.getsize(os.path.join(self.model_path, "rtree.data")) + \
+        size = os.path.getsize(os.path.join(self.model_path, "rtree.data")) + \
                os.path.getsize(os.path.join(self.model_path, "rtree_meta.npy")) - 128
+        data_len = len(self.index)
+        data_size = 20
+        ie_size = data_len * data_size
+        structure_size = size - ie_size
+        return structure_size, ie_size
 
     def io(self):
         """
         io = 树高
         """
-        data_num = 1  # 获取数据量
-        tree_depth = math.ceil(math.log(data_num, self.leaf_node_capacity))
+        data_len = len(self.index)
+        tree_depth = math.ceil(math.log(data_len, self.leaf_node_capacity))
         return tree_depth
 
 
@@ -152,7 +158,9 @@ def main():
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
-    logging.info("Index size: %s" % index.size())
+    structure_size, ie_size = index.size()
+    logging.info("Structure size: %s" % structure_size)
+    logging.info("Item entry size: %s" % ie_size)
     logging.info("IO cost: %s" % index.io())
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()

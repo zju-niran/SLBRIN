@@ -352,11 +352,12 @@ class PRQuadTree(SpatialIndex):
 
     def size(self):
         """
-        size = prquadtree_tree.npy + prquadtree_item.npy + prquadtree_meta.npy
+        structure_size = prquadtree_tree.npy + prquadtree_meta.npy
+        ie_size = prquadtree_item.npy
         """
         return os.path.getsize(os.path.join(self.model_path, "prquadtree_tree.npy")) - 128 + \
-               os.path.getsize(os.path.join(self.model_path, "prquadtree_item.npy")) - 128 + \
-               os.path.getsize(os.path.join(self.model_path, "prquadtree_meta.npy")) - 128
+               os.path.getsize(os.path.join(self.model_path, "prquadtree_meta.npy")) - 128, \
+               os.path.getsize(os.path.join(self.model_path, "prquadtree_item.npy")) - 128
 
     def io(self):
         """
@@ -469,7 +470,9 @@ def main():
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
-    logging.info("Index size: %s" % index.size())
+    structure_size, ie_size = index.size()
+    logging.info("Structure size: %s" % structure_size)
+    logging.info("Item entry size: %s" % ie_size)
     logging.info("IO cost: %s" % index.io())
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()

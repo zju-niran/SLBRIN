@@ -53,7 +53,9 @@ if __name__ == '__main__':
                 end_time = time.time()
                 build_time = end_time - start_time
                 logging.info("Build time: %s" % build_time)
-                logging.info("Index size: %s" % index.size())
+                structure_size, ie_size = index.size()
+                logging.info("Structure size: %s" % structure_size)
+                logging.info("Item entry size: %s" % ie_size)
                 logging.info("IO cost: %s" % index.io())
                 model_num = index.meta.last_hr + 1
                 logging.info("Model num: %s" % model_num)

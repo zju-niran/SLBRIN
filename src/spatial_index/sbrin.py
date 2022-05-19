@@ -728,7 +728,8 @@ class SBRIN(SpatialIndex):
 
     def size(self):
         """
-        size = sbrin_meta.npy + sbrin_hrs.npy + sbrin_models.npy + sbrin_crs.npy + sbrin_data.npy
+        structure_size = sbrin_meta.npy + sbrin_hrs.npy + sbrin_models.npy + sbrin_crs.npy
+        item_entry_size = sbrin_data.npy
         """
         # 实际上：
         # meta=os.path.getsize(os.path.join(self.model_path, "sbrin_meta.npy"))-128-64*2=1*1+2*5+4*2+8*4=51
@@ -748,8 +749,7 @@ class SBRIN(SpatialIndex):
         return 19 + \
                hr_len * 16 + \
                os.path.getsize(os.path.join(self.model_path, "sbrin_models.npy")) - 128 + \
-               cr_len * 35 + \
-               data_len * 28
+               cr_len * 35, data_len * 28
 
     def io(self):
         """
@@ -1018,7 +1018,9 @@ def main():
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
-    logging.info("Index size: %s" % index.size())
+    structure_size, ie_size = index.size()
+    logging.info("Structure size: %s" % structure_size)
+    logging.info("Item entry size: %s" % ie_size)
     logging.info("IO cost: %s" % index.io())
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()
