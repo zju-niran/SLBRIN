@@ -403,7 +403,7 @@ class KDTree(SpatialIndex):
 
     def load(self):
         kd_tree = np.load(os.path.join(self.model_path, 'kd_tree.npy'), allow_pickle=True)
-        self.root_node = list_to_tree(kd_tree)
+        self.root_node = list_to_tree(kd_tree, 0)
 
     def size(self):
         """
@@ -461,15 +461,13 @@ def tree_to_list(node, node_list):
         tree_to_list(node.right, node_list)
 
 
-def list_to_tree(node_list, key=None):
-    if key is None:
-        key = 0
+def list_to_tree(node_list, key):
     item = list(node_list[key])
     node = KDNode(item[4:], item[2])
     node.node_num = item[3]
-    if item[0] != 0:
+    if item[0]:
         node.left = list_to_tree(node_list, item[0])
-    if item[1] != 0:
+    if item[1]:
         node.right = list_to_tree(node_list, item[1])
     return node
 
@@ -481,7 +479,7 @@ def main():
         os.makedirs(model_path)
     index = KDTree(model_path=model_path)
     index_name = index.name
-    load_index_from_json = False
+    load_index_from_json = True
     if load_index_from_json:
         index.load()
     else:

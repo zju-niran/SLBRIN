@@ -31,7 +31,7 @@ class ZOrder:
                 shifted |= shift & distance
                 mask |= 1 << bit << (((shift - 1) ^ max_value) & distance)
 
-            if shifted != 0:
+            if shifted:
                 masks.append(mask)
                 lshifts.append(shift)
 
