@@ -16,6 +16,7 @@ from src.spatial_index.common_utils import Region, binary_search_less_max, get_n
     biased_search_almost, biased_search, get_mbr_by_points
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
+from src.experiment.common_utils import load_data, Distribution
 
 RA_PAGES = 256
 PAGE_SIZE = 4096
@@ -974,7 +975,6 @@ class AbstractNN:
 # @profile(precision=8)
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data_path = '../../data/index/nyct_10w_sorted.npy'
     model_path = "model/sbrin_10w/"
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
@@ -986,7 +986,7 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        data_list = np.load(data_path, allow_pickle=True)
+        data_list = load_data(Distribution.NYCT_10W_SORTED)
         # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y/g)=8, sbrin整体连续存, meta一个page, br分页存，model(2009大小)单独存
         # hr体积=value/length/number=16，一个page存256个hr
         # cr体积=value/number=35，一个page存117个cr

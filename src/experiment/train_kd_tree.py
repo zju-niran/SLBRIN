@@ -15,7 +15,6 @@ if __name__ == '__main__':
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
                         level=logging.INFO,
                         format="%(message)s")
-    # data_distributions = [Distribution.NYCT_10W, Distribution.NORMAL_10W, Distribution.UNIFORM_10W]
     data_distributions = [Distribution.NYCT, Distribution.NORMAL, Distribution.UNIFORM]
     for data_distribution in data_distributions:
         model_path = "model/kdtree/%s" % data_distribution.name

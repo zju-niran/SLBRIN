@@ -11,6 +11,7 @@ import numpy as np
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.spatial_index import SpatialIndex
 from src.spatial_index.common_utils import Region, Point
+from src.experiment.common_utils import Distribution, load_data
 
 RA_PAGES = 256
 PAGE_SIZE = 4096
@@ -436,7 +437,6 @@ def get_leaf_and_path(node_list, result, cur_path, key):
 # @profile(precision=8)
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data_path = '../../data/table/trip_data_1_filter_10w.npy'
     model_path = "model/prquadtree_10w/"
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
@@ -448,7 +448,7 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
+        data_list = load_data(Distribution.NYCT_10W)
         # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y)=8, node和data按照DFS的顺序密集存储在page中
         # tree存放所有node的深度、是否叶节点、region、四节点指针和data的始末指针:
         # node size=1+1+8*4+4*4+4*2=58，单page存放4096/58=70node，单read_ahead读取256*70=17920node

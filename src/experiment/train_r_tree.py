@@ -15,7 +15,6 @@ if __name__ == '__main__':
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
                         level=logging.INFO,
                         format="%(message)s")
-    # data_distributions = [Distribution.NYCT_10W, Distribution.NORMAL_10W, Distribution.UNIFORM_10W]
     data_distributions = [Distribution.NYCT, Distribution.NORMAL, Distribution.UNIFORM]
     fill_factors = [0.4, 0.5, 0.6, 0.7, 0.8]
     for data_distribution in data_distributions:

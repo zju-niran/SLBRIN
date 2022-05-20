@@ -9,6 +9,7 @@ from rtree import index
 
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.spatial_index import SpatialIndex
+from src.experiment.common_utils import load_data, Distribution
 
 PAGE_SIZE = 4096
 
@@ -116,7 +117,6 @@ class RTree(SpatialIndex):
 
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data_path = '../../data/table/trip_data_1_filter_10w.npy'
     model_path = "model/rtree_10w/"
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
@@ -128,7 +128,7 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
+        data_list = load_data(Distribution.NYCT_10W)
         # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y)=8, 一个page存放一个node
         # leaf node存放xyxy数据、数据指针、指向下一个leaf node的指针
         # leaf_node_capacity=(pagesize-size(pointer))/(size(x)*4+size(pointer))=(4096-4)/(8*4+4*1)=113

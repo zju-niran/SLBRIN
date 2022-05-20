@@ -2,9 +2,9 @@
 import os
 
 import line_profiler
-import numpy as np
 
 # Node in BTree
+from src.experiment.common_utils import Distribution, load_data
 from src.spatial_index.common_utils import binary_search_less_max
 
 
@@ -299,8 +299,7 @@ class Item():
 # For Test
 def b_tree_main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    path = '../data/index/trip_data_1_filter_10w.npy'
-    data_list = np.load(path, allow_pickle=True)[:, [10, 11, -1]]
+    data_list = load_data(Distribution.NYCT_10W)
     b = BTree(2)
     l = len(data_list)
     for i in range(l):

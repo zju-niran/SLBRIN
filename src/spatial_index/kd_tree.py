@@ -10,6 +10,7 @@ import numpy as np
 
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.spatial_index import SpatialIndex
+from src.experiment.common_utils import Distribution, load_data
 
 DIM_NUM = 2
 RA_PAGES = 256
@@ -475,7 +476,6 @@ def list_to_tree(node_list, key=None):
 
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data_path = '../../data/table/trip_data_1_filter_10w.npy'
     model_path = "model/kdtree_10w/"
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
@@ -487,7 +487,7 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
+        data_list = load_data(Distribution.NYCT_10W)
         # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y)=8, node按照DFS的顺序密集存储在page中
         # tree存放所有node的axis、数据量、左右节点指针、data:
         # node size=1+4+4*2+(8*2+4)=33，单page存放4096/33=124node，单read_ahead读取256*124=31744node

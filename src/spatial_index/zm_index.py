@@ -15,6 +15,7 @@ from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 from src.learned_model import TrainedNN
 from src.learned_model_simple import TrainedNN as TrainedNN_Simple
+from src.experiment.common_utils import load_data, Distribution
 
 RA_PAGES = 256
 PAGE_SIZE = 4096
@@ -383,19 +384,18 @@ class AbstractNN:
 # @profile(precision=8)
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data_path = '../../data/index/nyct_10w_sorted.npy'
     model_path = "model/zm_index_10w/"
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
     index = ZMIndex(model_path=model_path)
     index_name = index.name
-    load_index_from_json = True
+    load_index_from_json = False
     if load_index_from_json:
         index.load()
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        data_list = np.load(data_path, allow_pickle=True)
+        data_list = load_data(Distribution.NYCT_10W_SORTED)
         # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y/g)=8, meta单独一个page
         # node体积=2000，一个page存2个node，单read_ahead读取256*2=512node
         # data体积=x/y/g/key=8*3+4=28，一个page存146个data，单read_ahead读取256*146=37376data

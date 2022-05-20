@@ -9,6 +9,7 @@ import numpy as np
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.common_utils import get_mbr_by_points, contain_and_border, intersect
 from src.spatial_index.spatial_index import SpatialIndex
+from src.experiment.common_utils import load_data, Distribution
 
 """
 前提条件:
@@ -58,10 +59,12 @@ class BRINSpatial(SpatialIndex):
     def create_tmp_blk(self):
         self.block_ranges.append(BlockRange(blknum=len(self.block_ranges) * self.meta.datas_per_range, value=None))
 
-    def build(self, data_list, pages_per_range):
+    def build(self, data_list, pages_per_range, is_sorted):
         # 1. save xy index
-        data_list = [tuple(data) for data in data_list.tolist()]
-        self.index_entries = data_list
+        if is_sorted:
+            self.index_entries = [(data[0], data[1], data[-1]) for data in data_list]
+        else:
+            self.index_entries = [tuple(data) for data in data_list.tolist()]
         # 2. create meta
         self.meta = Meta(1, pages_per_range, 0)
         # 3. create blk by data
@@ -221,19 +224,19 @@ class BlockRange:
 # @profile(precision=8)
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data_path = '../../data/table/trip_data_1_filter_10w.npy'
     model_path = "model/brinspatial_10w/"
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
     index = BRINSpatial(model_path=model_path)
     index_name = index.name
-    load_index_from_json = True
+    load_index_from_json = False
     if load_index_from_json:
         index.load()
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
+        data_list = load_data(Distribution.NYCT_10W)
+        # data_list = load_data(Distribution.NYCT_10W_SORTED)
         # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y)=8, brin整体连续存, meta一个page, blk分页存
         # blk体积=blknum/value=4+4*8=36，一个page存113个blk
         # revmap体积=blkid+blk指针=2+4=6，一个page存682个blk
@@ -243,7 +246,8 @@ def main():
         # 单次扫描IO为读取brin+读取blk对应ie=1+0
         # 索引体积=xy索引+meta+blk+revmap
         index.build(data_list=data_list,
-                    pages_per_range=5)
+                    pages_per_range=5,
+                    is_sorted=False)
         index.save()
         end_time = time.time()
         build_time = end_time - start_time

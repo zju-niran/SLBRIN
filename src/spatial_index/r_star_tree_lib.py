@@ -8,6 +8,7 @@ from rtreelib import RStarTree as RStarTreeLib, Rect
 
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.spatial_index import SpatialIndex
+from src.experiment.common_utils import load_data, Distribution
 
 
 class RStarTree(SpatialIndex):
@@ -54,7 +55,6 @@ class RStarTree(SpatialIndex):
 
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data_path = '../../data/table/trip_data_1_10w.npy'
     model_path = "model/r_star_tree_lib_10w/"
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
@@ -66,7 +66,7 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        data_list = np.load(data_path, allow_pickle=True)[:, [10, 11, -1]]
+        data_list = load_data(Distribution.NYCT_10W)
         index.build(data_list=data_list, threshold_number=100)
         index.save()
         end_time = time.time()
