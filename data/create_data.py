@@ -220,16 +220,20 @@ if __name__ == '__main__':
     # get_region(input_path)
     # 3. 生成uniform和normal的数据
     # 精度8，范围0-1-0-1，geohash长度为60，精度9的话长度就66了，超过了int64的范围
-    # output_path = "./table/uniform.npy"
-    # output_path = "./table/normal.npy"
-    # create_data(output_path, 28236977, [0, 1, 0, 1], 8, 'uniform')
-    # create_data(output_path, 28236977, [0, 1, 0, 1], 8, 'normal')
+    # output_path = "./table/uniform_1.npy"
+    # create_data(output_path, 14507253, [0, 1, 0, 1], 8, 'uniform')
+    # output_path = "./table/uniform_2.npy"
+    # create_data(output_path, 13729724, [0, 1, 0, 1], 8, 'uniform')
+    # output_path = "./table/normal_1.npy"
+    # create_data(output_path, 14507253, [0, 1, 0, 1], 8, 'normal')
+    # output_path = "./table/normal_2.npy"
+    # create_data(output_path, 13729724, [0, 1, 0, 1], 8, 'normal')
     # plot_npy(output_path)
     # 4. 生成10w的数据
-    # input_path = "./table/uniform.npy"
-    # output_path_10w_sample = './table/uniform_10w.npy'
-    # input_path = "./table/normal.npy"
-    # output_path_10w_sample = './table/normal_10w.npy'
+    # input_path = "./table/uniform_1.npy"
+    # output_path_10w_sample = './table/uniform_1_10w.npy'
+    # input_path = "./table/normal_1.npy"
+    # output_path_10w_sample = './table/normal_1_10w.npy'
     # sample(input_path, output_path_10w_sample, 100000)
     # 5. 生成不重复的数据
     # input_path = "./table/trip_data_1_filter_10w.npy"
@@ -238,34 +242,36 @@ if __name__ == '__main__':
     # 6. 生成索引列
     # output_path = "./table/trip_data_1_filter.npy"
     # output_path = "./table/trip_data_1_filter_10w.npy"
-    # output_path = "./table/normal.npy"
-    # output_path = "./table/normal_10w.npy"
-    # output_path = "./table/uniform.npy"
-    # output_path = "./table/uniform_10w.npy"
+    # output_path = "./table/normal_1.npy"
+    # output_path = "./table/normal_1_10w.npy"
+    # output_path = "./table/uniform_1.npy"
+    # output_path = "./table/uniform_1_10w.npy"
     # first_key = 0
     # output_path = "./table/trip_data_2_filter.npy"
+    # output_path = "./table/normal_2.npy"
+    # output_path = "./table/uniform_2.npy"
     # first_key = 14507253
     # output_path = "./table/trip_data_2_filter_10w.npy"
     # first_key = 100000
     # add_key_field(output_path, output_path, first_key)
     # 7. Geohash排序数据
-    # input_path = "./table/uniform.npy"
-    # output_path = "./index/uniform_sorted.npy"
-    # input_path = "./table/normal.npy"
-    # output_path = "./index/normal_sorted.npy"
+    # input_path = "./table/uniform_1.npy"
+    # output_path = "./index/uniform_1_sorted.npy"
+    # input_path = "./table/normal_1.npy"
+    # output_path = "./index/normal_1_sorted.npy"
     # data_precision = 8
     # region = Region(0, 1, 0, 1)
     # input_path = "./table/trip_data_1_filter.npy"
-    # output_path = "./index/nyct_sorted.npy"
+    # output_path = "./index/nyct_1_sorted.npy"
     # input_path = "./table/trip_data_1_filter_10w.npy"
-    # output_path = "./index/nyct_10w_sorted.npy"
+    # output_path = "./index/nyct_1_10w_sorted.npy"
     # data_precision = 6
     # region = Region(40, 42, -75, -73)
     # geohash_and_sort(input_path, output_path, data_precision, region)
     # 1. 生成point检索范围
-    # input_path = './table/uniform.npy'
+    # input_path = './table/uniform_1.npy'
     # output_path = './query/point_query_uniform.npy'
-    # input_path = './table/normal.npy'
+    # input_path = './table/normal_1.npy'
     # output_path = './query/point_query_normal.npy'
     # input_path = './table/trip_data_1_filter.npy'
     # output_path = './query/point_query_nyct.npy'
@@ -281,9 +287,9 @@ if __name__ == '__main__':
     # query_number_limit = 1000
     # create_range_query(output_path, data_range, query_number_limit, range_ratio_list)
     # 3.生成knn检索范围
-    # input_path = './table/uniform.npy'
+    # input_path = './table/uniform_1.npy'
     # output_path = './query/knn_query_uniform.npy'
-    # input_path = './table/normal.npy'
+    # input_path = './table/normal_1.npy'
     # output_path = './query/knn_query_normal.npy'
     # input_path = './table/trip_data_1_filter.npy'
     # output_path = './query/knn_query_nyct.npy'

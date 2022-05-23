@@ -19,16 +19,16 @@ class Distribution(Enum):
 
 
 data_path = {
-    Distribution.UNIFORM: "../../data/table/uniform.npy",
-    Distribution.NORMAL: "../../data/table/normal.npy",
+    Distribution.UNIFORM: "../../data/table/uniform_1.npy",
+    Distribution.NORMAL: "../../data/table/normal_1.npy",
     Distribution.NYCT: "../../data/table/trip_data_1_filter.npy",
-    Distribution.UNIFORM_10W: "../../data/table/uniform_10w.npy",
-    Distribution.NORMAL_10W: "../../data/table/normal_10w.npy",
+    Distribution.UNIFORM_10W: "../../data/table/uniform_1_10w.npy",
+    Distribution.NORMAL_10W: "../../data/table/normal_1_10w.npy",
     Distribution.NYCT_10W: "../../data/table/trip_data_1_filter_10w.npy",
-    Distribution.UNIFORM_SORTED: "../../data/index/uniform_sorted.npy",
-    Distribution.NORMAL_SORTED: "../../data/index/normal_sorted.npy",
-    Distribution.NYCT_SORTED: "../../data/index/nyct_sorted.npy",
-    Distribution.NYCT_10W_SORTED: "../../data/index/nyct_10w_sorted.npy",
+    Distribution.UNIFORM_SORTED: "../../data/index/uniform_1_sorted.npy",
+    Distribution.NORMAL_SORTED: "../../data/index/normal_1_sorted.npy",
+    Distribution.NYCT_SORTED: "../../data/index/nyct_1_sorted.npy",
+    Distribution.NYCT_10W_SORTED: "../../data/index/nyct_1_10w_sorted.npy",
 }
 
 data_precision = {
