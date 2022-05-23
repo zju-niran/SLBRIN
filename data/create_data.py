@@ -70,8 +70,9 @@ def create_range_query(output_path, data_range, query_number_limit, range_ratio_
     data_range_width = data_range[3] - data_range[2]
     data_range_height = data_range[1] - data_range[0]
     for range_ratio in range_ratio_list:
-        child_range_width = data_range_width * range_ratio
-        child_range_height = data_range_height * range_ratio
+        range_dim_ratio = range_ratio ** 0.5
+        child_range_width = data_range_width * range_dim_ratio
+        child_range_height = data_range_height * range_dim_ratio
         child_range_list = []
         while len(child_range_list) < query_number_limit:
             point_x1_list = np.random.randint(0, 100000, size=query_number_limit) / 100000 * data_range_width + \
@@ -206,8 +207,8 @@ if __name__ == '__main__':
     # output_path = "./table/trip_data_2.npy"
     # csv_to_npy(input_path, output_path)
     # 2. 数据清洗，只选取region内且
-    # 数据总记录数：14776615/13990176，region内14507253/13729724
-    # 文件size：1.50GB/1.39GB，region内1.47GB/1.37GB
+    # 数据总记录数：14776615+13990176，region内14507253+13729724=28236977
+    # 文件size：1.50GB+1.39GB，region内1.47GB+1.37GB=2.84GB
     # input_path = "./table/trip_data_1.npy"
     # input_path = "./table/trip_data_2.npy"
     # output_path = "./table/trip_data_1_filter.npy"
@@ -219,26 +220,38 @@ if __name__ == '__main__':
     # get_region(input_path)
     # 3. 生成uniform和normal的数据
     # 精度8，范围0-1-0-1，geohash长度为60，精度9的话长度就66了，超过了int64的范围
-    # output_path_uniform = "./table/uniform_10000w.npy"
-    # output_path_normal = "./table/normal_10000w.npy"
-    # create_data(output_path_uniform, 100000000, [0, 1, 0, 1], 8, 'uniform')
-    # create_data(output_path_normal, 100000000, [0, 1, 0, 1], 8, 'normal')
-    # plot_npy(output_path_uniform)
-    # plot_npy(output_path_normal)
+    # output_path = "./table/uniform.npy"
+    # output_path = "./table/normal.npy"
+    # create_data(output_path, 28236977, [0, 1, 0, 1], 8, 'uniform')
+    # create_data(output_path, 28236977, [0, 1, 0, 1], 8, 'normal')
+    # plot_npy(output_path)
     # 4. 生成10w的数据
-    # input_path = "./table/uniform_10000w.npy"
+    # input_path = "./table/uniform.npy"
     # output_path_10w_sample = './table/uniform_10w.npy'
-    # input_path = "./table/normal_10000w.npy"
+    # input_path = "./table/normal.npy"
     # output_path_10w_sample = './table/normal_10w.npy'
     # sample(input_path, output_path_10w_sample, 100000)
     # 5. 生成不重复的数据
     # input_path = "./table/trip_data_1_filter_10w.npy"
     # output_path = "./table/trip_data_1_10w_distinct.npy"
     # create_distinct_data(input_path, output_path)
-    # 6. Geohash排序数据
-    # input_path = "./table/uniform_10000w.npy"
+    # 6. 生成索引列
+    # output_path = "./table/trip_data_1_filter.npy"
+    # output_path = "./table/trip_data_1_filter_10w.npy"
+    # output_path = "./table/normal.npy"
+    # output_path = "./table/normal_10w.npy"
+    # output_path = "./table/uniform.npy"
+    # output_path = "./table/uniform_10w.npy"
+    # first_key = 0
+    # output_path = "./table/trip_data_2_filter.npy"
+    # first_key = 14507253
+    # output_path = "./table/trip_data_2_filter_10w.npy"
+    # first_key = 100000
+    # add_key_field(output_path, output_path, first_key)
+    # 7. Geohash排序数据
+    # input_path = "./table/uniform.npy"
     # output_path = "./index/uniform_sorted.npy"
-    # input_path = "./table/normal_10000w.npy"
+    # input_path = "./table/normal.npy"
     # output_path = "./index/normal_sorted.npy"
     # data_precision = 8
     # region = Region(0, 1, 0, 1)
@@ -249,30 +262,17 @@ if __name__ == '__main__':
     # data_precision = 6
     # region = Region(40, 42, -75, -73)
     # geohash_and_sort(input_path, output_path, data_precision, region)
-    # 7. 生成索引列
-    # output_path = "./table/trip_data_1_filter.npy"
-    # output_path = "./table/trip_data_1_filter_10w.npy"
-    # output_path = "./table/normal_10000w.npy"
-    # output_path = "./table/normal_10w.npy"
-    # output_path = "./table/uniform_10000w.npy"
-    # output_path = "./table/uniform_10w.npy"
-    # first_key = 0
-    # output_path = "./table/trip_data_2_filter.npy"
-    # first_key = 14507253
-    # output_path = "./table/trip_data_2_filter_10w.npy"
-    # first_key = 100000
-    # add_key_field(output_path, output_path, first_key)
     # 1. 生成point检索范围
-    # input_path = './table/uniform_10000w.npy'
+    # input_path = './table/uniform.npy'
     # output_path = './query/point_query_uniform.npy'
-    # input_path = './table/normal_10000w.npy'
+    # input_path = './table/normal.npy'
     # output_path = './query/point_query_normal.npy'
     # input_path = './table/trip_data_1_filter.npy'
     # output_path = './query/point_query_nyct.npy'
     # query_number_limit = 1000
     # create_point_query(input_path, output_path, query_number_limit)
     # 2. 生成range检索范围
-    # range_ratio_list = [0.001, 0.005, 0.01, 0.015, 0.02]
+    # range_ratio_list = [0.000006, 0.000025, 0.0001, 0.0004, 0.0016]
     # output_path = './query/range_query_uniform.npy'
     # output_path = './query/range_query_normal.npy'
     # data_range = [0, 1, 0, 1]
@@ -281,9 +281,9 @@ if __name__ == '__main__':
     # query_number_limit = 1000
     # create_range_query(output_path, data_range, query_number_limit, range_ratio_list)
     # 3.生成knn检索范围
-    # input_path = './table/uniform_10000w.npy'
+    # input_path = './table/uniform.npy'
     # output_path = './query/knn_query_uniform.npy'
-    # input_path = './table/normal_10000w.npy'
+    # input_path = './table/normal.npy'
     # output_path = './query/knn_query_normal.npy'
     # input_path = './table/trip_data_1_filter.npy'
     # output_path = './query/knn_query_nyct.npy'

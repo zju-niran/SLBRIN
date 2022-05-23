@@ -19,8 +19,8 @@ class Distribution(Enum):
 
 
 data_path = {
-    Distribution.UNIFORM: "../../data/table/uniform_10000w.npy",
-    Distribution.NORMAL: "../../data/table/normal_10000w.npy",
+    Distribution.UNIFORM: "../../data/table/uniform.npy",
+    Distribution.NORMAL: "../../data/table/normal.npy",
     Distribution.NYCT: "../../data/table/trip_data_1_filter.npy",
     Distribution.UNIFORM_10W: "../../data/table/uniform_10w.npy",
     Distribution.NORMAL_10W: "../../data/table/normal_10w.npy",
