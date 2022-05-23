@@ -34,17 +34,20 @@ class TrainedNN:
         self.weight = weight
 
     # train model
-    def train(self):
+    def train(self, is_gpu):
         start_time = time.time()
-        # GPU配置
-        os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-        os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-        # 不输出报错：This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the
-        # following CPU instructions in performance-critical operations:  AVX AVX2
-        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-        gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
-        for gpu in gpus:
-            tf.config.experimental.set_memory_growth(gpu, True)
+        if is_gpu:
+            # GPU配置
+            os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+            os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+            # 不输出报错：This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the
+            # following CPU instructions in performance-critical operations:  AVX AVX2
+            os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+            gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+        else:
+            os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
         model = tf.keras.Sequential()
         for i in range(len(self.core_nums) - 2):
             model.add(tf.keras.layers.Dense(units=self.core_nums[i + 1],

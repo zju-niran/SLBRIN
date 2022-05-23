@@ -44,7 +44,8 @@ if __name__ == '__main__':
                         retrain_time_limit=0,
                         thread_pool_size=12,
                         save_nn=True,
-                        weight=1)
+                        weight=1,
+                        is_gpu=True)
             index.save()
             end_time = time.time()
             build_time = end_time - start_time

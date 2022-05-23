@@ -42,7 +42,7 @@ class ZMIndex(SpatialIndex):
 
     def build(self, data_list, is_sorted, data_precision, region,
               use_thresholds, thresholds, stages, cores, train_steps, batch_nums, learning_rates, retrain_time_limits,
-              thread_pool_size, save_nn, weight):
+              thread_pool_size, save_nn, weight, is_gpu):
         """
         build index
         1. ordering x/y point by geohash
@@ -80,7 +80,7 @@ class ZMIndex(SpatialIndex):
                     # train model
                     build_nn(self.model_path, i, j, inputs, labels, use_thresholds[i], thresholds[i], cores[i],
                              train_steps[i], batch_nums[i], learning_rates[i], retrain_time_limits[i],
-                             save_nn, weight, None, self.rmi)
+                             save_nn, weight, is_gpu, None, self.rmi)
                     # allocate data into training set for models in next stage
                     for ind in range(len(train_inputs[i][j])):
                         # pick model in next stage with output of this model
@@ -104,7 +104,7 @@ class ZMIndex(SpatialIndex):
             pool.apply_async(build_nn,
                              (self.model_path, i, j, inputs, labels,
                               use_thresholds[i], thresholds[i], cores[i], train_steps[i], batch_nums[i],
-                              learning_rates[i], retrain_time_limits[i], save_nn, weight, mp_list, None))
+                              learning_rates[i], retrain_time_limits[i], save_nn, weight, is_gpu, mp_list, None))
         pool.close()
         pool.join()
         self.rmi[i] = [model for model in mp_list]
@@ -320,7 +320,7 @@ class ZMIndex(SpatialIndex):
 
 
 def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, use_threshold, threshold, core,
-             train_step, batch_num, learning_rate, retrain_time_limit, save_nn, weight, mp_list=None, rmi=None):
+             train_step, batch_num, learning_rate, retrain_time_limit, save_nn, weight, is_gpu, mp_list=None, rmi=None):
     batch_size = 2 ** math.ceil(math.log(len(inputs) / batch_num, 2))
     if batch_size < 1:
         batch_size = 1
@@ -333,7 +333,7 @@ def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, use_thr
     else:
         tmp_index = TrainedNN(model_path, model_key, inputs, labels, use_threshold, threshold, core,
                               train_step, batch_size, learning_rate, retrain_time_limit, weight)
-    tmp_index.train()
+    tmp_index.train(is_gpu)
     abstract_index = AbstractNN(tmp_index.get_matrices(), core,
                                 int(tmp_index.train_x_min), int(tmp_index.train_x_max),
                                 int(tmp_index.train_y_min), int(tmp_index.train_y_max),
@@ -417,7 +417,8 @@ def main():
                     retrain_time_limits=[4, 2],
                     thread_pool_size=6,
                     save_nn=True,
-                    weight=1)
+                    weight=1,
+                    is_gpu=True)
         index.save()
         end_time = time.time()
         build_time = end_time - start_time

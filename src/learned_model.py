@@ -61,24 +61,26 @@ class TrainedNN:
         self.weight = weight
 
     # train model
-    def train(self):
+    def train(self, is_gpu):
         start_time = time.time()
-        # GPU配置
-        os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-        os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-        # 不输出报错：This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the
-        # following CPU instructions in performance-critical operations:  AVX AVX2
-        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-        # os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-        gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
-        for gpu in gpus:
-            # 动态分配GPU内存
-            tf.config.experimental.set_memory_growth(gpu, True)
-            # 动态分配GPU内存
-            # tf.config.experimental.set_virtual_device_configuration(
-            #     gpu,
-            #     [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=2048)]
-            # )
+        if is_gpu:
+            os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+            os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+            # 不输出报错：This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the
+            # following CPU instructions in performance-critical operations:  AVX AVX2
+            os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+            # os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+            gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
+            for gpu in gpus:
+                # 动态分配GPU内存
+                tf.config.experimental.set_memory_growth(gpu, True)
+                # 动态分配GPU内存
+                # tf.config.experimental.set_virtual_device_configuration(
+                #     gpu,
+                #     [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=2048)]
+                # )
+        else:
+            os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
         # create or load model
         if self.is_model_file_valid() is False:  # valid the model file exists and is in hdf5 format
             # delete model when model file is not in hdf5 format but exists, maybe destroyed by interrupt
@@ -131,7 +133,7 @@ class TrainedNN:
                     self.retrain_times += 1
                     self.logging.info("Retrain %d when score not perfect: Model %s, Err %f, Threshold %f" % (
                         self.retrain_times, self.model_hdf_file, err_length, self.threshold))
-                    self.train()
+                    self.train(is_gpu)
                 else:
                     self.logging.info("Retrain time limit: Model %s, Err %f, Threshold %f" % (
                         self.model_hdf_file, err_length, self.threshold))

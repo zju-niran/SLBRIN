@@ -67,7 +67,7 @@ class SBRIN(SpatialIndex):
     def build(self, data_list, is_sorted, threshold_number, data_precision, region, threshold_err,
               threshold_summary, threshold_merge,
               use_threshold, threshold, core, train_step, batch_num, learning_rate, retrain_time_limit,
-              thread_pool_size, save_nn, weight):
+              thread_pool_size, save_nn, weight, is_gpu):
         """
         构建SBRIN
         1. order data by geohash
@@ -131,10 +131,10 @@ class SBRIN(SpatialIndex):
         self.index_entries = result_data_list
         # 3. build learned model
         self.build_nn_multiprocess(use_threshold, threshold, core, train_step, batch_num, learning_rate,
-                                   retrain_time_limit, thread_pool_size, save_nn, weight)
+                                   retrain_time_limit, thread_pool_size, save_nn, weight, is_gpu)
 
     def build_nn_multiprocess(self, use_threshold, threshold, core, train_step, batch_num, learning_rate,
-                              retrain_time_limit, thread_pool_size, save_nn, weight):
+                              retrain_time_limit, thread_pool_size, save_nn, weight, is_gpu):
         multiprocessing.set_start_method('spawn', force=True)  # 解决CUDA_ERROR_NOT_INITIALIZED报错
         pool = multiprocessing.Pool(processes=thread_pool_size)
         mp_dict = multiprocessing.Manager().dict()
@@ -153,7 +153,7 @@ class SBRIN(SpatialIndex):
             # batch_size = batch_num
             pool.apply_async(build_nn, (self.model_path, i, inputs, labels,
                                         use_threshold, threshold, core, train_step, batch_size, learning_rate,
-                                        retrain_time_limit, save_nn, weight, mp_dict))
+                                        retrain_time_limit, save_nn, weight, is_gpu, mp_dict))
         pool.close()
         pool.join()
         for (key, value) in mp_dict.items():
@@ -877,14 +877,14 @@ range_position_funcs = [
 
 # for train
 def build_nn(model_path, model_key, inputs, labels, use_threshold, threshold, core, train_step, batch_size,
-             learning_rate, retrain_time_limit, save_nn, weight, tmp_dict=None):
+             learning_rate, retrain_time_limit, save_nn, weight, is_gpu, tmp_dict=None):
     if not save_nn:
         tmp_index = TrainedNN_Simple(model_path, model_key, inputs, labels, core, train_step, batch_size,
                                      learning_rate, weight)
     else:
         tmp_index = TrainedNN(model_path, str(model_key), inputs, labels, use_threshold, threshold, core,
                               train_step, batch_size, learning_rate, retrain_time_limit, weight)
-    tmp_index.train()
+    tmp_index.train(is_gpu)
     abstract_index = AbstractNN(tmp_index.matrices, len(core) - 2,
                                 math.ceil(tmp_index.min_err),
                                 math.ceil(tmp_index.max_err))
