@@ -15,7 +15,7 @@ if __name__ == '__main__':
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
                         level=logging.INFO,
                         format="%(message)s")
-    data_distributions = [Distribution.NYCT, Distribution.NORMAL, Distribution.UNIFORM]
+    data_distributions = [Distribution.UNIFORM, Distribution.NORMAL, Distribution.NYCT]
     ns = [50, 100, 250, 500]
     for data_distribution in data_distributions:
         for n in ns:
