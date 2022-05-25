@@ -120,7 +120,7 @@ class SBRIN(SpatialIndex):
         region_offset = pow(10, -data_precision - 1)
         self.history_ranges = [HistoryRange(result_list[i][0], result_list[i][1], result_list[i][2], None, 0,
                                             result_list[i][4].up_right_less_region(region_offset),
-                                            2 << 50 - result_list[i][1] - 1) for i in range(result_len)]
+                                            2 << geohash.sum_bits - result_list[i][1] - 1) for i in range(result_len)]
         self.current_ranges = []
         self.create_cr()
         # 2.4. reorganize index entries
@@ -671,6 +671,7 @@ class SBRIN(SpatialIndex):
         return [tp[1] for tp in tp_list]
 
     def save(self):
+        assert self.meta.threshold_number < 2 ** 16, "threshold_number exceed the store size int16"
         sbrin_meta = np.array((self.meta.last_hr, self.meta.last_cr,
                                self.meta.threshold_number, self.meta.threshold_length,
                                self.meta.threshold_err, self.meta.threshold_summary, self.meta.threshold_merge,
@@ -1013,7 +1014,8 @@ def main():
                     retrain_time_limit=2,
                     thread_pool_size=6,
                     save_nn=True,
-                    weight=1)
+                    weight=1,
+                    is_gpu=True)
         index.save()
         end_time = time.time()
         build_time = end_time - start_time
