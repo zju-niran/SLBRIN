@@ -116,12 +116,12 @@ class TrainedNN:
             #                                              histogram_freq=1)
             callbacks_list = [checkpoint, early_stopping]
             # fit and save model
-            history = self.model.fit(self.train_x, self.train_y,
-                                     epochs=self.train_step_nums,
-                                     initial_epoch=0,
-                                     batch_size=self.batch_size,
-                                     verbose=0,
-                                     callbacks=callbacks_list)
+            self.model.fit(self.train_x, self.train_y,
+                           epochs=self.train_step_nums,
+                           initial_epoch=0,
+                           batch_size=self.batch_size,
+                           verbose=0,
+                           callbacks=callbacks_list)
         self.model = tf.keras.models.load_model(self.model_hdf_file, custom_objects={'score': self.score})
         self.min_err, self.max_err = self.get_err()
         err_length = self.max_err - self.min_err

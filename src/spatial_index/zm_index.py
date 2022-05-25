@@ -123,7 +123,8 @@ class ZMIndex(SpatialIndex):
         for i in range(0, self.stage_length - 1):
             leaf_model_key = int(self.rmi[i][leaf_model_key].predict(key))
         # 2. return the less max key when leaf model is None
-        if self.rmi[-1][leaf_model_key] is None:
+        leaf_model = self.rmi[-1][leaf_model_key]
+        if leaf_model is None:
             while self.rmi[-1][leaf_model_key] is None:
                 if leaf_model_key < 0:
                     return 0, 0, 0
@@ -131,7 +132,6 @@ class ZMIndex(SpatialIndex):
                     leaf_model_key -= 1
             return self.rmi[-1][leaf_model_key].output_max, 0, 0
         # 3. predict the key by leaf_model
-        leaf_model = self.rmi[-1][leaf_model_key]
         pre = int(leaf_model.predict(key))
         return pre, leaf_model.min_err, leaf_model.max_err
 
@@ -142,14 +142,9 @@ class ZMIndex(SpatialIndex):
         leaf_model_key = 0
         for i in range(0, self.stage_length - 1):
             leaf_model_key = int(self.rmi[i][leaf_model_key].predict(key))
-        if self.rmi[-1][leaf_model_key] is None:
-            while self.rmi[-1][leaf_model_key] is None:
-                if leaf_model_key < 0:
-                    return 0, 0, 0
-                else:
-                    leaf_model_key -= 1
-            return self.rmi[-1][leaf_model_key].output_max, 0, 0
         leaf_model = self.rmi[-1][leaf_model_key]
+        if leaf_model is None:
+            return 1
         delta = (leaf_model.input_max - leaf_model.input_min) / (leaf_model.output_max - leaf_model.output_min) / 2
         return leaf_model.predict(key + delta) - leaf_model.predict(key - delta)
 
@@ -206,7 +201,7 @@ class ZMIndex(SpatialIndex):
         # 1. init window by weight on CDF(key)
         x, y, k = knn
         w = self.weight(self.geohash.encode(x, y))
-        if w > 1:  # 斜率<1的时候会增大window
+        if w > 0:
             window_ratio = (k / (self.train_data_length + 1)) ** 0.5 / w
         else:
             window_ratio = (k / (self.train_data_length + 1)) ** 0.5
@@ -321,6 +316,7 @@ class ZMIndex(SpatialIndex):
 
 def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, use_threshold, threshold, core,
              train_step, batch_num, learning_rate, retrain_time_limit, save_nn, weight, is_gpu, mp_list=None, rmi=None):
+    # stage1由于是全部数据输入，batch_size会太大，导致tensor变量初始化所需GPU内存超出
     batch_size = 2 ** math.ceil(math.log(len(inputs) / batch_num, 2))
     if batch_size < 1:
         batch_size = 1
