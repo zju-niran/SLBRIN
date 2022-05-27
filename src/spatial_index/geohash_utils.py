@@ -29,7 +29,7 @@ class Geohash:
         计算point的geohash_int
         1. 经纬度都先根据region归一化到0-1，然后缩放到0-2^self.dim_bits
         2. 使用merge_bits把整数的经纬度合并，并转为int，merge的时候是先lat后int，因此顺序是左下、右下、左上、右上
-        优化:zorder.pack->int(merge_bits):6->1
+        优化: zorder.pack->int(merge_bits):6->1
         """
         lng_zoom = round((lng - self.region.left) * self.max_num / self.region_width)
         lat_zoom = round((lat - self.region.bottom) * self.max_num / self.region_height)
@@ -55,7 +55,7 @@ class Geohash:
 
     def batch_merge_bits(self, int_range1, int_range2, diff_dim_bits, range_size):
         """
-        优化：merge_bits需要range_size次单维度geohash计算，batch后只需要宽*高次单维度geohash计算
+        优化: merge_bits需要range_size次单维度geohash计算，batch后只需要宽*高次单维度geohash计算
         """
         result = [None] * range_size
         i = 0

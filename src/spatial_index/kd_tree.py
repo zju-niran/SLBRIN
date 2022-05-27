@@ -288,7 +288,7 @@ class KDTree(SpatialIndex):
 
     def range_query_single(self, window):
         """
-        优化：stack/当前方法=>时间比为2:1
+        优化：stack->当前方法:2->1
         """
         result = []
         window = [window[2], window[3], window[0], window[1]]
@@ -329,7 +329,7 @@ class KDTree(SpatialIndex):
         3. 对前节点，直接遍历
         4. 对自己，直接加进优先队列，并且更新距离
         5. 对后节点，可以借助和node的分割线的距离判断，加速过滤
-        优化：stack/iter/当前方法=>时间比为50:50:0.1
+        优化：stack->iter->当前方法:时间比为50->50->0.1
         """
         value = knn[:-1]
         n = knn[-1]

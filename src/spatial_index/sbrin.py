@@ -414,7 +414,7 @@ class SBRIN(SpatialIndex):
             return tgt_geohash_dict
             # 前缀匹配太慢：时间复杂度=O(len(window对应的geohash个数)*(j-i))
 
-    def knn_query_hr(self, point1, point2, point3):
+    def knn_query_hr(self, center_hr_key, point1, point2, point3):
         """
         根据geohash1/geohash2找到之间所有hr的key以及和window的位置关系，并基于和point3距离排序
         1. 通过geohash_int1/geohash_int2找到window对应的所有org_geohash和对应window的position
@@ -423,8 +423,8 @@ class SBRIN(SpatialIndex):
         4. 计算每个tgt_geohash和point3的距离，并进行降序排序
         """
         # 1. 通过geohash_int1/geohash_int2找到window对应的所有org_geohash和对应window的position
-        hr_key1 = self.binary_search_less_max(point1, 0, self.meta.last_hr)
-        hr_key2 = self.binary_search_less_max(point2, hr_key1, self.meta.last_hr)
+        hr_key1 = self.biased_search_less_max(point1, center_hr_key, 0, center_hr_key)
+        hr_key2 = self.biased_search_less_max(point2, center_hr_key, center_hr_key, self.meta.last_hr)
         if hr_key1 == hr_key2:
             return [[hr_key1, 15, 0]]
         else:
@@ -464,17 +464,31 @@ class SBRIN(SpatialIndex):
     def binary_search_less_max(self, x, left, right):
         """
         二分查找比x小的最大值
-        优化: 循环->二分:15->1
+        优化: 循环->二分->最左匹配:15->1->0.75
         """
         while left <= right:
             mid = (left + right) // 2
-            if self.history_ranges[mid].value == x:
-                return mid
-            elif self.history_ranges[mid].value < x:
+            if self.history_ranges[mid].value <= x:
+                # 最左匹配
+                if self.meta.last_hr == mid or self.history_ranges[mid + 1].value > x:
+                    return mid
                 left = mid + 1
             else:
                 right = mid - 1
-        return right
+
+    def biased_search_less_max(self, x, mid, left, right):
+        """
+        二分查找比x小的最大值，指定初始mid
+        优化: 二分->biased二分:3->1
+        """
+        while left <= right:
+            if self.history_ranges[mid].value <= x:
+                if self.meta.last_hr == mid or self.history_ranges[mid + 1].value > x:
+                    return mid
+                left = mid + 1
+            else:
+                right = mid - 1
+            mid = (left + right) // 2
 
     def point_query_single(self, point):
         """
@@ -624,7 +638,7 @@ class SBRIN(SpatialIndex):
         self.meta.geohash.region.clip_region(window, self.meta.geohash.data_precision)
         gh1 = self.meta.geohash.encode(window[2], window[0])
         gh2 = self.meta.geohash.encode(window[3], window[1])
-        tp_window_hrs = self.knn_query_hr(gh1, gh2, knn)
+        tp_window_hrs = self.knn_query_hr(qp_hr_key, gh1, gh2, knn)
         tp_list = []
         for tp_window_hr in tp_window_hrs:
             if tp_window_hr[2] > max_dist:
