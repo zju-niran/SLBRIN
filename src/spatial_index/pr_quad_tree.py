@@ -434,7 +434,6 @@ def get_leaf_and_path(node_list, result, cur_path, key):
         get_leaf_and_path(node_list, result, copy.deepcopy(cur_path), item[3])
 
 
-# @profile(precision=8)
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     model_path = "model/prquadtree_10w/"

@@ -987,7 +987,6 @@ class AbstractNN:
         return (xs * self.matrices[-2] + self.matrices[-1]).T.A
 
 
-# @profile(precision=8)
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     model_path = "model/sbrin_10w/"

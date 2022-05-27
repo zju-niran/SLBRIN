@@ -221,7 +221,6 @@ class BlockRange:
         self.value = value
 
 
-# @profile(precision=8)
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     model_path = "model/brinspatial_10w/"

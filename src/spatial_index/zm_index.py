@@ -137,7 +137,8 @@ class ZMIndex(SpatialIndex):
 
     def weight(self, key):
         """
-        calculate weight in key
+        calculate weight from key
+        uniform分布的斜率理论上为1，密集分布则大于1，稀疏分布则小于1
         """
         leaf_model_key = 0
         for i in range(0, self.stage_length - 1):
@@ -145,8 +146,7 @@ class ZMIndex(SpatialIndex):
         leaf_model = self.rmi[-1][leaf_model_key]
         if leaf_model is None:
             return 1
-        delta = (leaf_model.input_max - leaf_model.input_min) / (leaf_model.output_max - leaf_model.output_min) / 2
-        return leaf_model.predict(key + delta) - leaf_model.predict(key - delta)
+        return leaf_model.weight(key)
 
     def point_query_single(self, point):
         """
@@ -360,6 +360,19 @@ class AbstractNN:
         y = y * self.matrices[-2] + self.matrices[-1]
         return denormalize_output_minmax(y[0, 0], self.output_min, self.output_max)
 
+    def weight(self, input_key):
+        """
+        calculate weight
+        """
+        # delta当前选8位有效数字，是metrix的最高精度
+        delta = 0.00000001
+        y1 = normalize_input_minmax(input_key, self.input_min, self.input_max)
+        y2 = y1 + delta
+        for i in range(len(self.core_nums) - 2):
+            y1 = sigmoid(y1 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
+            y2 = sigmoid(y2 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
+        return ((y2 - y1) * self.matrices[-2])[0, 0] / delta
+
     def tolist(self):
         result = [self.input_min, self.input_max, self.output_min, self.output_max, self.min_err, self.max_err]
         result.extend(self.core_nums)
@@ -377,7 +390,6 @@ class AbstractNN:
         return result
 
 
-# @profile(precision=8)
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     model_path = "model/zm_index_10w/"
