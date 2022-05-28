@@ -47,6 +47,9 @@ class ZMIndex(SpatialIndex):
         1. ordering x/y point by geohash
         2. create rmi to train geohash->key data
         """
+        model_hdf_dir = os.path.join(self.model_path, "hdf/")
+        if os.path.exists(model_hdf_dir) is False:
+            os.makedirs(model_hdf_dir)
         self.geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
         self.stage_length = len(stages)
         train_inputs = [[[] for i in range(stages[i])] for i in range(self.stage_length)]

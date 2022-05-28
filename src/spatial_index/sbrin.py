@@ -149,6 +149,9 @@ class SBRIN(SpatialIndex):
 
     def build_nn_multiprocess(self, is_new, is_gpu, weight, core, train_step, batch_num, learning_rate,
                               use_threshold, threshold, retrain_time_limit, thread_pool_size):
+        model_hdf_dir = os.path.join(self.model_path, "hdf/")
+        if os.path.exists(model_hdf_dir) is False:
+            os.makedirs(model_hdf_dir)
         multiprocessing.set_start_method('spawn', force=True)  # 解决CUDA_ERROR_NOT_INITIALIZED报错
         pool = multiprocessing.Pool(processes=thread_pool_size)
         mp_dict = multiprocessing.Manager().dict()
@@ -1039,9 +1042,6 @@ def main():
     model_path = "model/sbrin_10w/"
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
-    model_hdf_dir = os.path.join(model_path, "hdf/")
-    if os.path.exists(model_hdf_dir) is False:
-        os.makedirs(model_hdf_dir)
     index = SBRIN(model_path=model_path)
     index_name = index.name
     load_index_from_json = True
