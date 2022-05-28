@@ -542,24 +542,6 @@ def denormalize_output_minmax(value, min_v, max_v):
         return max_v
     return value * (max_v - min_v) + min_v
 
-
-def denormalize_diff_minmax(na1, na2, min_v, max_v):
-    if max_v == min_v:
-        return 0.0, 0.0
-    else:
-        f1 = np.frompyfunc(denormalize_diff_minmax_child, 4, 1)
-        result_na = f1(na1, na2, min_v, max_v).astype('float')
-        return result_na.min(), result_na.max()
-
-
-def denormalize_diff_minmax_child(num1, num2, min_v, max_v):
-    if num1 < 0:
-        num1 = 0
-    elif num1 > 1:
-        num1 = 1
-    return (num1 - num2) * (max_v - min_v)
-
-
 def relu(x):
     return np.maximum(0, x)
 

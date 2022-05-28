@@ -1,5 +1,4 @@
 import logging
-import math
 import os.path
 import random
 import time
@@ -7,8 +6,6 @@ import time
 import matplotlib
 import numpy as np
 import tensorflow as tf
-
-from src.spatial_index.common_utils import normalize_output, normalize_input
 
 matplotlib.use('Agg')  # 解决_tkinter.TclError: couldn't connect to display "localhost:11.0"
 
@@ -23,10 +20,13 @@ class TrainedNN:
         self.model_hdf_dir = os.path.join(model_path, "hdf/")
         self.model_key = model_key
         # data
-        # 当只有一个输入输出时，整数的key作为y_true会导致score中y_true-y_pred出现类型错误：
-        # TypeError: Input 'y' of 'Sub' Op has type float32 that does not match type int32 of argument 'x'.
-        self.train_x, self.train_x_min, self.train_x_max = normalize_input(np.array(train_x).astype("float"))
-        self.train_y, self.train_y_min, self.train_y_max = normalize_output(np.array(train_y).astype("float"))
+        # 区别：train_x的是有序的，因此归一化不用计算最大最小值
+        self.train_x_min = train_x[0]
+        self.train_x_max = train_x[-1]
+        self.train_x = (np.array(train_x) - self.train_x_min) / (self.train_x_max - self.train_x_min) - 0.5
+        self.train_y_min = train_y[0]
+        self.train_y_max = train_y[-1]
+        self.train_y = (np.array(train_y) - self.train_y_min) / (self.train_y_max - self.train_y_min)
         # model structure
         self.is_new = is_new
         self.is_gpu = is_gpu
@@ -141,6 +141,46 @@ class TrainedNN:
         end_time = time.time()
         self.logging.info("Model key: %s, Train time: %s" % (self.model_key, end_time - start_time))
 
+    # 区别：simple结尾的函数用于模型的重训练
+    def train_simple(self, matrices):
+        if self.is_gpu:
+            os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+            os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+            # 不输出报错：This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the
+            # following CPU instructions in performance-critical operations:  AVX AVX2
+            os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+            gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+        else:
+            os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+        self.init_model()
+        self.model_hdf_file = os.path.join(self.model_hdf_dir, self.model_key + ".best.hdf5")
+        self.set_matrices(matrices)
+        self.train_model_simple()
+
+    def train_model_simple(self):
+        checkpoint = tf.keras.callbacks.ModelCheckpoint(self.model_hdf_file,
+                                                        monitor='loss',
+                                                        verbose=0,
+                                                        save_best_only=True,
+                                                        mode='min',
+                                                        save_freq='epoch')
+        early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss',
+                                                          patience=50,
+                                                          mode='min',
+                                                          verbose=0)
+        self.model.fit(self.train_x, self.train_y,
+                       epochs=self.train_step,
+                       initial_epoch=0,
+                       batch_size=self.batch_size,
+                       verbose=0,
+                       callbacks=[checkpoint, early_stopping])
+        # 加载loss最小的模型
+        self.model = tf.keras.models.load_model(self.model_hdf_file, custom_objects={'score': self.score})
+        self.matrices = self.get_matrices()
+        self.min_err, self.max_err = self.get_err()
+
     def get_matrices(self):
         return [np.mat(matrix) for matrix in self.model.get_weights()]
 
@@ -165,24 +205,14 @@ class TrainedNN:
         mse_loss = tf.keras.backend.mean(tf.keras.backend.square(diff), axis=-1)
         return self.weight * range_loss + mse_loss
 
-    def batch_predict(self):
-        """
-        分batch predict来减少内存占用
-        避免一次性redict形成size(self.train_x) * 1的tensor造成内存溢出
-        """
-        train_x_len = len(self.train_x)
-        step = 10000
-        pres = np.empty(shape=(0, 1))
-        for i in range(math.ceil(train_x_len / step)):
-            tmp_pres = self.model(self.train_x[i * step:(i + 1) * step].reshape(-1, 1)).numpy()
-            pres = np.vstack((pres, tmp_pres))
-        return pres.flatten()
-
     def get_err(self):
-        pres = self.batch_predict()
+        # 区别：计算err的时候不考虑breakpoints
+        inputs = self.train_x[1:-1]
+        input_len = len(inputs)
+        pres = self.model(inputs).numpy().flatten()
         pres[pres < 0] = 0
         pres[pres > 1] = 1
-        errs = (pres - self.train_y) * (self.train_y_max - self.train_y_min)
+        errs = pres * (input_len - 1) - np.arange(input_len)
         return errs.min(), errs.max()
 
     def get_best_model_file(self):

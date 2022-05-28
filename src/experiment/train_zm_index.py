@@ -31,18 +31,18 @@ if __name__ == '__main__':
                         is_sorted=True,
                         data_precision=data_precision[data_distribution],
                         region=data_region[data_distribution],
-                        use_thresholds=[True, True],
-                        thresholds=[0, 0],
+                        is_new=True,
+                        is_gpu=True,
+                        weight=1,
                         stages=[1, stage2_num],
-                        cores=[[1, 128, 1], [1, 128, 1]],
+                        cores=[[1, 128], [1, 128]],
                         train_steps=[5000, 5000],
                         batch_nums=[64, 64],
                         learning_rates=[0.1, 0.1],
-                        retrain_time_limits=[5, 5],
-                        thread_pool_size=12,
-                        save_nn=True,
-                        weight=1,
-                        is_gpu=True)
+                        use_thresholds=[False, False],
+                        thresholds=[0, 0],
+                        retrain_time_limits=[3, 3],
+                        thread_pool_size=12)
             index.save()
             end_time = time.time()
             build_time = end_time - start_time

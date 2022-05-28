@@ -14,7 +14,6 @@ from src.spatial_index.common_utils import Region, biased_search, normalize_inpu
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 from src.learned_model import TrainedNN
-from src.learned_model_simple import TrainedNN as TrainedNN_Simple
 from src.experiment.common_utils import load_data, Distribution
 
 RA_PAGES = 256
@@ -40,9 +39,9 @@ class ZMIndex(SpatialIndex):
                             datefmt="%Y/%m/%d %H:%M:%S %p")
         self.logging = logging.getLogger(self.name)
 
-    def build(self, data_list, is_sorted, data_precision, region,
-              use_thresholds, thresholds, stages, cores, train_steps, batch_nums, learning_rates, retrain_time_limits,
-              thread_pool_size, save_nn, weight, is_gpu):
+    def build(self, data_list, is_sorted, data_precision, region, is_new, is_gpu, weight,
+              stages, cores, train_steps, batch_nums, learning_rates, use_thresholds, thresholds, retrain_time_limits,
+              thread_pool_size):
         """
         build index
         1. ordering x/y point by geohash
@@ -78,9 +77,9 @@ class ZMIndex(SpatialIndex):
                     divisor = stages[i + 1] * 1.0 / (self.train_data_length + 1)
                     labels = [int(k * divisor) for k in train_labels[i][j]]
                     # train model
-                    build_nn(self.model_path, i, j, inputs, labels, use_thresholds[i], thresholds[i], cores[i],
-                             train_steps[i], batch_nums[i], learning_rates[i], retrain_time_limits[i],
-                             save_nn, weight, is_gpu, None, self.rmi)
+                    build_nn(self.model_path, i, j, inputs, labels, is_new, is_gpu, weight, cores[i], train_steps[i],
+                             batch_nums[i], learning_rates[i], use_thresholds[i], thresholds[i], retrain_time_limits[i],
+                             None, self.rmi)
                     # allocate data into training set for models in next stage
                     for ind in range(len(train_inputs[i][j])):
                         # pick model in next stage with output of this model
@@ -101,10 +100,9 @@ class ZMIndex(SpatialIndex):
             labels = train_labels[i][j]
             if labels is None or len(labels) == 0:
                 continue
-            pool.apply_async(build_nn,
-                             (self.model_path, i, j, inputs, labels,
-                              use_thresholds[i], thresholds[i], cores[i], train_steps[i], batch_nums[i],
-                              learning_rates[i], retrain_time_limits[i], save_nn, weight, is_gpu, mp_list, None))
+            pool.apply_async(build_nn, (self.model_path, i, j, inputs, labels, is_new, is_gpu,
+                                        weight, cores[i], train_steps[i], batch_nums[i], learning_rates[i],
+                                        use_thresholds[i], thresholds[i], retrain_time_limits[i], mp_list, None))
         pool.close()
         pool.join()
         self.rmi[i] = [model for model in mp_list]
@@ -313,9 +311,20 @@ class ZMIndex(SpatialIndex):
         io_list = [(model_io_list[i] + data_io_list[i]) * data_num_list[i] for i in range(stage2_model_num)]
         return sum(io_list) / sum(data_num_list)
 
+    def model_clear(self):
+        """
+        清除非最小误差的model
+        """
+        for i in range(self.stage_length):
+            for j in range(len(self.rmi[i])):
+                model_key = "%s_%s" % (i, j)
+                tmp_index = TrainedNN(self.model_path, model_key, None, None, None, None, None,
+                                      None, None, None, None, None, None, None)
+                tmp_index.clean_not_best_model_file()
 
-def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, use_threshold, threshold, core,
-             train_step, batch_num, learning_rate, retrain_time_limit, save_nn, weight, is_gpu, mp_list=None, rmi=None):
+
+def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new, is_gpu, weight, core, train_step,
+             batch_num, learning_rate, use_threshold, threshold, retrain_time_limit, mp_list=None, rmi=None):
     # stage1由于是全部数据输入，batch_size会太大，导致tensor变量初始化所需GPU内存超出
     batch_size = 2 ** math.ceil(math.log(len(inputs) / batch_num, 2))
     if batch_size < 1:
@@ -323,13 +332,9 @@ def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, use_thr
     i = curr_stage
     j = current_stage_step
     model_key = "%s_%s" % (i, j)
-    if not save_nn:
-        tmp_index = TrainedNN_Simple(model_path, model_key, inputs, labels, core, train_step, batch_size,
-                                     learning_rate, weight)
-    else:
-        tmp_index = TrainedNN(model_path, model_key, inputs, labels, use_threshold, threshold, core,
-                              train_step, batch_size, learning_rate, retrain_time_limit, weight)
-    tmp_index.train(is_gpu)
+    tmp_index = TrainedNN(model_path, model_key, inputs, labels, is_new, is_gpu, weight, core, train_step, batch_size,
+                          learning_rate, use_threshold, threshold, retrain_time_limit)
+    tmp_index.train()
     abstract_index = AbstractNN(tmp_index.get_matrices(), core,
                                 int(tmp_index.train_x_min), int(tmp_index.train_x_max),
                                 int(tmp_index.train_y_min), int(tmp_index.train_y_max),
@@ -355,7 +360,7 @@ class AbstractNN:
 
     def predict(self, input_key):
         y = normalize_input_minmax(input_key, self.input_min, self.input_max)
-        for i in range(len(self.core_nums) - 2):
+        for i in range(len(self.core_nums) - 1):
             y = sigmoid(y * self.matrices[i * 2] + self.matrices[i * 2 + 1])
         y = y * self.matrices[-2] + self.matrices[-1]
         return denormalize_output_minmax(y[0, 0], self.output_min, self.output_max)
@@ -368,26 +373,10 @@ class AbstractNN:
         delta = 0.00000001
         y1 = normalize_input_minmax(input_key, self.input_min, self.input_max)
         y2 = y1 + delta
-        for i in range(len(self.core_nums) - 2):
+        for i in range(len(self.core_nums) - 1):
             y1 = sigmoid(y1 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
             y2 = sigmoid(y2 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
         return ((y2 - y1) * self.matrices[-2])[0, 0] / delta
-
-    def tolist(self):
-        result = [self.input_min, self.input_max, self.output_min, self.output_max, self.min_err, self.max_err]
-        result.extend(self.core_nums)
-        # 处理非输出层
-        for i in range(len(self.core_nums) - 2):
-            weight = self.matrices[2 * i].tolist()
-            bias = self.matrices[2 * i + 1].tolist()
-            for j in range(self.core_nums[i]):
-                result.extend(weight[j])
-            for j in range(self.core_nums[i]):
-                result.extend(bias[j])
-        # 输出层，输出层weight=hl_nums*1, bias=1*1
-        result.extend(self.matrices[-2].flatten().tolist()[0])
-        result.extend(self.matrices[-1].tolist()[0])
-        return result
 
 
 def main():
@@ -415,18 +404,18 @@ def main():
                     is_sorted=True,
                     data_precision=6,
                     region=Region(40, 42, -75, -73),
-                    use_thresholds=[False, False],
-                    thresholds=[5, 20],
+                    is_new=False,
+                    is_gpu=True,
+                    weight=1,
                     stages=[1, 100],
-                    cores=[[1, 128, 1], [1, 128, 1]],
+                    cores=[[1, 128], [1, 128]],
                     train_steps=[5000, 5000],
                     batch_nums=[64, 64],
                     learning_rates=[0.1, 0.1],
+                    use_thresholds=[False, False],
+                    thresholds=[5, 20],
                     retrain_time_limits=[4, 2],
-                    thread_pool_size=6,
-                    save_nn=True,
-                    weight=1,
-                    is_gpu=True)
+                    thread_pool_size=6)
         index.save()
         end_time = time.time()
         build_time = end_time - start_time
