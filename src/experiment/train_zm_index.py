@@ -31,6 +31,7 @@ if __name__ == '__main__':
                         data_precision=data_precision[data_distribution],
                         region=data_region[data_distribution],
                         is_new=True,
+                        is_simple=False,
                         is_gpu=True,
                         weight=1,
                         stages=[1, stage2_num],

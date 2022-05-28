@@ -4,16 +4,12 @@ import os.path
 import random
 import time
 
-import matplotlib
 import numpy as np
 import tensorflow as tf
 
 from src.spatial_index.common_utils import normalize_output, normalize_input
 
-matplotlib.use('Agg')  # 解决_tkinter.TclError: couldn't connect to display "localhost:11.0"
 
-
-# Neural Network Model
 class TrainedNN:
     def __init__(self, model_path, model_key, train_x, train_y, is_new, is_gpu, weight, core, train_step,
                  batch_size, learning_rate, use_threshold, threshold, retrain_time_limit):

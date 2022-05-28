@@ -10,6 +10,8 @@ import time
 import line_profiler
 import numpy as np
 
+from src.learned_model_sbrin_simple import TrainedNN_Simple
+
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.learned_model_sbrin import TrainedNN
 from src.spatial_index.common_utils import Region, binary_search_less_max, get_nearest_none, sigmoid, \
@@ -144,10 +146,10 @@ class SBRIN(SpatialIndex):
             result_data_list.extend([(0, 0, 0, 0)] * (threshold_number - result_list[i][2]))
         self.index_entries = result_data_list
         # 3. build learned model
-        self.build_nn_multiprocess(is_new, is_gpu, weight, core, train_step, batch_num, learning_rate,
+        self.build_nn_multiprocess(is_new, is_simple, is_gpu, weight, core, train_step, batch_num, learning_rate,
                                    use_threshold, threshold, retrain_time_limit, thread_pool_size)
 
-    def build_nn_multiprocess(self, is_new, is_gpu, weight, core, train_step, batch_num, learning_rate,
+    def build_nn_multiprocess(self, is_new, is_simple, is_gpu, weight, core, train_step, batch_num, learning_rate,
                               use_threshold, threshold, retrain_time_limit, thread_pool_size):
         model_hdf_dir = os.path.join(self.model_path, "hdf/")
         if os.path.exists(model_hdf_dir) is False:
@@ -168,7 +170,7 @@ class SBRIN(SpatialIndex):
             if batch_size < 1:
                 batch_size = 1
             # batch_size = batch_num
-            pool.apply_async(build_nn, (self.model_path, i, inputs, labels, is_new, is_gpu,
+            pool.apply_async(build_nn, (self.model_path, i, inputs, labels, is_new, is_simple, is_gpu,
                                         weight, core, train_step, batch_size, learning_rate,
                                         use_threshold, threshold, retrain_time_limit, mp_dict))
         pool.close()
@@ -943,10 +945,13 @@ range_position_funcs = [
 
 
 # for train
-def build_nn(model_path, model_key, inputs, labels, is_new, is_gpu, weight, core, train_step, batch_size,
+def build_nn(model_path, model_key, inputs, labels, is_new, is_simple, is_gpu, weight, core, train_step, batch_size,
              learning_rate, use_threshold, threshold, retrain_time_limit, tmp_dict=None):
-    tmp_index = TrainedNN(model_path, str(model_key), inputs, labels, is_new, is_gpu, weight, core,
-                          train_step, batch_size, learning_rate, use_threshold, threshold, retrain_time_limit)
+    if is_simple:
+        tmp_index = TrainedNN_Simple(inputs, labels, is_gpu, weight, core, train_step, batch_size, learning_rate)
+    else:
+        tmp_index = TrainedNN(model_path, str(model_key), inputs, labels, is_new, is_gpu, weight, core,
+                              train_step, batch_size, learning_rate, use_threshold, threshold, retrain_time_limit)
     tmp_index.train()
     abstract_index = AbstractNN(tmp_index.matrices, len(core) - 1,
                                 math.ceil(tmp_index.min_err),
@@ -1044,7 +1049,7 @@ def main():
         os.makedirs(model_path)
     index = SBRIN(model_path=model_path)
     index_name = index.name
-    load_index_from_json = True
+    load_index_from_json = False
     if load_index_from_json:
         index.load()
     else:
@@ -1069,6 +1074,7 @@ def main():
                     threshold_summary=1000,
                     threshold_merge=5,
                     is_new=False,
+                    is_simple=True,
                     is_gpu=True,
                     weight=1,
                     core=[1, 128],

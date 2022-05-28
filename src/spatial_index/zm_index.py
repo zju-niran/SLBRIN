@@ -8,6 +8,8 @@ import time
 
 import numpy as np
 
+from src.learned_model_simple import TrainedNN_Simple
+
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.common_utils import Region, biased_search, normalize_input_minmax, denormalize_output_minmax, \
     sigmoid, contain_and_border
@@ -39,7 +41,7 @@ class ZMIndex(SpatialIndex):
                             datefmt="%Y/%m/%d %H:%M:%S %p")
         self.logging = logging.getLogger(self.name)
 
-    def build(self, data_list, is_sorted, data_precision, region, is_new, is_gpu, weight,
+    def build(self, data_list, is_sorted, data_precision, region, is_new, is_simple, is_gpu, weight,
               stages, cores, train_steps, batch_nums, learning_rates, use_thresholds, thresholds, retrain_time_limits,
               thread_pool_size):
         """
@@ -80,9 +82,9 @@ class ZMIndex(SpatialIndex):
                     divisor = stages[i + 1] * 1.0 / (self.train_data_length + 1)
                     labels = [int(k * divisor) for k in train_labels[i][j]]
                     # train model
-                    build_nn(self.model_path, i, j, inputs, labels, is_new, is_gpu, weight, cores[i], train_steps[i],
-                             batch_nums[i], learning_rates[i], use_thresholds[i], thresholds[i], retrain_time_limits[i],
-                             None, self.rmi)
+                    build_nn(self.model_path, i, j, inputs, labels, is_new, is_simple, is_gpu,
+                             weight, cores[i], train_steps[i], batch_nums[i], learning_rates[i],
+                             use_thresholds[i], thresholds[i], retrain_time_limits[i], None, self.rmi)
                     # allocate data into training set for models in next stage
                     for ind in range(len(train_inputs[i][j])):
                         # pick model in next stage with output of this model
@@ -103,7 +105,7 @@ class ZMIndex(SpatialIndex):
             labels = train_labels[i][j]
             if labels is None or len(labels) == 0:
                 continue
-            pool.apply_async(build_nn, (self.model_path, i, j, inputs, labels, is_new, is_gpu,
+            pool.apply_async(build_nn, (self.model_path, i, j, inputs, labels, is_new, is_simple, is_gpu,
                                         weight, cores[i], train_steps[i], batch_nums[i], learning_rates[i],
                                         use_thresholds[i], thresholds[i], retrain_time_limits[i], mp_list, None))
         pool.close()
@@ -326,17 +328,22 @@ class ZMIndex(SpatialIndex):
                 tmp_index.clean_not_best_model_file()
 
 
-def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new, is_gpu, weight, core, train_step,
-             batch_num, learning_rate, use_threshold, threshold, retrain_time_limit, mp_list=None, rmi=None):
+def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new, is_simple, is_gpu,
+             weight, core, train_step, batch_num, learning_rate,
+             use_threshold, threshold, retrain_time_limit, mp_list=None, rmi=None):
     # stage1由于是全部数据输入，batch_size会太大，导致tensor变量初始化所需GPU内存超出
     batch_size = 2 ** math.ceil(math.log(len(inputs) / batch_num, 2))
     if batch_size < 1:
         batch_size = 1
     i = curr_stage
     j = current_stage_step
-    model_key = "%s_%s" % (i, j)
-    tmp_index = TrainedNN(model_path, model_key, inputs, labels, is_new, is_gpu, weight, core, train_step, batch_size,
-                          learning_rate, use_threshold, threshold, retrain_time_limit)
+    if is_simple:
+        tmp_index = TrainedNN_Simple(inputs, labels, is_gpu, weight, core, train_step, batch_size, learning_rate)
+    else:
+        model_key = "%s_%s" % (i, j)
+        tmp_index = TrainedNN(model_path, model_key, inputs, labels, is_new, is_gpu,
+                              weight, core, train_step, batch_size, learning_rate,
+                              use_threshold, threshold, retrain_time_limit)
     tmp_index.train()
     abstract_index = AbstractNN(tmp_index.get_matrices(), core,
                                 int(tmp_index.train_x_min), int(tmp_index.train_x_max),
@@ -408,6 +415,7 @@ def main():
                     data_precision=6,
                     region=Region(40, 42, -75, -73),
                     is_new=False,
+                    is_simple=True,
                     is_gpu=True,
                     weight=1,
                     stages=[1, 100],
