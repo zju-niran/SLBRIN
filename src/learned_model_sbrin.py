@@ -209,11 +209,14 @@ class TrainedNN:
         # 区别：计算err的时候不考虑breakpoints
         inputs = self.train_x[1:-1]
         input_len = len(inputs)
-        pres = self.model(inputs).numpy().flatten()
-        pres[pres < 0] = 0
-        pres[pres > 1] = 1
-        errs = pres * (input_len - 1) - np.arange(input_len)
-        return errs.min(), errs.max()
+        if input_len:
+            pres = self.model(inputs).numpy().flatten()
+            pres[pres < 0] = 0
+            pres[pres > 1] = 1
+            errs = pres * (input_len - 1) - np.arange(input_len)
+            return errs.min(), errs.max()
+        else:
+            return 0.0, 0.0
 
     def get_best_model_file(self):
         """

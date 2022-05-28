@@ -215,8 +215,6 @@ class SBRIN(SpatialIndex):
     def insert_single(self, point):
         # 1. encode p to geohash and create index entry(geohash, x, y, pointer)
         point.insert(-1, self.meta.geohash.encode(point[0], point[1]))
-        if point == [-73.990692, 40.761051, 457451432577702, 104999]:
-            print("")
         # 2. insert into cr
         self.current_ranges[-1].number += 1
         self.index_entries.append(tuple(point))
@@ -274,7 +272,7 @@ class SBRIN(SpatialIndex):
             first_key = (self.meta.last_hr + 1) * self.meta.threshold_number
             old_data = sorted(self.index_entries[first_key:first_key + old_data_len], key=lambda x: x[2])
             # 2. merge index entries into hrs
-            hr_key = self.binary_search_less_max(old_data[0][2], 2, self.meta.last_hr) + 1
+            hr_key = self.binary_search_less_max(old_data[0][2], 0, self.meta.last_hr) + 1
             tmp_l_key = 0
             tmp_r_key = 0
             while tmp_r_key < old_data_len:
@@ -282,7 +280,7 @@ class SBRIN(SpatialIndex):
                     if self.history_ranges[hr_key].value > old_data[tmp_r_key][2]:
                         tmp_r_key += 1
                     else:
-                        if tmp_r_key - tmp_l_key > 1:
+                        if tmp_r_key - tmp_l_key > 0:
                             self.update_hr(hr_key - 1, old_data[tmp_l_key:tmp_r_key])
                             tmp_l_key = tmp_r_key
                         hr_key += 1
@@ -995,12 +993,16 @@ class HistoryRange:
         return int(self.max_key * x)
 
     def model_update(self, xs):
-        pres = self.model.predicts((np.mat(xs).T - self.value) / self.value_diff - 0.5)
-        pres[pres < 0] = 0
-        pres[pres > 1] = 1
-        errs = pres * self.max_key - np.arange(self.number)
-        self.model.min_err = math.ceil(errs.min())
-        self.model.max_err = math.ceil(errs.max())
+        if self.number:
+            pres = self.model.predicts((np.mat(xs).T - self.value) / self.value_diff - 0.5)
+            pres[pres < 0] = 0
+            pres[pres > 1] = 1
+            errs = pres * self.max_key - np.arange(self.number)
+            self.model.min_err = math.ceil(errs.min())
+            self.model.max_err = math.ceil(errs.max())
+        else:
+            self.model.min_err = 0
+            self.model.max_err = 0
 
 
 class CurrentRange:

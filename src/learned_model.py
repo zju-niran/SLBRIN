@@ -179,6 +179,8 @@ class TrainedNN:
         return pres.flatten()
 
     def get_err(self):
+        if self.train_y_max == self.train_y_min:
+            return 0.0, 0.0
         pres = self.batch_predict()
         pres[pres < 0] = 0
         pres[pres > 1] = 1
