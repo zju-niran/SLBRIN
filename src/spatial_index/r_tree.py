@@ -128,7 +128,7 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        data_list = load_data(Distribution.NYCT_10W)
+        build_data_list = load_data(Distribution.NYCT_10W, 0)
         # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y)=8, 一个page存放一个node
         # leaf node存放xyxy数据、数据指针、指向下一个leaf node的指针
         # leaf_node_capacity=(pagesize-size(pointer))/(size(x)*4+size(pointer))=(4096-4)/(8*4+4*1)=113
@@ -144,7 +144,7 @@ def main():
         # 树高四层1-96-96*96-leaf，假设数据极端聚集，则叶节点为1451w/113个=128408，数据均匀分布则10w/113*2=256815
         # 单次扫描IO=树高=4
         # 索引体积=(1+96+96*96+256815)*4096
-        index.build(data_list=data_list,
+        index.build(data_list=build_data_list,
                     fill_factor=0.7,
                     leaf_node_capacity=113,
                     non_leaf_node_capacity=113,
@@ -181,12 +181,11 @@ def main():
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time: %s" % search_time)
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/table/trip_data_2_filter_10w.npy'
-    insert_data_list = np.load(path, allow_pickle=True)[:, [10, 11, -1]]
+    update_data_list = load_data(Distribution.NYCT_10W, 1)
     start_time = time.time()
-    index.insert(insert_data_list)
+    index.insert(update_data_list)
     end_time = time.time()
-    logging.info("Insert time: %s" % (end_time - start_time))
+    logging.info("Update time: %s" % (end_time - start_time))
 
 
 if __name__ == '__main__':

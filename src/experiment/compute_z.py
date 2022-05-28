@@ -9,7 +9,7 @@ from src.spatial_index.geohash_utils import Geohash
 os.chdir(os.path.dirname(os.path.realpath(__file__)))
 data_distributions = [Distribution.UNIFORM, Distribution.NORMAL, Distribution.NYCT]
 for data_distribution in data_distributions:
-    data_list = load_data(data_distribution)
+    build_data_list = load_data(data_distribution, 0)
     geohash = Geohash.init_by_precision(data_precision=data_precision[data_distribution],
                                         region=data_region[data_distribution])
     start_time = time.time()

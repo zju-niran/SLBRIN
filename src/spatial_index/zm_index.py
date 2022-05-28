@@ -392,7 +392,7 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        data_list = load_data(Distribution.NYCT_10W_SORTED)
+        build_data_list = load_data(Distribution.NYCT_10W_SORTED, 0)
         # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y/g)=8, meta单独一个page
         # node体积=2000，一个page存2个node，单read_ahead读取256*2=512node
         # data体积=x/y/g/key=8*3+4=28，一个page存146个data，单read_ahead读取256*146=37376data
@@ -400,7 +400,7 @@ def main():
         # meta+stage0 node存一个page，stage2 node需要22/2=11个page，data需要10w/146=685page
         # 单次扫描IO=读取meta+读取每个stage的rmi+读取叶stage对应geohash数据=1+11/512+10w/37376
         # 索引体积为geohash索引+rmi+meta
-        index.build(data_list=data_list,
+        index.build(data_list=build_data_list,
                     is_sorted=True,
                     data_precision=6,
                     region=Region(40, 42, -75, -73),
@@ -448,12 +448,11 @@ def main():
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time: %s" % search_time)
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    # path = '../../data/table/trip_data_2_filter_10w.npy'
-    # insert_data_list = np.load(path, allow_pickle=True)[:, [10, 11, -1]]
+    # update_data_list = load_data(Distribution.NYCT_10W, 1)
     # start_time = time.time()
-    # index.insert(insert_data_list)
+    # index.insert(update_data_list)
     # end_time = time.time()
-    # logging.info("Insert time: %s" % (end_time - start_time))
+    # logging.info("Update time: %s" % (end_time - start_time))
 
 
 if __name__ == '__main__':

@@ -299,7 +299,7 @@ class Item():
 # For Test
 def b_tree_main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data_list = load_data(Distribution.NYCT_10W)
+    build_data_list = load_data(Distribution.NYCT_10W, 0)
     b = BTree(2)
     l = len(data_list)
     for i in range(l):

@@ -447,7 +447,7 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        data_list = load_data(Distribution.NYCT_10W)
+        build_data_list = load_data(Distribution.NYCT_10W, 0)
         # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y)=8, node和data按照DFS的顺序密集存储在page中
         # tree存放所有node的深度、是否叶节点、region、四节点指针和data的始末指针:
         # node size=1+1+8*4+4*4+4*2=58，单page存放4096/58=70node，单read_ahead读取256*70=17920node
@@ -461,7 +461,7 @@ def main():
         # 叶节点平均数据约为0.5*1000=500，叶节点约有1451w/500=29020个，非叶节点数量由数据分布决定，节点大约5w个
         # 单次扫描IO=读取node+读取node对应数据=5w/17920+500/52224=4~5
         # 索引体积=5w/64*4096+20*1451w
-        index.build(data_list=data_list,
+        index.build(data_list=build_data_list,
                     region=Region(40, 42, -75, -73),
                     threshold_number=1000,
                     data_precision=6)
@@ -497,12 +497,11 @@ def main():
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time: %s" % search_time)
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/table/trip_data_2_filter_10w.npy'
-    insert_data_list = np.load(path, allow_pickle=True)[:, [10, 11, -1]]
+    update_data_list = load_data(Distribution.NYCT_10W, 1)
     start_time = time.time()
-    index.insert(insert_data_list)
+    index.insert(update_data_list)
     end_time = time.time()
-    logging.info("Insert time: %s" % (end_time - start_time))
+    logging.info("Update time: %s" % (end_time - start_time))
 
 
 if __name__ == '__main__':

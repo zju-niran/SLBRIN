@@ -18,7 +18,8 @@ class Distribution(Enum):
     NYCT_10W_SORTED = 9
 
 
-data_path = {
+# data for build index
+build_data_path = {
     Distribution.UNIFORM: "../../data/table/uniform_1.npy",
     Distribution.NORMAL: "../../data/table/normal_1.npy",
     Distribution.NYCT: "../../data/table/trip_data_1_filter.npy",
@@ -30,7 +31,15 @@ data_path = {
     Distribution.NYCT_SORTED: "../../data/index/nyct_1_sorted.npy",
     Distribution.NYCT_10W_SORTED: "../../data/index/nyct_1_10w_sorted.npy",
 }
-
+# data for update index
+update_data_path = {
+    Distribution.UNIFORM: "../../data/table/uniform_2.npy",
+    Distribution.NORMAL: "../../data/table/normal_2.npy",
+    Distribution.NYCT: "../../data/table/trip_data_2_filter.npy",
+    Distribution.UNIFORM_10W: "../../data/table/uniform_2_10w.npy",
+    Distribution.NORMAL_10W: "../../data/table/normal_2_10w.npy",
+    Distribution.NYCT_10W: "../../data/table/trip_data_2_filter_10w.npy",
+}
 data_precision = {
     Distribution.UNIFORM: 8,
     Distribution.NORMAL: 8,
@@ -43,7 +52,6 @@ data_precision = {
     Distribution.NYCT_SORTED: 6,
     Distribution.NYCT_10W_SORTED: 6,
 }
-
 data_region = {
     Distribution.UNIFORM: Region(0, 1, 0, 1),
     Distribution.NORMAL: Region(0, 1, 0, 1),
@@ -58,11 +66,17 @@ data_region = {
 }
 
 
-def load_data(distribution):
-    if distribution in [Distribution.NYCT, Distribution.NYCT_10W]:
-        return np.load(data_path[distribution], allow_pickle=True)[:, [10, 11, -1]]
+def load_data(distribution, type):
+    if type == 0:
+        if distribution in [Distribution.NYCT, Distribution.NYCT_10W]:
+            return np.load(build_data_path[distribution], allow_pickle=True)[:, [10, 11, -1]]
+        else:
+            return np.load(build_data_path[distribution], allow_pickle=True)
     else:
-        return np.load(data_path[distribution], allow_pickle=True)
+        if distribution in [Distribution.NYCT, Distribution.NYCT_10W]:
+            return np.load(update_data_path[distribution], allow_pickle=True)[:, [10, 11, -1]]
+        else:
+            return np.load(update_data_path[distribution], allow_pickle=True)
 
 
 point_query_path = {
@@ -77,7 +91,6 @@ point_query_path = {
     Distribution.NYCT_SORTED: '../../data/query/point_query_nyct.npy',
     Distribution.NYCT_10W_SORTED: '../../data/query/point_query_nyct.npy',
 }
-
 range_query_path = {
     Distribution.UNIFORM: '../../data/query/range_query_uniform.npy',
     Distribution.NORMAL: '../../data/query/range_query_normal.npy',
@@ -90,7 +103,6 @@ range_query_path = {
     Distribution.NYCT_SORTED: '../../data/query/range_query_nyct.npy',
     Distribution.NYCT_10W_SORTED: '../../data/query/range_query_nyct.npy',
 }
-
 knn_query_path = {
     Distribution.UNIFORM: '../../data/query/knn_query_uniform.npy',
     Distribution.NORMAL: '../../data/query/knn_query_normal.npy',

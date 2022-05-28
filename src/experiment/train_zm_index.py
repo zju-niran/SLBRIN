@@ -23,11 +23,10 @@ if __name__ == '__main__':
             if os.path.exists(model_path) is False:
                 os.makedirs(model_path)
             index = ZMIndex(model_path=model_path)
-            index_name = index.name
             logging.info("*************start %s************" % model_path)
             start_time = time.time()
-            data_list = load_data(data_distribution)
-            index.build(data_list=data_list,
+            build_data_list = load_data(data_distribution, 0)
+            index.build(data_list=build_data_list,
                         is_sorted=True,
                         data_precision=data_precision[data_distribution],
                         region=data_region[data_distribution],

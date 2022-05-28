@@ -234,8 +234,12 @@ if __name__ == '__main__':
     # output_path_10w_sample = './table/uniform_1_10w.npy'
     # input_path = "./table/normal_1.npy"
     # output_path_10w_sample = './table/normal_1_10w.npy'
+    # input_path = "./table/uniform_2.npy"
+    # output_path_10w_sample = './table/uniform_2_10w.npy'
+    # input_path = "./table/normal_2.npy"
+    # output_path_10w_sample = './table/normal_2_10w.npy'
     # sample(input_path, output_path_10w_sample, 100000)
-    # 5. 生成不重复的数据
+    # [Optional] 5. 生成不重复的数据
     # input_path = "./table/trip_data_1_filter_10w.npy"
     # output_path = "./table/trip_data_1_10w_distinct.npy"
     # create_distinct_data(input_path, output_path)
@@ -252,6 +256,8 @@ if __name__ == '__main__':
     # output_path = "./table/uniform_2.npy"
     # first_key = 14507253
     # output_path = "./table/trip_data_2_filter_10w.npy"
+    # output_path = "./table/normal_2_10w.npy"
+    # output_path = "./table/uniform_2_10w.npy"
     # first_key = 100000
     # add_key_field(output_path, output_path, first_key)
     # 7. Geohash排序数据

@@ -66,8 +66,8 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        data_list = load_data(Distribution.NYCT_10W)
-        index.build(data_list=data_list, threshold_number=100)
+        build_data_list = load_data(Distribution.NYCT_10W, 0)
+        index.build(data_list=build_data_list, threshold_number=100)
         index.save()
         end_time = time.time()
         build_time = end_time - start_time
@@ -99,12 +99,11 @@ def main():
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time: %s" % search_time)
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    # path = '../../data/table/trip_data_2_filter_10w.npy'
-    # insert_data_list = np.load(path, allow_pickle=True)[:, [10, 11, -1]]
+    # update_data_list = load_data(Distribution.NYCT_10W, 1)
     # start_time = time.time()
-    # index.insert(insert_data_list)
+    # index.insert(update_data_list)
     # end_time = time.time()
-    # logging.info("Insert time: %s" % (end_time - start_time))
+    # logging.info("Update time: %s" % (end_time - start_time))
 
 
 if __name__ == '__main__':

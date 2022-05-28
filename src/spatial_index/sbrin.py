@@ -1048,7 +1048,7 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        data_list = load_data(Distribution.NYCT_10W_SORTED)
+        build_data_list = load_data(Distribution.NYCT_10W_SORTED, 0)
         # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y/g)=8, sbrin整体连续存, meta一个page, br分页存，model(2009大小)单独存
         # hr体积=value/length/number=16，一个page存256个hr
         # cr体积=value/number=35，一个page存117个cr
@@ -1058,7 +1058,7 @@ def main():
         # 1meta page，289/256=2hr page，1cr page, 289/2=145model page，10w/146=685data page
         # 单次扫描IO=读取sbrin+读取对应model+读取model对应索引项=1+1+误差范围/146/256
         # 索引体积=meta+hrs+crs+model+索引项
-        index.build(data_list=data_list,
+        index.build(data_list=build_data_list,
                     is_sorted=True,
                     threshold_number=1000,
                     data_precision=6,
@@ -1113,7 +1113,7 @@ def main():
     insert_data_list = np.load(path, allow_pickle=True)[:, [10, 11, -1]]
     profile = line_profiler.LineProfiler(index.update_hr)
     profile.enable()
-    index.insert(insert_data_list.tolist())
+    index.insert(update_data_list.tolist())
     profile.disable()
     profile.print_stats()
     start_time = time.time()

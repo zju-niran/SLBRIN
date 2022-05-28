@@ -234,8 +234,8 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        data_list = load_data(Distribution.NYCT_10W)
-        # data_list = load_data(Distribution.NYCT_10W_SORTED)
+        build_data_list = load_data(Distribution.NYCT_10W, 0)
+        # build_data_list = load_data(Distribution.NYCT_10W_SORTED, 0)
         # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y)=8, brin整体连续存, meta一个page, blk分页存
         # blk体积=blknum/value=4+4*8=36，一个page存113个blk
         # revmap体积=blkid+blk指针=2+4=6，一个page存682个blk
@@ -244,7 +244,7 @@ def main():
         # 1meta page，99/113=1regular page，99/682=1revmap page，10w/204=491data page
         # 单次扫描IO为读取brin+读取blk对应ie=1+0
         # 索引体积=xy索引+meta+blk+revmap
-        index.build(data_list=data_list,
+        index.build(data_list=build_data_list,
                     pages_per_range=5,
                     is_sorted=False)
         index.save()
@@ -271,12 +271,11 @@ def main():
     search_time = (end_time - start_time) / len(range_query_list)
     logging.info("Range query time: %s" % search_time)
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/table/trip_data_2_filter_10w.npy'
-    insert_data_list = np.load(path, allow_pickle=True)[:, [10, 11, -1]]
-    index.insert(insert_data_list)
+    update_data_list = load_data(Distribution.NYCT_10W, 1)
+    index.insert(update_data_list)
     start_time = time.time()
     end_time = time.time()
-    logging.info("Insert time: %s" % (end_time - start_time))
+    logging.info("Update time: %s" % (end_time - start_time))
 
 
 if __name__ == '__main__':

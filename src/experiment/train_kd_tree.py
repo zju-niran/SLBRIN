@@ -21,11 +21,10 @@ if __name__ == '__main__':
         if os.path.exists(model_path) is False:
             os.makedirs(model_path)
         index = KDTree(model_path=model_path)
-        index_name = index.name
         logging.info("*************start %s************" % model_path)
         start_time = time.time()
-        data_list = load_data(data_distribution)
-        index.build(data_list=data_list)
+        build_data_list = load_data(data_distribution, 0)
+        index.build(data_list=build_data_list)
         index.save()
         end_time = time.time()
         build_time = end_time - start_time
