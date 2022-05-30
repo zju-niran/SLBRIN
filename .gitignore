@@ -133,7 +133,8 @@ dmypy.json
 
 # model file
 **/*.csv
+**/*.xlsx
 **/*.npy
 **/model*
-**/*.v2
-result
+**/*.file
+**/*.png

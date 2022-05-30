@@ -76,7 +76,7 @@ class SBRIN(SpatialIndex):
 
     def build(self, data_list, is_sorted, threshold_number, data_precision, region, threshold_err,
               threshold_summary, threshold_merge,
-              is_new, is_gpu, weight, core, train_step, batch_num, learning_rate, use_threshold, threshold,
+              is_new, is_simple, is_gpu, weight, core, train_step, batch_num, learning_rate, use_threshold, threshold,
               retrain_time_limit, thread_pool_size):
         """
         构建SBRIN
