@@ -89,6 +89,7 @@ class KDNode:
             else:
                 self.left = self.left.insert(value)
         self.recalculate_nodes()
+        self.balance()
         return self
 
     def delete(self, value):
@@ -252,11 +253,11 @@ class KDTree(SpatialIndex):
         # 方法1：先排序后划分节点
         data_list = data_list.tolist()
         self.root_node = self.build_node(data_list, len(data_list), 0)
+        self.root_node.balance()
         # 方法2：不停插入
         # data_list = np.insert(data_list, np.arange(len(data_list)), axis=1)
         # self.root_node = KDNode(value=data_list[0], axis=0)
         # self.insert(data_list[1:])
-        self.root_node.balance()
         # self.visualize("1.txt")
 
     def visualize(self, output_path):
