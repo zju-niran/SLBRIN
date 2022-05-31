@@ -89,7 +89,6 @@ class KDNode:
             else:
                 self.left = self.left.insert(value)
         self.recalculate_nodes()
-        self.balance()
         return self
 
     def delete(self, value):
@@ -110,14 +109,14 @@ class KDNode:
             else:
                 self.right = self.right.delete(value)
                 self.recalculate_nodes()
-                return self.balance()
+                return self
         else:
             if self.left is None:
                 return self
             else:
                 self.left = self.left.delete(value)
                 self.recalculate_nodes()
-                return self.balance()
+                return self
 
     def balance(self):
         """
@@ -223,6 +222,13 @@ class KDTree(SpatialIndex):
     def insert_single(self, point):
         self.root_node = self.root_node.insert(point.tolist())
 
+    def insert(self, points):
+        for point in points:
+            self.insert_single(point)
+        # balance: 将树调整回平衡状态，检索效率会提升
+        # 理论上要在insert和delete时处理最后被更新的node和所有上层node，但是balance太耗时，此处旨在整体insert是操作一次
+        self.root_node.balance()
+
     def delete(self, point):
         self.root_node = self.root_node.delete(point)
 
@@ -253,11 +259,11 @@ class KDTree(SpatialIndex):
         # 方法1：先排序后划分节点
         data_list = data_list.tolist()
         self.root_node = self.build_node(data_list, len(data_list), 0)
-        self.root_node.balance()
         # 方法2：不停插入
         # data_list = np.insert(data_list, np.arange(len(data_list)), axis=1)
         # self.root_node = KDNode(value=data_list[0], axis=0)
         # self.insert(data_list[1:])
+        self.root_node.balance()
         # self.visualize("1.txt")
 
     def visualize(self, output_path):
