@@ -301,14 +301,14 @@ def b_tree_main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     build_data_list = load_data(Distribution.NYCT_10W, 0)
     b = BTree(2)
-    l = len(data_list)
+    l = len(build_data_list)
     for i in range(l):
-        b.insert(Item(data_list[i][2], i))
+        b.insert(Item(build_data_list[i][2], i))
     for i in range(l):
         x = i
         # 二分比btree快
         pos = b.predict_less_max(x)  # 61221874.0
-        pos1 = binary_search_less_max(data_list, 2, x, 0, l - 1)  # 14473453.0
+        pos1 = binary_search_less_max(build_data_list, 2, x, 0, l - 1)  # 14473453.0
         if pos1 != pos:
             print(pos1)
             print(pos)
