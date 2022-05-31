@@ -30,9 +30,9 @@ if __name__ == '__main__':
     origin_model_paths = ["rtree/%s/fill_factor_0.8",
                           "prquadtree/%s/n_500",
                           "kdtree/%s",
-                          "brinspatial/%s/ppr_64",
-                          # "zmindex/%s/stage2_num_500",
-                          # "sbrin/%s/tn_10000"
+                          "brinspatial/%s_SORTED/ppr_sorted_64",
+                          # "zmindex/%s_SORTED/stage2_num_500",
+                          # "sbrin/%s_SORTED/tn_10000"
                           ]
     target_model_paths = ["rtree/%s",
                           "prquadtree/%s",

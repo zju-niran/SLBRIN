@@ -47,6 +47,7 @@ if __name__ == '__main__':
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)
         # SBRIN: 多进程 + GPU
+        logging.info("*************start SBRIN multi processes and GPU************")
         start_time = time.time()
         index = SBRIN(model_path=parent_path + data_distribution.name + "/sbrin_mp_gpu/")
         index.build(data_list=build_data_list,
@@ -74,6 +75,7 @@ if __name__ == '__main__':
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)
         # ZM: 单进程 + CPU
+        logging.info("*************start ZM single processes and CPU************")
         start_time = time.time()
         index = ZMIndex(model_path=parent_path + data_distribution.name + "/zm_sp_cpu/")
         index.build(data_list=build_data_list,
@@ -98,6 +100,7 @@ if __name__ == '__main__':
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)
         # SBRIN: 单进程 + CPU
+        logging.info("*************start SBRIN single processes and CPU************")
         start_time = time.time()
         index = SBRIN(model_path=parent_path + data_distribution.name + "/sbrin_sp_cpu/")
         index.build(data_list=build_data_list,
