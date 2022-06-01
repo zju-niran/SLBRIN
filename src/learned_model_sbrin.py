@@ -73,7 +73,7 @@ class TrainedNN:
                             format="%(asctime)s - %(levelname)s - %(message)s",
                             datefmt="%Y/%m/%d %H:%M:%S %p")
         self.logging = logging.getLogger(self.name)
-        self.train_model()
+        self.train_model(self.is_new)
 
     def init_model(self):
         self.model = tf.keras.Sequential()
@@ -85,9 +85,9 @@ class TrainedNN:
         optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
         self.model.compile(optimizer=optimizer, loss=self.score)
 
-    def train_model(self):
+    def train_model(self, is_new):
         start_time = time.time()
-        if self.is_new or self.use_threshold:
+        if is_new:
             checkpoint = tf.keras.callbacks.ModelCheckpoint(self.model_hdf_file,
                                                             monitor='loss',
                                                             verbose=0,
@@ -112,9 +112,12 @@ class TrainedNN:
                            callbacks=[checkpoint, early_stopping])
             # 加载loss最小的模型
             self.model = tf.keras.models.load_model(self.model_hdf_file, custom_objects={'score': self.score})
-        min_err, max_err = self.get_err()
-        err_length = max_err - min_err
-        self.rename_model_file_by_err(err_length)
+            min_err, max_err = self.get_err()
+            err_length = max_err - min_err
+            self.rename_model_file_by_err(err_length)
+        else:
+            min_err, max_err = self.get_err()
+            err_length = max_err - min_err
         if not self.min_err or err_length < self.max_err - self.min_err:
             self.min_err = min_err
             self.max_err = max_err
@@ -126,7 +129,7 @@ class TrainedNN:
                     self.retrain_times += 1
                     self.logging.info("Retrain %d when score not perfect: Model %s, Err %f" % (
                         self.retrain_times, self.model_hdf_file, err_length))
-                    self.train_model()
+                    self.train_model(True)
                 else:
                     self.logging.info("Retrain time limit: Model %s, Err %f" % (self.model_hdf_file, err_length))
             else:
