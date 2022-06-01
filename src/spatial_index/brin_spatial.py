@@ -7,7 +7,7 @@ import time
 import numpy as np
 
 sys.path.append('/home/zju/wlj/st-learned-index')
-from src.spatial_index.common_utils import get_mbr_by_points, intersect
+from src.spatial_index.common_utils import get_mbr_by_points, intersect, Region
 from src.spatial_index.spatial_index import SpatialIndex
 from src.experiment.common_utils import load_data, Distribution
 
@@ -70,14 +70,14 @@ class BRINSpatial(SpatialIndex):
         if not tmp_blk.value:
             tmp_blk.value = get_mbr_by_points(self.index_entries[tmp_blk.blknum:])
 
-    def build(self, data_list, pages_per_range, is_sorted):
+    def build(self, data_list, pages_per_range, is_sorted, region):
         # 1. save xy index
         if is_sorted:
             self.index_entries = [(data[0], data[1], data[-1]) for data in data_list]
         else:
             self.index_entries = [tuple(data) for data in data_list.tolist()]
         # 2. create meta
-        self.meta = Meta(1, pages_per_range, 0)
+        self.meta = Meta(1, pages_per_range, 0, region.right - region.left, region.up - region.bottom)
         # 3. create blk by data
         blk_size = len(data_list) // self.meta.datas_per_range
         self.block_ranges = [BlockRange(i * self.meta.datas_per_range,
@@ -142,9 +142,78 @@ class BRINSpatial(SpatialIndex):
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
         return result
 
+    def knn_query_single(self, knn):
+        """
+        1. init window
+        2. iter: query target points by range query
+        3. if target points is not enough, set window = 2 * window
+        4. elif target points is enough, but some target points is in the corner, set window = dst
+        """
+        # 1. init window
+        x, y, k = knn
+        window_ratio = (k / len(self.index_entries)) ** 0.5
+        window_radius = window_ratio * self.meta.region_width / 2
+        tp_list = []
+        old_window = None
+        while True:
+            window = [y - window_radius, y + window_radius, x - window_radius, x + window_radius]
+            # 2. iter: query target points by range query
+            target_blks = self.range_query_blk(window)
+            tmp_tp_list = []
+            if old_window:
+                for target_blk in target_blks:
+                    if target_blk[1] == 0:
+                        continue
+                    elif target_blk[1] == 2:
+                        blk = target_blk[0]
+                        tmp_tp_list.extend(
+                            [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[2]]
+                             for ie in self.index_entries[blk.blknum:blk.blknum + self.meta.datas_per_range]
+                             if not (old_window[0] <= ie[1] <= old_window[1] and
+                                     old_window[2] <= ie[0] <= old_window[3])])
+                    else:
+                        blk = target_blk[0]
+                        tmp_tp_list.extend(
+                            [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[2]]
+                             for ie in self.index_entries[blk.blknum:blk.blknum + self.meta.datas_per_range]
+                             if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3] and
+                             not (old_window[0] <= ie[1] <= old_window[1] and old_window[2] <= ie[0] <= old_window[3])])
+            else:
+                for target_blk in target_blks:
+                    if target_blk[1] == 0:
+                        continue
+                    elif target_blk[1] == 2:
+                        blk = target_blk[0]
+                        tmp_tp_list.extend(
+                            [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[2]]
+                             for ie in self.index_entries[blk.blknum:blk.blknum + self.meta.datas_per_range]])
+                    else:
+                        blk = target_blk[0]
+                        tmp_tp_list.extend(
+                            [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[2]]
+                             for ie in self.index_entries[blk.blknum:blk.blknum + self.meta.datas_per_range]
+                             if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+            tp_list.extend(tmp_tp_list)
+            old_window = window
+            # 3. if target points is not enough, set window = 2 * window
+            if len(tp_list) < k:
+                window_radius *= 2
+            else:
+                # 4. elif target points is enough, but some target points is in the corner, set window = dst
+                if len(tmp_tp_list):
+                    tp_list = sorted(tp_list)
+                    dst = tp_list[k - 1][0] ** 0.5
+                    if dst > window_radius:
+                        window_radius = dst
+                    else:
+                        break
+                else:
+                    break
+        return [tp[1] for tp in tp_list[:k]]
+
     def save(self):
-        brins_meta = np.array(
-            (self.meta.version, self.meta.pages_per_range, self.meta.last_revmap_page))
+        brins_meta = np.array((self.meta.version, self.meta.pages_per_range, self.meta.last_revmap_page,
+                               self.meta.region_width, self.meta.region_height))
         brins_blk = [(blk.blknum, blk.value[0], blk.value[1], blk.value[2], blk.value[3]) for blk in self.block_ranges]
         brins_blk = np.array(brins_blk, dtype=[("0", 'i4'), ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8')])
         np.save(os.path.join(self.model_path, 'brins_meta.npy'), brins_meta)
@@ -156,7 +225,7 @@ class BRINSpatial(SpatialIndex):
         brins_meta = np.load(os.path.join(self.model_path, 'brins_meta.npy'))
         brins_blk = np.load(os.path.join(self.model_path, 'brins_blk.npy'), allow_pickle=True)
         index_entries = np.load(os.path.join(self.model_path, 'index_entries.npy'), allow_pickle=True)
-        self.meta = Meta(brins_meta[0], brins_meta[1], brins_meta[2])
+        self.meta = Meta(brins_meta[0], brins_meta[1], brins_meta[2], brins_meta[3], brins_meta[4])
         self.block_ranges = [BlockRange(blk[0], [blk[1], blk[2], blk[3], blk[4]]) for blk in brins_blk]
         self.index_entries = index_entries.tolist()
 
@@ -166,14 +235,14 @@ class BRINSpatial(SpatialIndex):
         ie_size = index_entries.npy
         """
         # 实际上：
-        # meta一致为为os.path.getsize(os.path.join(self.model_path, "brins_meta.npy"))-128=4*3=12
+        # meta一致为os.path.getsize(os.path.join(self.model_path, "brins_meta.npy"))-128=4*5=20
         # blk一致为os.path.getsize(os.path.join(self.model_path, "brins_blk.npy"))-128-64=blk_size*(8*4+4)=blk_size*36
         # revmap为none
         # index_entries一致为os.path.getsize(os.path.join(self.model_path, "index_entries.npy"))-128=data_len*(8*2+4)=data_len*20
         # 理论上：
         # revmap存blk id/pointer=meta.size*(2+4)=meta.size*6
         blk_size = len(self.block_ranges)
-        return 12 + \
+        return 20 + \
                blk_size * 36 + \
                blk_size * 6, os.path.getsize(os.path.join(self.model_path, "index_entries.npy")) - 128
 
@@ -193,7 +262,7 @@ class BRINSpatial(SpatialIndex):
 
 
 class Meta:
-    def __init__(self, version, pages_per_range, last_revmap_page):
+    def __init__(self, version, pages_per_range, last_revmap_page, region_width, region_height):
         # BRIN
         self.version = version
         self.pages_per_range = pages_per_range
@@ -201,6 +270,9 @@ class Meta:
         # For compute
         self.datas_per_range = int(PAGE_SIZE / 20) * pages_per_range
         self.datas_per_page = int(PAGE_SIZE / 20)
+        # For KNN
+        self.region_width = region_width
+        self.region_height = region_height
 
 
 class BlockRange:
@@ -236,7 +308,8 @@ def main():
         # 索引体积=xy索引+meta+blk+revmap
         index.build(data_list=build_data_list,
                     pages_per_range=5,
-                    is_sorted=True)
+                    is_sorted=True,
+                    region=Region(40, 42, -75, -73))
         index.save()
         end_time = time.time()
         build_time = end_time - start_time
@@ -261,6 +334,14 @@ def main():
     search_time = (end_time - start_time) / len(range_query_list)
     logging.info("Range query time: %s" % search_time)
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    path = '../../data/query/knn_query_nyct.npy'
+    knn_query_list = np.load(path, allow_pickle=True).tolist()
+    start_time = time.time()
+    results = index.knn_query(knn_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(knn_query_list)
+    logging.info("KNN query time: %s" % search_time)
+    np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     update_data_list = load_data(Distribution.NYCT_10W, 1)
     start_time = time.time()
     index.insert(update_data_list)

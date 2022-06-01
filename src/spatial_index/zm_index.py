@@ -233,7 +233,8 @@ class ZMIndex(SpatialIndex):
                 tmp_tp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
                                for ie in self.geohash_index[key_left:key_right + 1]
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3] and
-                               not old_window[0] <= ie[1] <= old_window[1] and old_window[2] <= ie[0] <= old_window[3]]
+                               not (old_window[0] <= ie[1] <= old_window[1] and
+                                    old_window[2] <= ie[0] <= old_window[3])]
             else:
                 tmp_tp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
                                for ie in self.geohash_index[key_left:key_right + 1]

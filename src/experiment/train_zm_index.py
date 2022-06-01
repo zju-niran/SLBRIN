@@ -15,7 +15,7 @@ if __name__ == '__main__':
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
                         level=logging.INFO,
                         format="%(message)s")
-    stage2_nums = [500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 10000]
+    stage2_nums = [500, 1000, 2500, 5000, 10000]
     data_distributions = [Distribution.UNIFORM_SORTED, Distribution.NORMAL_SORTED, Distribution.NYCT_SORTED]
     for data_distribution in data_distributions:
         for stage2_num in stage2_nums:

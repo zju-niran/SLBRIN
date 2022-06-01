@@ -4,7 +4,7 @@ import sys
 import time
 
 sys.path.append('/home/zju/wlj/st-learned-index')
-from src.experiment.common_utils import Distribution, load_data, load_query
+from src.experiment.common_utils import Distribution, load_data, load_query, data_region
 from src.spatial_index.brin_spatial import BRINSpatial
 
 if __name__ == '__main__':
@@ -16,7 +16,7 @@ if __name__ == '__main__':
                         level=logging.INFO,
                         format="%(message)s")
     data_distributions = [Distribution.UNIFORM, Distribution.NORMAL, Distribution.NYCT]
-    pprs = [64, 128, 256, 512, 1024, 2048]
+    pprs = [2, 4, 8]
     for data_distribution in data_distributions:
         for ppr in pprs:
             model_path = "model/brinspatial/%s/ppr_%s" % (data_distribution.name, ppr)
@@ -28,7 +28,8 @@ if __name__ == '__main__':
             build_data_list = load_data(data_distribution, 0)
             index.build(data_list=build_data_list,
                         pages_per_range=ppr,
-                        is_sorted=False)
+                        is_sorted=False,
+                        region=data_region[data_distribution])
             index.save()
             end_time = time.time()
             build_time = end_time - start_time
@@ -51,8 +52,16 @@ if __name__ == '__main__':
                 end_time = time.time()
                 search_time = (end_time - start_time) / 1000
                 logging.info("Range query time: %s" % search_time)
+            knn_query_list = load_query(data_distribution, "knn").tolist()
+            for i in range(len(knn_query_list) // 1000):
+                tmp_knn_query_list = knn_query_list[i * 1000:(i + 1) * 1000]
+                start_time = time.time()
+                index.test_knn_query(tmp_knn_query_list)
+                end_time = time.time()
+                search_time = (end_time - start_time) / 1000
+                logging.info("KNN query time: %s" % search_time)
     data_distributions = [Distribution.UNIFORM_SORTED, Distribution.NORMAL_SORTED, Distribution.NYCT_SORTED]
-    pprs = [64, 128, 256, 512, 1024, 2048]
+    pprs = [8, 16, 32, 64, 128, 256]
     for data_distribution in data_distributions:
         for ppr in pprs:
             model_path = "model/brinspatial/%s/ppr_sorted_%s" % (data_distribution.name, ppr)
@@ -64,7 +73,8 @@ if __name__ == '__main__':
             build_data_list = load_data(data_distribution, 0)
             index.build(data_list=build_data_list,
                         pages_per_range=ppr,
-                        is_sorted=True)
+                        is_sorted=True,
+                        region=data_region[data_distribution])
             index.save()
             end_time = time.time()
             build_time = end_time - start_time
@@ -87,3 +97,11 @@ if __name__ == '__main__':
                 end_time = time.time()
                 search_time = (end_time - start_time) / 1000
                 logging.info("Range query time: %s" % search_time)
+            knn_query_list = load_query(data_distribution, "knn").tolist()
+            for i in range(len(knn_query_list) // 1000):
+                tmp_knn_query_list = knn_query_list[i * 1000:(i + 1) * 1000]
+                start_time = time.time()
+                index.test_knn_query(tmp_knn_query_list)
+                end_time = time.time()
+                search_time = (end_time - start_time) / 1000
+                logging.info("KNN query time: %s" % search_time)
