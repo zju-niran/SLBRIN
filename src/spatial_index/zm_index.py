@@ -12,7 +12,7 @@ from src.learned_model_simple import TrainedNN_Simple
 
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.common_utils import Region, biased_search, normalize_input_minmax, denormalize_output_minmax, \
-    sigmoid, contain_and_border
+    sigmoid
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 from src.learned_model import TrainedNN
@@ -192,7 +192,8 @@ class ZMIndex(SpatialIndex):
         key_right = biased_search(self.geohash_index, 2, gh2, pre2, l_bound2, r_bound2)
         key_right = r_bound2 if len(key_right) == 0 else max(key_right)
         # 4. filter all the point of scope[key1, key2] by range(x1/y1/x2/y2).contain(point)
-        return [ie[3] for ie in self.geohash_index[key_left:key_right + 1] if contain_and_border(window, ie)]
+        return [ie[3] for ie in self.geohash_index[key_left:key_right + 1]
+                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
 
     def knn_query_single(self, knn):
         """
@@ -231,11 +232,12 @@ class ZMIndex(SpatialIndex):
             if old_window:
                 tmp_tp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
                                for ie in self.geohash_index[key_left:key_right + 1]
-                               if contain_and_border(window, ie) and not contain_and_border(old_window, ie)]
+                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3] and
+                               not old_window[0] <= ie[1] <= old_window[1] and old_window[2] <= ie[0] <= old_window[3]]
             else:
                 tmp_tp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
                                for ie in self.geohash_index[key_left:key_right + 1]
-                               if contain_and_border(window, ie)]
+                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
             tp_list.extend(tmp_tp_list)
             old_window = window
             # 3. if target points is not enough, set window = 2 * window
@@ -379,7 +381,7 @@ class AbstractNN:
         """
         calculate weight
         """
-        # delta当前选8位有效数字，是metrix的最高精度
+        # delta当前选8位有效数字，是matrix的最高精度
         delta = 0.00000001
         y1 = normalize_input_minmax(input_key, self.input_min, self.input_max)
         y2 = y1 + delta

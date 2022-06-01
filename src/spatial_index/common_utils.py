@@ -55,10 +55,6 @@ class Point:
         return (self.lng - other.lng) ** 2 + (self.lat - other.lat) ** 2
 
 
-def contain_and_border(window, point):
-    return window[0] <= point[1] <= window[1] and window[2] <= point[0] <= window[3]
-
-
 def intersect(window, other, cross=False):
     """
     a和b相交：两个矩形中心点的xy距离 <= 两个矩形xy边长之和
@@ -98,6 +94,8 @@ def intersect(window, other, cross=False):
         return 0, None
     else:
         return 0
+
+
 class Region:
     def __init__(self, bottom, up, left, right):
         self.bottom = bottom
@@ -541,6 +539,7 @@ def denormalize_output_minmax(value, min_v, max_v):
     elif value > 1:
         return max_v
     return value * (max_v - min_v) + min_v
+
 
 def relu(x):
     return np.maximum(0, x)

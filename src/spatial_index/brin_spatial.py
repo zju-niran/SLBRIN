@@ -7,7 +7,7 @@ import time
 import numpy as np
 
 sys.path.append('/home/zju/wlj/st-learned-index')
-from src.spatial_index.common_utils import get_mbr_by_points, contain_and_border, intersect
+from src.spatial_index.common_utils import get_mbr_by_points, intersect
 from src.spatial_index.spatial_index import SpatialIndex
 from src.experiment.common_utils import load_data, Distribution
 
@@ -82,7 +82,7 @@ class BRINSpatial(SpatialIndex):
         """
         return [blk
                 for blk in self.block_ranges[:-1]
-                if contain_and_border(blk.value, point)]
+                if blk.value[0] <= point[1] <= blk.value[1] and blk.value[2] <= point[0] <= blk.value[3]]
 
     def range_query_blk(self, window):
         """
@@ -121,7 +121,7 @@ class BRINSpatial(SpatialIndex):
         # 2. 精确过滤相交的tmp blk对应磁盘范围内的数据
         result = [ie[2]
                   for ie in self.index_entries[self.block_ranges[-1].blknum:]
-                  if contain_and_border(window, ie)]
+                  if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
         for target_blk in target_blks:
             if target_blk[1] == 0:
                 continue
@@ -135,7 +135,7 @@ class BRINSpatial(SpatialIndex):
                 blk = target_blk[0]
                 result.extend([ie[2]
                                for ie in self.index_entries[blk.blknum:blk.blknum + self.meta.datas_per_range]
-                               if contain_and_border(window, ie)])
+                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
         return result
 
     def save(self):
