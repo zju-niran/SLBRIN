@@ -56,8 +56,19 @@ class BRINSpatial(SpatialIndex):
             self.block_ranges[-1].value = get_mbr_by_points(self.index_entries[-self.meta.datas_per_range:])
             self.create_tmp_blk()
 
+    def insert(self, points):
+        for point in points:
+            self.insert_single(point)
+        # 如果整体插入已经结束，则主动更新tmp br的value
+        self.sum_up_tmp_blk()
+
     def create_tmp_blk(self):
         self.block_ranges.append(BlockRange(blknum=len(self.block_ranges) * self.meta.datas_per_range, value=None))
+
+    def sum_up_tmp_blk(self):
+        tmp_blk = self.block_ranges[-1]
+        if not tmp_blk.value:
+            tmp_blk.value = get_mbr_by_points(self.index_entries[tmp_blk.blknum:])
 
     def build(self, data_list, pages_per_range, is_sorted):
         # 1. save xy index
@@ -75,53 +86,46 @@ class BRINSpatial(SpatialIndex):
                              for i in range(blk_size)]
         # 4. create tmp blk
         self.create_tmp_blk()
+        self.sum_up_tmp_blk()
 
     def point_query_blk(self, point):
         """
-        找到可能包含xy的blk的key，不包含tmp blk
+        找到可能包含xy的blk的key
         """
         return [blk
-                for blk in self.block_ranges[:-1]
+                for blk in self.block_ranges
                 if blk.value[0] <= point[1] <= blk.value[1] and blk.value[2] <= point[0] <= blk.value[3]]
 
     def range_query_blk(self, window):
         """
-        找到可能和window相交的blk的key及其空间关系(相交=1/window包含value=2)，不包含tmp blk
+        找到可能和window相交的blk的key及其空间关系(相交=1/window包含value=2)
         包含关系可以加速查询，即包含意味着blk内所有数据都符合条件
         """
         return [[blk, intersect(window, blk.value)]
-                for blk in self.block_ranges[:-1]]
+                for blk in self.block_ranges]
 
     def point_query_single(self, point):
         """
         1. 根据xy找到可能存在的blks
-        2. 精确过滤blks和tmp blk对应磁盘范围内的数据
+        2. 精确过滤blks对应磁盘范围内的数据
         """
         # 1. 根据xy找到可能存在的blks
         blks = self.point_query_blk(point)
-        # 2. 精确过滤tmp blk对应磁盘范围内的数据
-        result = [ie[2]
-                  for ie in self.index_entries[self.block_ranges[-1].blknum:]
-                  if ie[0] == point[0] and ie[1] == point[1]]
         # 2. 精确过滤blks对应磁盘范围内的数据
-        result.extend([ie[2]
-                       for blk in blks
-                       for ie in self.index_entries[blk.blknum: blk.blknum + self.meta.datas_per_range]
-                       if ie[0] == point[0] and ie[1] == point[1]])
-        return result
+        return [ie[2]
+                for blk in blks
+                for ie in self.index_entries[blk.blknum: blk.blknum + self.meta.datas_per_range]
+                if ie[0] == point[0] and ie[1] == point[1]]
 
     def range_query_single(self, window):
         """
         1. 根据window找到相交和包含的blks
-        2. 精确过滤相交的blks和tmp blk对应磁盘范围内的数据
+        2. 精确过滤相交的blks对应磁盘范围内的数据
         3. 直接添加包含的blks对应磁盘范围内的数据
         """
         # 1. 根据window找到相交和包含的blks
         target_blks = self.range_query_blk(window)
-        # 2. 精确过滤相交的tmp blk对应磁盘范围内的数据
-        result = [ie[2]
-                  for ie in self.index_entries[self.block_ranges[-1].blknum:]
-                  if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
+        result = []
         for target_blk in target_blks:
             if target_blk[1] == 0:
                 continue
@@ -141,13 +145,7 @@ class BRINSpatial(SpatialIndex):
     def save(self):
         brins_meta = np.array(
             (self.meta.version, self.meta.pages_per_range, self.meta.last_revmap_page))
-        brins_blk = [(blk.blknum, blk.value[0], blk.value[1], blk.value[2], blk.value[3]) for blk in
-                     self.block_ranges[:-1]]
-        blk = self.block_ranges[-1]
-        if blk.value is None:
-            brins_blk.append((blk.blknum, -1, -1, -1, -1))
-        else:
-            brins_blk.append((blk.blknum, blk.value[0], blk.value[1], blk.value[2], blk.value[3]))
+        brins_blk = [(blk.blknum, blk.value[0], blk.value[1], blk.value[2], blk.value[3]) for blk in self.block_ranges]
         brins_blk = np.array(brins_blk, dtype=[("0", 'i4'), ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8')])
         np.save(os.path.join(self.model_path, 'brins_meta.npy'), brins_meta)
         np.save(os.path.join(self.model_path, 'brins_blk.npy'), brins_blk)
@@ -159,15 +157,7 @@ class BRINSpatial(SpatialIndex):
         brins_blk = np.load(os.path.join(self.model_path, 'brins_blk.npy'), allow_pickle=True)
         index_entries = np.load(os.path.join(self.model_path, 'index_entries.npy'), allow_pickle=True)
         self.meta = Meta(brins_meta[0], brins_meta[1], brins_meta[2])
-        blks = []
-        for i in range(len(brins_blk)):
-            blk = brins_blk[i]
-            if blk[1] == -1:
-                region = None
-            else:
-                region = [blk[1], blk[2], blk[3], blk[4]]
-            blks.append(BlockRange(blk[0], region))
-        self.block_ranges = blks
+        self.block_ranges = [BlockRange(blk[0], [blk[1], blk[2], blk[3], blk[4]]) for blk in brins_blk]
         self.index_entries = index_entries.tolist()
 
     def size(self):
@@ -234,8 +224,8 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        build_data_list = load_data(Distribution.NYCT_10W, 0)
-        # build_data_list = load_data(Distribution.NYCT_10W_SORTED, 0)
+        # build_data_list = load_data(Distribution.NYCT_10W, 0)
+        build_data_list = load_data(Distribution.NYCT_10W_SORTED, 0)
         # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y)=8, brin整体连续存, meta一个page, blk分页存
         # blk体积=blknum/value=4+4*8=36，一个page存113个blk
         # revmap体积=blkid+blk指针=2+4=6，一个page存682个blk
@@ -246,7 +236,7 @@ def main():
         # 索引体积=xy索引+meta+blk+revmap
         index.build(data_list=build_data_list,
                     pages_per_range=5,
-                    is_sorted=False)
+                    is_sorted=True)
         index.save()
         end_time = time.time()
         build_time = end_time - start_time
@@ -272,8 +262,8 @@ def main():
     logging.info("Range query time: %s" % search_time)
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     update_data_list = load_data(Distribution.NYCT_10W, 1)
-    index.insert(update_data_list)
     start_time = time.time()
+    index.insert(update_data_list)
     end_time = time.time()
     logging.info("Update time: %s" % (end_time - start_time))
 
