@@ -50,7 +50,7 @@ class BRINSpatial(SpatialIndex):
 
     def insert_single(self, point):
         # 1. append in xy index
-        self.index_entries.append(point)
+        self.index_entries.append(tuple(point))
         # 2. create tmp blk if point is on the breakpoint
         if point[-1] % self.meta.datas_per_range == 0:
             self.block_ranges[-1].value = get_mbr_by_points(self.index_entries[-self.meta.datas_per_range:])

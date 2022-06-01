@@ -42,8 +42,8 @@ if __name__ == '__main__':
                           # "sbrin/%s"
                           ]
     data_distributions = [Distribution.UNIFORM, Distribution.NORMAL, Distribution.NYCT]
-    for data_distribution in data_distributions:
-        for i in range(len(indices)):
+    for i in range(len(indices)):
+        for data_distribution in data_distributions:
             # 拷贝目标索引磁盘文件
             origin_model_path = origin_path + origin_model_paths[i] % data_distribution.name
             target_model_path = target_path + target_model_paths[i] % data_distribution.name
