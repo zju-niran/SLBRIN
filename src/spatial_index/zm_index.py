@@ -8,14 +8,13 @@ import time
 
 import numpy as np
 
-from src.learned_model_simple import TrainedNN_Simple
-
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.common_utils import Region, biased_search, normalize_input_minmax, denormalize_output_minmax, \
-    sigmoid
+    sigmoid, binary_search_less_max, binary_search
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 from src.learned_model import TrainedNN
+from src.learned_model_simple import TrainedNN_Simple
 from src.experiment.common_utils import load_data, Distribution
 
 RA_PAGES = 256
@@ -34,6 +33,7 @@ class ZMIndex(SpatialIndex):
         self.stage_length = stage_length
         self.rmi = rmi
         self.geohash_index = None
+        self.update_index = None
         self.model_path = model_path
         logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
                             level=logging.INFO,
@@ -54,9 +54,10 @@ class ZMIndex(SpatialIndex):
             os.makedirs(model_hdf_dir)
         self.geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
         self.stage_length = len(stages)
-        train_inputs = [[[] for i in range(stages[i])] for i in range(self.stage_length)]
-        train_labels = [[[] for i in range(stages[i])] for i in range(self.stage_length)]
-        self.rmi = [[None for i in range(stages[i])] for i in range(self.stage_length)]
+        train_inputs = [[[] for j in range(stages[i])] for i in range(self.stage_length)]
+        train_labels = [[[] for j in range(stages[i])] for i in range(self.stage_length)]
+        self.rmi = [[None for j in range(stages[i])] for i in range(self.stage_length)]
+        self.update_index = [[] for j in range(stages[-1])]
         # 1. ordering x/y point by geohash
         if is_sorted:
             self.geohash_index = data_list
@@ -112,6 +113,31 @@ class ZMIndex(SpatialIndex):
         pool.join()
         self.rmi[i] = [model for model in mp_list]
 
+    def insert_single(self, point):
+        """
+        1. compute geohash from x/y of point
+        2. encode p to geohash and create index entry(x, y, geohash, pointer)
+        3. predict the leaf_model by rmi
+        4. insert ie into update index
+        """
+        # 1. compute geohash from x/y of point
+        gh = self.geohash.encode(point[0], point[1])
+        # 2. encode p to geohash and create index entry(x, y, geohash, pointer)
+        point.insert(-1, gh)
+        # 3. predict the leaf_model by rmi
+        leaf_model_key = 0
+        for i in range(0, self.stage_length - 1):
+            leaf_model_key = int(self.rmi[i][leaf_model_key].predict(gh))
+        # 4. insert ie into update index
+        update_leaf_model = self.update_index[leaf_model_key]
+        update_leaf_model.insert(binary_search_less_max(update_leaf_model, 2, gh, 0, len(update_leaf_model) - 1) + 1,
+                                 point)
+
+    def insert(self, points):
+        points = points.tolist()
+        for point in points:
+            self.insert_single(point)
+
     def predict(self, key):
         """
         predict key from key
@@ -130,13 +156,13 @@ class ZMIndex(SpatialIndex):
         if leaf_model is None:
             while self.rmi[-1][leaf_model_key] is None:
                 if leaf_model_key < 0:
-                    return 0, 0, 0
+                    return leaf_model_key, 0, 0, 0
                 else:
                     leaf_model_key -= 1
-            return self.rmi[-1][leaf_model_key].output_max, 0, 0
+            return leaf_model_key, self.rmi[-1][leaf_model_key].output_max, 0, 0
         # 3. predict the key by leaf_model
         pre = int(leaf_model.predict(key))
-        return pre, leaf_model.min_err, leaf_model.max_err
+        return leaf_model_key, pre, leaf_model.min_err, leaf_model.max_err
 
     def weight(self, key):
         """
@@ -156,16 +182,22 @@ class ZMIndex(SpatialIndex):
         1. compute geohash from x/y of point
         2. predict by geohash and create key scope [pre - min_err, pre + max_err]
         3. binary search in scope
+        4. filter in update index
         """
         # 1. compute geohash from x/y of point
         gh = self.geohash.encode(point[0], point[1])
         # 2. predict by geohash and create key scope [pre - min_err, pre + max_err]
-        pre, min_err, max_err = self.predict(gh)
+        leaf_model_key, pre, min_err, max_err = self.predict(gh)
         l_bound = max(pre - max_err, 0)
         r_bound = min(pre - min_err, self.train_data_length)
         # 3. binary search in scope
         geohash_keys = biased_search(self.geohash_index, 2, gh, pre, l_bound, r_bound)
-        return [self.geohash_index[key][3] for key in geohash_keys]
+        result = [self.geohash_index[key][3] for key in geohash_keys]
+        # 4. filter in update index
+        leaf_model = self.update_index[leaf_model_key]
+        update_geohash_keys = binary_search(leaf_model, 2, gh, 0, len(leaf_model) - 1)
+        result.extend([leaf_model[key][3] for key in update_geohash_keys])
+        return result
 
     def range_query_single(self, window):
         """
@@ -173,27 +205,53 @@ class ZMIndex(SpatialIndex):
         2. find key_left by point query
         3. find key_right by point query
         4. filter all the points of scope[key_left, key_right] by range(x1/y1/x2/y2).contain(point)
+        5. filter in update index
         """
         # 1. compute z of window_left and window_right
         gh1 = self.geohash.encode(window[2], window[0])
         gh2 = self.geohash.encode(window[3], window[1])
         # 2. find key_left by point query
         # if point not found, key_left = pre - min_err
-        pre1, min_err1, max_err1 = self.predict(gh1)
+        leaf_model_key1, pre1, min_err1, max_err1 = self.predict(gh1)
         l_bound1 = max(pre1 - max_err1, 0)
         r_bound1 = min(pre1 - min_err1, self.train_data_length)
         key_left = biased_search(self.geohash_index, 2, gh1, pre1, l_bound1, r_bound1)
         key_left = l_bound1 if len(key_left) == 0 else min(key_left)
         # 3. find key_right by point query
         # if point not found, key_right = pre - max_err
-        pre2, min_err2, max_err2 = self.predict(gh2)
+        leaf_model_key2, pre2, min_err2, max_err2 = self.predict(gh2)
         l_bound2 = max(pre2 - max_err2, 0)
         r_bound2 = min(pre2 - min_err2, self.train_data_length)
         key_right = biased_search(self.geohash_index, 2, gh2, pre2, l_bound2, r_bound2)
         key_right = r_bound2 if len(key_right) == 0 else max(key_right)
         # 4. filter all the point of scope[key1, key2] by range(x1/y1/x2/y2).contain(point)
-        return [ie[3] for ie in self.geohash_index[key_left:key_right + 1]
-                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
+        result = [ie[3] for ie in self.geohash_index[key_left:key_right + 1]
+                  if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
+        # 5. filter in update index
+        l_leaf_model = self.update_index[leaf_model_key1]
+        l_leaf_model_num = len(l_leaf_model)
+        update_l_bound = binary_search_less_max(l_leaf_model, 2, gh1, 0, l_leaf_model_num - 1)
+        if leaf_model_key1 == leaf_model_key2:
+            if l_leaf_model:
+                update_r_bound = binary_search_less_max(l_leaf_model, 2, gh2, update_l_bound, l_leaf_model_num - 1)
+                result.extend([ie[3]
+                               for ie in l_leaf_model[update_l_bound:update_r_bound + 1]
+                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+        else:
+            result.extend([ie[3]
+                           for ie in l_leaf_model[update_l_bound:]
+                           if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+            result.extend([ie[3]
+                           for leaf_model in self.update_index[leaf_model_key1 + 1:leaf_model_key2]
+                           for ie in leaf_model
+                           if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+            r_leaf_model = self.update_index[leaf_model_key2]
+            r_leaf_model_num = len(r_leaf_model)
+            update_r_bound = binary_search_less_max(r_leaf_model, 2, gh2, 0, r_leaf_model_num - 1)
+            result.extend([ie[3]
+                           for ie in r_leaf_model[:update_r_bound + 1]
+                           if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+        return result
 
     def knn_query_single(self, knn):
         """
@@ -219,12 +277,12 @@ class ZMIndex(SpatialIndex):
             # 2. iter: query target points by range query
             gh1 = self.geohash.encode(window[2], window[0])
             gh2 = self.geohash.encode(window[3], window[1])
-            pre1, min_err1, max_err1 = self.predict(gh1)
+            leaf_model_key1, pre1, min_err1, max_err1 = self.predict(gh1)
             l_bound1 = max(pre1 - max_err1, 0)
             r_bound1 = min(pre1 - min_err1, self.train_data_length)
             key_left = biased_search(self.geohash_index, 2, gh1, pre1, l_bound1, r_bound1)
             key_left = l_bound1 if len(key_left) == 0 else min(key_left)
-            pre2, min_err2, max_err2 = self.predict(gh2)
+            leaf_model_key2, pre2, min_err2, max_err2 = self.predict(gh2)
             l_bound2 = max(pre2 - max_err2, 0)
             r_bound2 = min(pre2 - min_err2, self.train_data_length)
             key_right = biased_search(self.geohash_index, 2, gh2, pre2, l_bound2, r_bound2)
@@ -235,10 +293,66 @@ class ZMIndex(SpatialIndex):
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3] and
                                not (old_window[0] <= ie[1] <= old_window[1] and
                                     old_window[2] <= ie[0] <= old_window[3])]
+                l_leaf_model = self.update_index[leaf_model_key1]
+                l_leaf_model_num = len(l_leaf_model)
+                update_l_bound = binary_search_less_max(l_leaf_model, 2, gh1, 0, l_leaf_model_num - 1)
+                if leaf_model_key1 == leaf_model_key2:
+                    if l_leaf_model:
+                        update_r_bound = binary_search_less_max(l_leaf_model, 2, gh2, update_l_bound,
+                                                                l_leaf_model_num - 1)
+                        tmp_tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                                            for ie in l_leaf_model[update_l_bound:update_r_bound + 1]
+                                            if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3] and
+                                            not (old_window[0] <= ie[1] <= old_window[1] and
+                                                 old_window[2] <= ie[0] <= old_window[3])])
+                else:
+                    tmp_tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                                        for ie in l_leaf_model[update_l_bound:]
+                                        if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3] and
+                                        not (old_window[0] <= ie[1] <= old_window[1] and
+                                             old_window[2] <= ie[0] <= old_window[3])])
+                    tmp_tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                                        for leaf_model in self.update_index[leaf_model_key1 + 1:leaf_model_key2]
+                                        for ie in leaf_model
+                                        if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3] and
+                                        not (old_window[0] <= ie[1] <= old_window[1] and
+                                             old_window[2] <= ie[0] <= old_window[3])])
+                    r_leaf_model = self.update_index[leaf_model_key2]
+                    r_leaf_model_num = len(r_leaf_model)
+                    update_r_bound = binary_search_less_max(r_leaf_model, 2, gh2, 0, r_leaf_model_num - 1)
+                    tmp_tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                                        for ie in r_leaf_model[:update_r_bound + 1]
+                                        if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3] and
+                                        not (old_window[0] <= ie[1] <= old_window[1] and
+                                             old_window[2] <= ie[0] <= old_window[3])])
             else:
                 tmp_tp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
                                for ie in self.geohash_index[key_left:key_right + 1]
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
+                l_leaf_model = self.update_index[leaf_model_key1]
+                l_leaf_model_num = len(l_leaf_model)
+                update_l_bound = binary_search_less_max(l_leaf_model, 2, gh1, 0, l_leaf_model_num - 1)
+                if leaf_model_key1 == leaf_model_key2:
+                    if l_leaf_model:
+                        update_r_bound = binary_search_less_max(l_leaf_model, 2, gh2, update_l_bound,
+                                                                l_leaf_model_num - 1)
+                        tmp_tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                                            for ie in l_leaf_model[update_l_bound:update_r_bound + 1]
+                                            if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                else:
+                    tmp_tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                                        for ie in l_leaf_model[update_l_bound:]
+                                        if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                    tmp_tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                                        for leaf_model in self.update_index[leaf_model_key1 + 1:leaf_model_key2]
+                                        for ie in leaf_model
+                                        if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                    r_leaf_model = self.update_index[leaf_model_key2]
+                    r_leaf_model_num = len(r_leaf_model)
+                    update_r_bound = binary_search_less_max(r_leaf_model, 2, gh2, 0, r_leaf_model_num - 1)
+                    tmp_tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                                        for ie in r_leaf_model[:update_r_bound + 1]
+                                        if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
             tp_list.extend(tmp_tp_list)
             old_window = window
             # 3. if target points is not enough, set window = 2 * window
@@ -271,6 +385,7 @@ class ZMIndex(SpatialIndex):
             rmi_list.extend(stage)
         np.save(os.path.join(self.model_path, 'zmin_rmi.npy'), rmi_list)
         np.save(os.path.join(self.model_path, 'geohash_index.npy'), self.geohash_index)
+        np.save(os.path.join(self.model_path, 'update_index.npy'), self.update_index)
 
     def load(self):
         zmin_meta = np.load(os.path.join(self.model_path, 'zmin_meta.npy'), allow_pickle=True).item()
@@ -284,6 +399,8 @@ class ZMIndex(SpatialIndex):
         self.rmi = []
         self.rmi.append([zmin_rmi[0]])
         self.rmi.append(zmin_rmi[1:].tolist())
+        update_index = np.load(os.path.join(self.model_path, 'update_index.npy'), allow_pickle=True)
+        self.update_index = update_index if update_index.size > 0 else [[] for j in range(len(zmin_rmi[1:]))]
 
     def size(self):
         """
@@ -418,7 +535,7 @@ def main():
                     data_precision=6,
                     region=Region(40, 42, -75, -73),
                     is_new=False,
-                    is_simple=True,
+                    is_simple=False,
                     is_gpu=True,
                     weight=1,
                     stages=[1, 100],
@@ -462,11 +579,11 @@ def main():
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time: %s" % search_time)
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    # update_data_list = load_data(Distribution.NYCT_10W, 1)
-    # start_time = time.time()
-    # index.insert(update_data_list)
-    # end_time = time.time()
-    # logging.info("Update time: %s" % (end_time - start_time))
+    update_data_list = load_data(Distribution.NYCT_10W, 1)
+    start_time = time.time()
+    index.insert(update_data_list)
+    end_time = time.time()
+    logging.info("Update time: %s" % (end_time - start_time))
 
 
 if __name__ == '__main__':
