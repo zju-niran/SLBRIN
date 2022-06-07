@@ -7,13 +7,11 @@ import os
 import sys
 import time
 
-import line_profiler
 import numpy as np
-
-from src.learned_model_sbrin_simple import TrainedNN_Simple
 
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.learned_model_sbrin import TrainedNN
+from src.learned_model_sbrin_simple import TrainedNN_Simple
 from src.spatial_index.common_utils import Region, binary_search_less_max, get_nearest_none, sigmoid, \
     biased_search_almost, biased_search, get_mbr_by_points
 from src.spatial_index.geohash_utils import Geohash
@@ -73,6 +71,10 @@ class SBRIN(SpatialIndex):
         self.batch_num = None
         self.learning_rate = None
         self.retrain_state = 0
+        self.sum_up_full_cr_time = 0.0
+        self.merge_outdated_cr_time = 0.0
+        self.retrain_inefficient_model_time = 0.0
+        self.retrain_inefficient_model_num = 0
 
     def build(self, data_list, is_sorted, threshold_number, data_precision, region, threshold_err,
               threshold_summary, threshold_merge,
@@ -105,12 +107,12 @@ class SBRIN(SpatialIndex):
         # 2. build SBRIN
         # 2.1. init hr
         n = len(data_list)
-        tmp_stack = [(0, 0, n, 0, region)]
-        result_list = []
+        range_stack = [(0, 0, n, 0, region)]
+        range_list = []
         threshold_length = region.get_max_depth_by_region_and_precision(precision=data_precision) * 2
         # 2.2. quartile recursively
-        while len(tmp_stack):
-            cur = tmp_stack.pop(-1)
+        while len(range_stack):
+            cur = range_stack.pop(-1)
             if cur[2] > threshold_number and cur[1] < threshold_length:
                 child_regions = cur[4].split()
                 l_key = cur[3]
@@ -125,25 +127,25 @@ class SBRIN(SpatialIndex):
                     tmp_r_key = binary_search_less_max(data_list, 2, r_bound, tmp_l_key, r_key)
                     child_list[i] = (value, length, tmp_r_key - tmp_l_key + 1, tmp_l_key, child_regions[i])
                     tmp_l_key = tmp_r_key + 1
-                tmp_stack.extend(child_list[::-1])  # 倒着放入init中，保持顺序
+                range_stack.extend(child_list[::-1])  # 倒着放入init中，保持顺序
             else:
                 # 把不需要分裂的hr加入结果list，加入的时候顺序为[左上，右下，左上，右上]的逆序，因为堆栈
-                result_list.append(cur)
+                range_list.append(cur)
         # 2.3. create sbrin
-        result_len = len(result_list)
-        self.meta = Meta(result_len - 1, -1, threshold_number, threshold_length, threshold_err, threshold_summary,
+        range_len = len(range_list)
+        self.meta = Meta(range_len - 1, -1, threshold_number, threshold_length, threshold_err, threshold_summary,
                          threshold_merge, geohash)
         region_offset = pow(10, -data_precision - 1)
-        self.history_ranges = [HistoryRange(result_list[i][0], result_list[i][1], result_list[i][2], None, 0,
-                                            result_list[i][4].up_right_less_region(region_offset),
-                                            2 << geohash.sum_bits - result_list[i][1] - 1) for i in range(result_len)]
+        self.history_ranges = [HistoryRange(range_list[i][0], range_list[i][1], range_list[i][2], None, 0,
+                                            range_list[i][4].up_right_less_region(region_offset),
+                                            2 << geohash.sum_bits - range_list[i][1] - 1) for i in range(range_len)]
         self.current_ranges = []
         self.create_cr()
         # 2.4. reorganize index entries
         result_data_list = []
-        for i in range(result_len):
-            result_data_list.extend(data_list[result_list[i][3]: result_list[i][3] + result_list[i][2]])
-            result_data_list.extend([(0, 0, 0, 0)] * (threshold_number - result_list[i][2]))
+        for i in range(range_len):
+            result_data_list.extend(data_list[range_list[i][3]: range_list[i][3] + range_list[i][2]])
+            result_data_list.extend([(0, 0, 0, 0)] * (threshold_number - range_list[i][2]))
         self.index_entries = result_data_list
         # 3. build learned model
         self.build_nn_multiprocess(is_new, is_simple, is_gpu, weight, core, train_step, batch_num, learning_rate,
@@ -217,17 +219,19 @@ class SBRIN(SpatialIndex):
         self.index_entries = result_data_list
 
     def insert_single(self, point):
-        # 1. encode p to geohash and create index entry(geohash, x, y, pointer)
+        # 1. encode p to geohash and create index entry(x, y, geohash, pointer)
         point.insert(-1, self.meta.geohash.encode(point[0], point[1]))
         # 2. insert into cr
         self.current_ranges[-1].number += 1
         self.index_entries.append(tuple(point))
         # 3. parallel transactions
         self.get_sum_up_full_cr()
-        self.post_sum_up_full_cr()
         self.get_merge_outdated_cr()
-        self.post_merge_outdated_cr()
-        self.post_retrain_inefficient_model()
+
+    def insert(self, points):
+        points = points.tolist()
+        for point in points:
+            self.insert_single(point)
 
     def create_cr(self):
         self.current_ranges.append(CurrentRange(value=None, number=0, state=0))
@@ -240,6 +244,7 @@ class SBRIN(SpatialIndex):
         if self.current_ranges[-1].number >= self.meta.threshold_summary:
             self.current_ranges[-1].state = 1
             self.create_cr()
+            self.post_sum_up_full_cr()
 
     def post_sum_up_full_cr(self):
         """
@@ -250,10 +255,12 @@ class SBRIN(SpatialIndex):
         while cr_key >= 0:
             cr = self.current_ranges[cr_key]
             if cr.state == 1:
+                start_time = time.time()
                 first_key = (self.meta.last_hr + 1) * self.meta.threshold_number + cr_key * self.meta.threshold_summary
-                self.current_ranges[cr_key].value = get_mbr_by_points(
-                    self.index_entries[first_key:first_key + self.meta.threshold_summary])
-                self.current_ranges[cr_key].state = 0
+                cr.value = get_mbr_by_points(self.index_entries[first_key:first_key + self.meta.threshold_summary])
+                cr.state = 0
+                end_time = time.time()
+                self.sum_up_full_cr_time += end_time - start_time
                 break
             cr_key -= 1
 
@@ -264,6 +271,7 @@ class SBRIN(SpatialIndex):
         if self.meta.last_cr >= self.meta.threshold_merge:
             for cr in self.current_ranges[:self.meta.threshold_merge]:
                 cr.state = 2
+            self.post_merge_outdated_cr()
 
     def post_merge_outdated_cr(self):
         """
@@ -271,38 +279,78 @@ class SBRIN(SpatialIndex):
         """
         # outdated_crs = [cr for cr in self.current_ranges if cr.state == 2]
         if self.current_ranges[0].state == 2:
+            start_time = time.time()
             # 1. order index entries in outdated crs(first ts_merge cr)
             old_data_len = self.meta.threshold_merge * self.meta.threshold_summary
             first_key = (self.meta.last_hr + 1) * self.meta.threshold_number
             old_data = sorted(self.index_entries[first_key:first_key + old_data_len], key=lambda x: x[2])
             # 2. merge index entries into hrs
-            hr_key = self.binary_search_less_max(old_data[0][2], 0, self.meta.last_hr) + 1
-            tmp_l_key = 0
-            tmp_r_key = 0
-            while tmp_r_key < old_data_len:
-                if hr_key <= self.meta.last_hr:
-                    if self.history_ranges[hr_key].value > old_data[tmp_r_key][2]:
-                        tmp_r_key += 1
-                    else:
-                        if tmp_r_key - tmp_l_key > 0:
-                            self.update_hr(hr_key - 1, old_data[tmp_l_key:tmp_r_key])
-                            tmp_l_key = tmp_r_key
-                        hr_key += 1
-                else:
-                    self.update_hr(hr_key - 1, old_data[tmp_r_key:])
-                    break
+            hr_num = self.meta.last_hr + 1
+            bks = [0] * hr_num
+            self.split_data_by_hr(old_data, 0, self.meta.last_hr, 0, old_data_len - 1, bks)
+            tmp_bk = 0
+            offset = 0  # update_hr中若出现split_hr，会导致后续hr_key向后偏移，因此用offset来记录偏移量
+            for i in range(hr_num):
+                bk = bks[i]
+                if bk and bk > tmp_bk:  # split中取mid的做法会导致部分右边界出现在前面的hr，因此bk > tmp_bk来过滤这种情况
+                    offset += self.update_hr(i + offset, old_data[tmp_bk:bk])
+                    tmp_bk = bk
             # 3. delete crs/index entries
             del self.current_ranges[:self.meta.threshold_merge]
             self.meta.last_cr -= self.meta.threshold_merge
             del self.index_entries[first_key:first_key + old_data_len]
+            end_time = time.time()
+            self.merge_outdated_cr_time += end_time - start_time
 
-    def get_retrain_inefficient_model(self, hr):
+    def split_data_by_hr(self, data, l_hr_key, r_hr_key, l_data_key, r_data_key, result):
+        m_hr_key = (l_hr_key + r_hr_key) // 2
+        m_data_key = binary_search_less_max(data, 2, self.history_ranges[m_hr_key].value, l_data_key, r_data_key)
+        result[m_hr_key - 1] = m_data_key + 1
+        if m_data_key >= l_data_key:
+            if m_hr_key > l_hr_key:
+                self.split_data_by_hr(data, l_hr_key, m_hr_key - 1, l_data_key, m_data_key, result)
+        if m_data_key < r_data_key:
+            if m_hr_key < r_hr_key:
+                self.split_data_by_hr(data, m_hr_key + 1, r_hr_key, m_data_key + 1, r_data_key, result)
+
+    def get_retrain_inefficient_model(self, hr_key):
         """
         在模型更新时，监听误差范围，如果超过ts_err(inefficient)，则设为inefficient状态
         """
+        hr = self.history_ranges[hr_key]
         if hr.model.max_err - hr.model.min_err >= self.meta.threshold_err:
             hr.state = 1
             self.retrain_state = 1
+            self.retrain_inefficient_model(hr_key)
+
+    def retrain_inefficient_model(self, hr_key):
+        """
+        重训练单个低效状态的HR
+        """
+        start_time = time.time()
+        hr = self.history_ranges[hr_key]
+        if hr.state:
+            first_key = hr_key * self.meta.threshold_number
+            inputs = [j[2] for j in self.index_entries[first_key:first_key + hr.number]]
+            inputs.insert(0, hr.value)
+            inputs.append(hr.value + hr.value_diff)
+            data_num = hr.number + 2
+            labels = list(range(data_num))
+            batch_size = 2 ** math.ceil(math.log(data_num / self.batch_num, 2))
+            if batch_size < 1:
+                batch_size = 1
+            tmp_index = TrainedNN(self.model_path, str(hr_key), inputs, labels, True, self.is_gpu, self.weight,
+                                  self.cores, self.train_step, batch_size, self.learning_rate,
+                                  False, None, None)
+            tmp_index.train_simple(hr.model.matrices)
+            hr.model = AbstractNN(tmp_index.matrices, hr.model.hl_nums,
+                                  math.ceil(tmp_index.min_err),
+                                  math.ceil(tmp_index.max_err))
+            hr.state = 0
+        self.retrain_state = 0
+        end_time = time.time()
+        self.retrain_inefficient_model_time += end_time - start_time
+        self.retrain_inefficient_model_num += 1
 
     def post_retrain_inefficient_model(self):
         """
@@ -312,23 +360,7 @@ class SBRIN(SpatialIndex):
             for i in range(self.meta.last_hr + 1):
                 hr = self.history_ranges[i]
                 if hr.state:
-                    inputs = [j[2] for j in self.index_entries[
-                                            i * self.meta.threshold_number:i * self.meta.threshold_number + hr.number]]
-                    inputs.insert(0, hr.value)
-                    inputs.append(hr.value + hr.value_diff)
-                    data_num = hr.number + 2
-                    labels = list(range(data_num))
-                    batch_size = 2 ** math.ceil(math.log(data_num / self.batch_num, 2))
-                    if batch_size < 1:
-                        batch_size = 1
-                    tmp_index = TrainedNN(self.model_path, str(i), inputs, labels, True, self.is_gpu, self.weight,
-                                          self.cores, self.train_step, batch_size, self.learning_rate,
-                                          False, None, None)
-                    tmp_index.train_simple(hr.model.matrices)
-                    hr.model = AbstractNN(tmp_index.matrices, hr.model.hl_nums,
-                                          math.ceil(tmp_index.min_err),
-                                          math.ceil(tmp_index.max_err))
-                    hr.state = 0
+                    self.retrain_inefficient_model(i)
             self.retrain_state = 0
 
     def update_hr(self, hr_key, points):
@@ -345,14 +377,16 @@ class SBRIN(SpatialIndex):
         if points_len > self.meta.threshold_number and hr.length < self.meta.threshold_length:
             # split hr
             self.split_hr(hr, hr_key, offset, points)
+            return 3
         else:
             # update hr metadata
             hr.number = points_len
             hr.max_key = points_len - 1
             hr.model_update([point[2] for point in points])
-            self.get_retrain_inefficient_model(hr)
+            self.get_retrain_inefficient_model(hr_key)
             # update index entries
             self.index_entries[offset:offset + points_len] = points
+            return 0
 
     def split_hr(self, hr, hr_key, offset, points):
         # 1. create child hrs, of which model is inherited from parent hr and update err by inherited index entries
@@ -376,7 +410,6 @@ class SBRIN(SpatialIndex):
             child_hr = HistoryRange(value, length, number, copy.copy(hr.model), 0,
                                     child_regs[i].up_right_less_region(region_offset), value_diff)
             child_hr.model_update([point[2] for point in points[tmp_l_key: tmp_r_key + 1]])
-            self.get_retrain_inefficient_model(child_hr)
             child_hrs[3 - i] = child_hr
             tmp_l_key = tmp_r_key + 1
         number = last_key - tmp_l_key + 1
@@ -385,7 +418,6 @@ class SBRIN(SpatialIndex):
         child_hr = HistoryRange(r_bound, length, number, hr.model, 0, child_regs[i].up_right_less_region(region_offset),
                                 value_diff)
         child_hr.model_update([point[2] for point in points[tmp_l_key:]])
-        self.get_retrain_inefficient_model(child_hr)
         child_hrs[0] = child_hr
         # 2. delete old hr
         del self.history_ranges[hr_key]
@@ -397,6 +429,9 @@ class SBRIN(SpatialIndex):
         # 5. update index entries
         self.index_entries = self.index_entries[:offset] + child_ies + \
                              self.index_entries[offset + self.meta.threshold_number:]
+        # 6. check model inefficient
+        for i in range(4):
+            self.get_retrain_inefficient_model(hr_key + i)
 
     def point_query_hr(self, point):
         """
@@ -720,7 +755,7 @@ class SBRIN(SpatialIndex):
         return [tp[1] for tp in tp_list]
 
     def save(self):
-        assert self.meta.threshold_number < 2 ** 16, "threshold_number exceed the store size int16"
+        assert self.meta.threshold_number < 2 ** (16 - 1), "threshold_number exceed the store size int16"
         sbrin_meta = np.array((self.meta.last_hr, self.meta.last_cr,
                                self.meta.threshold_number, self.meta.threshold_length,
                                self.meta.threshold_err, self.meta.threshold_summary, self.meta.threshold_merge,
@@ -1001,10 +1036,18 @@ class HistoryRange:
 
     def model_update(self, xs):
         if self.number:
-            pres = self.model.predicts((np.mat(xs).T - self.value) / self.value_diff - 0.5)
+            # 数据量太多，predict很慢，因此用均匀采样得到100个点来计算误差
+            if self.number > 100:
+                xs = np.array(xs)[np.linspace(0, self.max_key, 100).astype(int), np.newaxis]
+                ys = np.arange(100)
+            else:
+                xs = np.array(xs)[:, np.newaxis]
+                ys = np.arange(self.number)
+            # 优化：单个predict->集体predict:时间比为19:1
+            pres = self.model.predicts((xs - self.value) / self.value_diff - 0.5)
             pres[pres < 0] = 0
             pres[pres > 1] = 1
-            errs = pres * self.max_key - np.arange(self.number)
+            errs = pres * self.max_key - ys
             self.model.min_err = math.ceil(errs.min())
             self.model.max_err = math.ceil(errs.max())
         else:
@@ -1116,16 +1159,21 @@ def main():
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time: %s" % search_time)
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/table/trip_data_2_filter_10w.npy'
-    insert_data_list = np.load(path, allow_pickle=True)[:, [10, 11, -1]]
-    profile = line_profiler.LineProfiler(index.update_hr)
-    profile.enable()
-    index.insert(update_data_list.tolist())
-    profile.disable()
-    profile.print_stats()
+    update_data_list = load_data(Distribution.NYCT_10W, 1)
     start_time = time.time()
+    # profile = line_profiler.LineProfiler(HistoryRange.model_update)
+    # profile.enable()
+    index.insert(update_data_list)
+    # profile.disable()
+    # profile.print_stats()
     end_time = time.time()
-    logging.info("Insert time: %s" % (end_time - start_time))
+    logging.info("Sum up full cr time: %s" % index.sum_up_full_cr_time)
+    logging.info("Merge outdated cr time: %s" % index.merge_outdated_cr_time)
+    logging.info("Retrain inefficient model time: %s" % index.retrain_inefficient_model_time)
+    logging.info("Retrain inefficient model num: %s" % index.retrain_inefficient_model_num)
+    update_time = end_time - start_time - \
+                  index.sum_up_full_cr_time - index.merge_outdated_cr_time - index.retrain_inefficient_model_time
+    logging.info("Update time: %s" % update_time)
 
 
 if __name__ == '__main__':

@@ -129,11 +129,13 @@ def load_query(distribution, type):
     return np.load(query_path, allow_pickle=True)
 
 
-def copy_dirs(from_file, to_file):
+def copy_dirs(from_file, to_file, ignore_file=None):
     if not os.path.exists(to_file):  # 如不存在目标目录则创建
         os.makedirs(to_file)
     files = os.listdir(from_file)  # 获取文件夹中文件和目录列表
     for f in files:
+        if f == ignore_file:
+            continue
         if os.path.isdir(from_file + '/' + f):  # 判断是否是文件夹
             copy_dirs(from_file + '/' + f, to_file + '/' + f)  # 递归调用本函数
         else:
