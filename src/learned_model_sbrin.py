@@ -180,15 +180,12 @@ class TrainedNN:
         self.matrices = self.get_matrices()
         self.min_err, self.max_err = self.get_err()
 
+    # nn的weights不用matrix存，用原本的ndarray体积更下
     def get_matrices(self):
-        return [np.mat(matrix) for matrix in self.model.get_weights()]
+        return self.model.get_weights()
 
     def set_matrices(self, matrices):
-        weights = [matrix.getA() for matrix in matrices]
-        # bias的维度从(1, 128)/(1, 1)改为(128,)/(1,)
-        for i in range(len(self.core)):
-            weights[i * 2 + 1] = weights[i * 2 + 1].flatten()
-        self.model.set_weights(weights)
+        self.model.set_weights(matrices)
 
     def score(self, y_true, y_pred):
         """

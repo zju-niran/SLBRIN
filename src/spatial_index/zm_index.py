@@ -497,7 +497,7 @@ class AbstractNN:
         y = normalize_input_minmax(input_key, self.input_min, self.input_max)
         for i in range(len(self.core_nums) - 1):
             y = sigmoid(y * self.matrices[i * 2] + self.matrices[i * 2 + 1])
-        y = y * self.matrices[-2] + self.matrices[-1]
+        y = np.dot(y, self.matrices[-2]) + self.matrices[-1]
         return denormalize_output_minmax(y[0, 0], self.output_min, self.output_max)
 
     def weight(self, input_key):
@@ -511,7 +511,7 @@ class AbstractNN:
         for i in range(len(self.core_nums) - 1):
             y1 = sigmoid(y1 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
             y2 = sigmoid(y2 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
-        return ((y2 - y1) * self.matrices[-2])[0, 0] / delta
+        return np.dot((y2 - y1), self.matrices[-2])[0, 0] / delta
 
 
 def main():

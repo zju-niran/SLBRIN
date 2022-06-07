@@ -47,6 +47,7 @@ if __name__ == '__main__':
             end_time = time.time()
             build_time = end_time - start_time
             logging.info("Build time: %s" % build_time)
+            index.model_clear()
             structure_size, ie_size = index.size()
             logging.info("Structure size: %s" % structure_size)
             logging.info("Index entry size: %s" % ie_size)

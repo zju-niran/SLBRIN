@@ -76,13 +76,10 @@ class TrainedNN_Simple:
         self.min_err, self.max_err = self.get_err()
 
     def get_matrices(self):
-        return [np.mat(matrix) for matrix in self.model.get_weights()]
+        return self.model.get_weights()
 
     def set_matrices(self, matrices):
-        weights = [matrix.getA() for matrix in matrices]
-        for i in range(len(self.core)):
-            weights[i * 2 + 1] = weights[i * 2 + 1].flatten()
-        self.model.set_weights(weights)
+        self.model.set_weights(matrices)
 
     def score(self, y_true, y_pred):
         y_pred_clip = tf.keras.backend.clip(y_pred, 0, 1)

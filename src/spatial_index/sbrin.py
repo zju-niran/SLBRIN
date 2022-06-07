@@ -1033,12 +1033,12 @@ class AbstractNN:
     def predict(self, x):
         for i in range(self.hl_nums):
             x = sigmoid(x * self.matrices[i * 2] + self.matrices[i * 2 + 1])
-        return (x * self.matrices[-2] + self.matrices[-1])[0, 0]
+        return (np.dot(x, self.matrices[-2]) + self.matrices[-1])[0, 0]
 
     def predicts(self, xs):
         for i in range(self.hl_nums):
             xs = sigmoid(xs * self.matrices[i * 2] + self.matrices[i * 2 + 1])
-        return (xs * self.matrices[-2] + self.matrices[-1]).T.A
+        return (np.dot(xs, self.matrices[-2]) + self.matrices[-1]).flatten()
 
 
 def main():
