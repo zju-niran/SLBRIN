@@ -404,7 +404,7 @@ class ZMIndex(SpatialIndex):
     def size(self):
         """
         structure_size = zmin_rmi.npy + zmin_meta.npy
-        ie_size = geohash_index.npy
+        ie_size = geohash_index.npy + update_index.npy
         """
         # 实际上：
         # meta=os.path.getsize(os.path.join(self.model_path, "zmin_meta.npy"))-128-64=4*3+8*4=44
@@ -412,13 +412,14 @@ class ZMIndex(SpatialIndex):
         # meta只存geohash_length/stage_length/train_data_length=4*3=12
         return os.path.getsize(os.path.join(self.model_path, "zmin_rmi.npy")) - 128 + \
                12, \
-               os.path.getsize(os.path.join(self.model_path, "geohash_index.npy")) - 128
+               os.path.getsize(os.path.join(self.model_path, "geohash_index.npy")) - 128 + \
+               os.path.getsize(os.path.join(self.model_path, "update_index.npy")) - 128
 
     def io(self):
         """
-        假设查询条件和数据分布一致，io=获取meta的io+获取stage=1 node的io+获取stage=2 node的io+获取data的io
+        假设查询条件和数据分布一致，io=获取meta的io+获取stage1 node的io+获取stage2 node的io+获取data的io+获取update data的io
         一次read_ahead可以拿512个node，因此前面511个stage2 node的io是1，后面统一为2
-        data io由model误差范围决定
+        data io由model误差范围决定，update data io由model update部分的数据量决定
         先计算单个node的node io和data io，然后乘以node的数据量，最后除以总数据量，来计算整体的平均io
         """
         stage2_model_num = len([model for model in self.rmi[1] if model])
@@ -430,10 +431,15 @@ class ZMIndex(SpatialIndex):
             model_io_list.extend([2] * (stage2_model_num + 1 - MODELS_PER_RA))
         # io when load data
         data_io_list = [math.ceil((model.max_err - model.min_err) / ITEMS_PER_RA) for model in self.rmi[1] if model]
-        # compute avg io
+        # compute avg io: data io + node io
         data_num_list = [model.output_max - model.output_min + 1 for model in self.rmi[1] if model]
-        io_list = [(model_io_list[i] + data_io_list[i]) * data_num_list[i] for i in range(stage2_model_num)]
-        return sum(io_list) / sum(data_num_list)
+        data_node_io_list = [(model_io_list[i] + data_io_list[i]) * data_num_list[i] for i in range(stage2_model_num)]
+        data_node_io = sum(data_node_io_list) / sum(data_num_list)
+        # io when load update data
+        update_data_num = sum([len(model) for model in self.update_index])
+        update_data_io_list = [math.ceil(len(model) / ITEMS_PER_RA) * len(model) for model in self.update_index]
+        update_data_io = sum(update_data_io_list) / update_data_num if update_data_num else 0
+        return data_node_io + update_data_io
 
     def model_clear(self):
         """
