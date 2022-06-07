@@ -154,7 +154,6 @@ class SBRIN(SpatialIndex):
         model_hdf_dir = os.path.join(self.model_path, "hdf/")
         if os.path.exists(model_hdf_dir) is False:
             os.makedirs(model_hdf_dir)
-        multiprocessing.set_start_method('spawn', force=True)  # 解决CUDA_ERROR_NOT_INITIALIZED报错
         pool = multiprocessing.Pool(processes=thread_pool_size)
         mp_dict = multiprocessing.Manager().dict()
         for i in range(self.meta.last_hr + 1):
@@ -957,7 +956,7 @@ def build_nn(model_path, model_key, inputs, labels, is_new, is_simple, is_gpu, w
                                 math.ceil(tmp_index.min_err),
                                 math.ceil(tmp_index.max_err))
     del tmp_index
-    gc.collect()
+    gc.collect(generation=0)
     tmp_dict[model_key] = abstract_index
 
 
@@ -1074,7 +1073,7 @@ def main():
                     threshold_summary=1000,
                     threshold_merge=5,
                     is_new=False,
-                    is_simple=True,
+                    is_simple=False,
                     is_gpu=True,
                     weight=1,
                     core=[1, 128],

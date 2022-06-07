@@ -96,7 +96,6 @@ class ZMIndex(SpatialIndex):
                     train_inputs[i] = None
                     train_labels[i] = None
         # 叶子节点使用线程池训练
-        multiprocessing.set_start_method('spawn', force=True)
         pool = multiprocessing.Pool(processes=thread_pool_size)
         i = self.stage_length - 1
         task_size = stages[i]
@@ -470,7 +469,7 @@ def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new,
                                 int(tmp_index.train_y_min), int(tmp_index.train_y_max),
                                 math.ceil(tmp_index.min_err), math.ceil(tmp_index.max_err))
     del tmp_index
-    gc.collect()
+    gc.collect(generation=0)
     if mp_list:
         mp_list[j] = abstract_index
     else:
