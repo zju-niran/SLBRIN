@@ -11,7 +11,7 @@ from src.spatial_index.sbrin import SBRIN
 
 def train_tn():
     data_distributions = [Distribution.UNIFORM_SORTED, Distribution.NORMAL_SORTED, Distribution.NYCT_SORTED]
-    tn_list = [20000, 10000, 5000]
+    tn_list = [5000, 6000, 8000, 10000, 20000]
     for data_distribution in data_distributions:
         for tn in tn_list:
             model_path = "model/sbrin/%s/tn_%s" % (data_distribution.name, tn)
@@ -79,12 +79,13 @@ def train_tn():
                 search_time = (end_time - start_time) / 1000
                 logging.info("KNN query time: %s" % search_time)
 
+
 def train_ts():
     data_distributions = [Distribution.UNIFORM, Distribution.NORMAL, Distribution.NYCT]
     ts_list = [20000, 10000, 5000, 1000]
     tm_list = [100, 50, 10]
-    origin_path = "model/sbrin/%s_SORTED/tn_5000"
-    target_path = "model/sbrin/%s_SORTED/tn_5000_ts_%s_tm_%s"
+    origin_path = "model/sbrin/%s_SORTED/tn_10000"
+    target_path = "model/sbrin/%s_SORTED/tn_10000_ts_%s_tm_%s"
     for data_distribution in data_distributions:
         for ts in ts_list:
             for tm in tm_list:
@@ -99,10 +100,10 @@ def train_ts():
                 index.load()
                 index.meta.threshold_summary = ts
                 index.meta.threshold_merge = tm
-                index.meta.threshold_err = 5000
+                index.meta.threshold_err = 10000
                 # 开始更新
                 logging.info("*************start %s************" % target_model_path)
-                update_data_list = load_data(data_distribution, 1)
+                update_data_list = load_data(data_distribution, 1)[:2000000]
                 start_time = time.time()
                 index.insert(update_data_list)
                 index.save()
@@ -124,5 +125,5 @@ if __name__ == '__main__':
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
                         level=logging.INFO,
                         format="%(message)s")
-    train_tn()
-    # train_ts()
+    # train_tn()
+    train_ts()

@@ -33,7 +33,7 @@ if __name__ == '__main__':
                           "kdtree/%s",
                           "brinspatial/%s_SORTED/ppr_sorted_64",
                           "zmindex/%s_SORTED/stage2_num_5000",
-                          # "sbrin/%s_SORTED/tn_5000"
+                          # "sbrin/%s_SORTED/tn_10000"
                           ]
     target_model_paths = ["rtree/%s",
                           "prquadtree/%s",

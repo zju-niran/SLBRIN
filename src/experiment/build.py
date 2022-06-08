@@ -52,7 +52,7 @@ if __name__ == '__main__':
         index = SBRIN(model_path=parent_path + data_distribution.name + "/sbrin_mp_gpu/")
         index.build(data_list=build_data_list,
                     is_sorted=True,
-                    threshold_number=5000,
+                    threshold_number=10000,
                     data_precision=data_precision[data_distribution],
                     region=data_region[data_distribution],
                     threshold_err=0,
@@ -105,7 +105,7 @@ if __name__ == '__main__':
         index = SBRIN(model_path=parent_path + data_distribution.name + "/sbrin_sp_cpu/")
         index.build(data_list=build_data_list,
                     is_sorted=True,
-                    threshold_number=5000,
+                    threshold_number=10000,
                     data_precision=data_precision[data_distribution],
                     region=data_region[data_distribution],
                     threshold_err=0,
