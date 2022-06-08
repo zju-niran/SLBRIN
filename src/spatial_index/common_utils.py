@@ -308,12 +308,6 @@ def total_size(o, handlers={}, verbose=False):
     return sizeof(o)
 
 
-def is_sorted_list(lst):
-    """
-    判断list是否有序
-    """
-    return sorted(lst) == lst or sorted(lst, reverse=True) == lst
-
 
 def binary_search_less_max(nums, field, x, left, right):
     """

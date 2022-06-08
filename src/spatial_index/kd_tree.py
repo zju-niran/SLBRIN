@@ -237,7 +237,7 @@ class KDTree(SpatialIndex):
         通过del减少内存占用
         """
         median_key = value_len // 2
-        values = sorted(values, key=lambda x: x[axis])
+        values.sort(key=lambda x: x[axis])
         node = KDNode(value=values[median_key], axis=axis)
         left_value_len = median_key
         right_value_len = value_len - median_key - 1

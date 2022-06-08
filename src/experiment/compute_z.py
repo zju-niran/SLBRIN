@@ -14,7 +14,7 @@ for data_distribution in data_distributions:
                                         region=data_region[data_distribution])
     start_time = time.time()
     data = [(data[i][0], data[i][1], geohash.encode(data[i][0], data[i][1]), i) for i in range(len(data))]
-    data = sorted(data, key=lambda x: x[2])
+    data.sort(key=lambda x: x[2])
     end_time = time.time()
     search_time = end_time - start_time
     print("Compute geohash time: %s" % search_time)

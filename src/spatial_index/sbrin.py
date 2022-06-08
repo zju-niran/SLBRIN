@@ -103,7 +103,7 @@ class SBRIN(SpatialIndex):
         else:
             data_list = [(data_list[i][0], data_list[i][1], geohash.encode(data_list[i][0], data_list[i][1]), i)
                          for i in range(len(data_list))]
-            data_list = sorted(data_list, key=lambda x: x[2])
+            data_list.sort(key=lambda x: x[2])
         # 2. build SBRIN
         # 2.1. init hr
         n = len(data_list)
@@ -373,7 +373,7 @@ class SBRIN(SpatialIndex):
         offset = hr_key * self.meta.threshold_number
         points.extend(self.index_entries[offset:offset + hr.number])
         points_len = len(points)
-        points = sorted(points, key=lambda x: x[2])
+        points.sort(key=lambda x: x[2])
         if points_len > self.meta.threshold_number and hr.length < self.meta.threshold_length:
             # split hr
             self.split_hr(hr, hr_key, offset, points)

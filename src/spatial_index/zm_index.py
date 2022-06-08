@@ -360,7 +360,7 @@ class ZMIndex(SpatialIndex):
             else:
                 # 4. elif target points is enough, but some target points is in the corner, set window = dst
                 if len(tmp_tp_list):
-                    tp_list = sorted(tp_list)
+                    tp_list.sort()
                     dst = tp_list[k - 1][0] ** 0.5
                     if dst > window_radius:
                         window_radius = dst
