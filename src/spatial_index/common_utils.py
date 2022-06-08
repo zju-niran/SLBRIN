@@ -308,6 +308,57 @@ def total_size(o, handlers={}, verbose=False):
     return sizeof(o)
 
 
+def merge_sorted_list(lst1, lst2, field):
+    len1 = len(lst1)
+    if not len1:
+        return lst2
+    len2 = len(lst2)
+    if not len2:
+        return lst1
+    result = [None] * (len1 + len2)
+    i = 0
+    j = 0
+    k = 0
+    while True:
+        if lst1[i][field] < lst2[j][field]:
+            result[k] = lst1[i]
+            i += 1
+            k += 1
+            if i == len1:
+                break
+        else:
+            result[k] = lst2[j]
+            j += 1
+            k += 1
+            if j == len2:
+                break
+    if i < len1:
+        result[k:] = lst1[i:]
+        return result
+    if j < len2:
+        result[k:] = lst2[j:]
+        return result
+    return result
+
+
+def merge_sorted_list2(lst1, lst2, field):
+    len1 = len(lst1)
+    if not len1:
+        return lst2
+    len2 = len(lst2)
+    if not len2:
+        return lst1
+    i = 0
+    j = 0
+    while i < len1 and j < len2:
+        if lst1[i][field] >= lst2[j][field]:
+            j += 1
+        else:
+            lst2.insert(j, lst1[i])
+            i += 1
+            j +=1
+    return lst2
+
 
 def binary_search_less_max(nums, field, x, left, right):
     """

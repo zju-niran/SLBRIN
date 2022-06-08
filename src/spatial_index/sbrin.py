@@ -132,20 +132,18 @@ class SBRIN(SpatialIndex):
                 # 把不需要分裂的hr加入结果list，加入的时候顺序为[左上，右下，左上，右上]的逆序，因为堆栈
                 range_list.append(cur)
         # 2.3. create sbrin
-        range_len = len(range_list)
-        self.meta = Meta(range_len - 1, -1, threshold_number, threshold_length, threshold_err, threshold_summary,
+        self.meta = Meta(len(range_list) - 1, -1, threshold_number, threshold_length, threshold_err, threshold_summary,
                          threshold_merge, geohash)
         region_offset = pow(10, -data_precision - 1)
-        self.history_ranges = [HistoryRange(range_list[i][0], range_list[i][1], range_list[i][2], None, 0,
-                                            range_list[i][4].up_right_less_region(region_offset),
-                                            2 << geohash.sum_bits - range_list[i][1] - 1) for i in range(range_len)]
+        self.history_ranges = [HistoryRange(r[0], r[1], r[2], None, 0, r[4].up_right_less_region(region_offset),
+                                            2 << geohash.sum_bits - r[1] - 1) for r in range_list]
         self.current_ranges = []
         self.create_cr()
         # 2.4. reorganize index entries
         result_data_list = []
-        for i in range(range_len):
-            result_data_list.extend(data_list[range_list[i][3]: range_list[i][3] + range_list[i][2]])
-            result_data_list.extend([(0, 0, 0, 0)] * (threshold_number - range_list[i][2]))
+        for r in range_list:
+            result_data_list.extend(data_list[r[3]: r[3] + r[2]])
+            result_data_list.extend([(0, 0, 0, 0)] * (threshold_number - r[2]))
         self.index_entries = result_data_list
         # 3. build learned model
         self.build_nn_multiprocess(is_new, is_simple, is_gpu, weight, core, train_step, batch_num, learning_rate,
@@ -298,6 +296,7 @@ class SBRIN(SpatialIndex):
             # 3. delete crs/index entries
             del self.current_ranges[:self.meta.threshold_merge]
             self.meta.last_cr -= self.meta.threshold_merge
+            first_key += offset * self.meta.threshold_number
             del self.index_entries[first_key:first_key + old_data_len]
             end_time = time.time()
             self.merge_outdated_cr_time += end_time - start_time
@@ -368,70 +367,79 @@ class SBRIN(SpatialIndex):
         update hr by points
         """
         hr = self.history_ranges[hr_key]
-        # quicksort->merge_sorted_array->sorted => 50:2:1
-        # merge_sorted_array(self.index_entries, 2, hr.key[0], hr.key[1], points)
+        # quicksort->merge_sorted_array->sorted->binary_search and insert => 50:2:1:0.5
         offset = hr_key * self.meta.threshold_number
-        points.extend(self.index_entries[offset:offset + hr.number])
-        points_len = len(points)
-        points.sort(key=lambda x: x[2])
-        if points_len > self.meta.threshold_number and hr.length < self.meta.threshold_length:
+        target_points = self.index_entries[offset:offset + hr.number]
+        j = 0
+        for point in points:
+            j = binary_search_less_max(target_points, 2, point[2], j, hr.max_key) + 1
+            target_points.insert(j, point)
+        target_points_len = len(target_points)
+        if target_points_len > self.meta.threshold_number and hr.length < self.meta.threshold_length:
             # split hr
-            self.split_hr(hr, hr_key, offset, points)
-            return 3
+            return self.split_hr(hr, hr_key, offset, target_points) - 1
         else:
             # update hr metadata
-            hr.number = points_len
-            hr.max_key = points_len - 1
-            hr.model_update([point[2] for point in points])
+            hr.number = target_points_len
+            hr.max_key = target_points_len - 1
+            hr.model_update(target_points)
             self.get_retrain_inefficient_model(hr_key)
             # update index entries
-            self.index_entries[offset:offset + points_len] = points
+            self.index_entries[offset:offset + target_points_len] = target_points
             return 0
 
     def split_hr(self, hr, hr_key, offset, points):
         # 1. create child hrs, of which model is inherited from parent hr and update err by inherited index entries
-        length = hr.length + 2
-        value_diff = hr.value_diff >> 2
         region_offset = pow(10, -self.meta.geohash.data_precision - 1)
-        child_regs = hr.scope.up_right_more_region(region_offset).split()
-        last_key = len(points) - 1
-        tmp_l_key = 0
-        child_hrs = [None] * 4
-        r_bound = hr.value
+        range_stack = [(hr.value, hr.length, len(points), 0, hr.scope.up_right_more_region(region_offset))]
+        range_list = []
+        while len(range_stack):
+            cur = range_stack.pop(-1)
+            if cur[2] > self.meta.threshold_number and cur[1] < self.meta.threshold_length:
+                child_regions = cur[4].split()
+                l_key = cur[3]
+                r_key = cur[3] + cur[2] - 1
+                tmp_l_key = l_key
+                child_list = [None] * 4
+                length = cur[1] + 2
+                r_bound = cur[0]
+                for i in range(4):
+                    value = r_bound
+                    r_bound = cur[0] + (i + 1 << self.meta.geohash.sum_bits - length)
+                    tmp_r_key = binary_search_less_max(points, 2, r_bound, tmp_l_key, r_key)
+                    child_list[i] = (value, length, tmp_r_key - tmp_l_key + 1, tmp_l_key, child_regions[i])
+                    tmp_l_key = tmp_r_key + 1
+                range_stack.extend(child_list[::-1])
+            else:
+                range_list.append(cur)
+        child_len = len(range_list)
         child_ies = []
-        for i in range(3):
-            value = r_bound
-            r_bound = hr.value + (i + 1) * value_diff
-            tmp_r_key = binary_search_less_max(points, 2, r_bound, tmp_l_key, last_key)
-            number = tmp_r_key - tmp_l_key + 1
-            child_ies.extend(points[tmp_l_key: tmp_r_key + 1])
-            child_ies.extend([(0, 0, 0, 0)] * (self.meta.threshold_number - number))
+        child_hrs = []
+        for r in range_list:
+            child_data = points[r[3]:r[3] + r[2]]
+            child_ies.extend(child_data)
+            child_ies.extend([(0, 0, 0, 0)] * (self.meta.threshold_number - r[2]))
             # TODO: 当前model直接继承，需要改为计算得到父model的1/4部分
-            child_hr = HistoryRange(value, length, number, copy.copy(hr.model), 0,
-                                    child_regs[i].up_right_less_region(region_offset), value_diff)
-            child_hr.model_update([point[2] for point in points[tmp_l_key: tmp_r_key + 1]])
-            child_hrs[3 - i] = child_hr
-            tmp_l_key = tmp_r_key + 1
-        number = last_key - tmp_l_key + 1
-        child_ies.extend(points[tmp_l_key:])
-        child_ies.extend([(0, 0, 0, 0)] * (self.meta.threshold_number - number))
-        child_hr = HistoryRange(r_bound, length, number, hr.model, 0, child_regs[i].up_right_less_region(region_offset),
-                                value_diff)
-        child_hr.model_update([point[2] for point in points[tmp_l_key:]])
-        child_hrs[0] = child_hr
+            child_hr = HistoryRange(r[0], r[1], r[2], copy.copy(hr.model), 0,
+                                    hr.scope.up_right_less_region(region_offset),
+                                    2 << self.meta.geohash.sum_bits - r[1] - 1)
+            child_hr.model_update(child_data)
+            child_hrs.append(child_hr)
         # 2. delete old hr
         del self.history_ranges[hr_key]
         # 3. insert child hrs
+        child_hrs.reverse()  # 倒序一下，有助于insert
         for child_hr in child_hrs:
             self.history_ranges.insert(hr_key, child_hr)
         # 4. update meta
-        self.meta.last_hr += 3
+        self.meta.last_hr += child_len - 1
         # 5. update index entries
         self.index_entries = self.index_entries[:offset] + child_ies + \
                              self.index_entries[offset + self.meta.threshold_number:]
         # 6. check model inefficient
-        for i in range(4):
+        for i in range(child_len):
             self.get_retrain_inefficient_model(hr_key + i)
+        return child_len
 
     def point_query_hr(self, point):
         """
@@ -778,7 +786,7 @@ class SBRIN(SpatialIndex):
             if cr.value is None:
                 cr_list = [-1, -1, -1, -1, cr.number, cr.state]
             else:
-                cr_list = [cr.value.bottom, cr.value.up, cr.value.left, cr.value.right, cr.number, cr.state]
+                cr_list = [cr.value[0], cr.value[1], cr.value[2], cr.value[3], cr.number, cr.state]
             sbrin_crs.append(tuple(cr_list))
         sbrin_crs = np.array(sbrin_crs, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'f8'), ("3", 'f8'),
                                                ("4", 'i2'), ("5", 'i1')])
@@ -806,8 +814,9 @@ class SBRIN(SpatialIndex):
         self.train_step = sbrin_meta[14]
         self.batch_num = sbrin_meta[15]
         self.learning_rate = sbrin_meta[16]
+        # length从int32转int，不然位运算时候会超出限制变为负数
         self.history_ranges = [
-            HistoryRange(sbrin_hrs[i][0], sbrin_hrs[i][1], sbrin_hrs[i][2], sbrin_models[i], sbrin_hrs[i][3],
+            HistoryRange(sbrin_hrs[i][0], int(sbrin_hrs[i][1]), sbrin_hrs[i][2], sbrin_models[i], sbrin_hrs[i][3],
                          Region(sbrin_hrs[i][5], sbrin_hrs[i][6], sbrin_hrs[i][7], sbrin_hrs[i][8]),
                          sbrin_hrs[i][4]) for i in range(len(sbrin_hrs))]
         crs = []
@@ -816,7 +825,7 @@ class SBRIN(SpatialIndex):
             if cr[0] == -1:
                 region = None
             else:
-                region = Region(cr[0], cr[1], cr[2], cr[3])
+                region = cr[:4]
             crs.append(CurrentRange(region, cr[4], cr[5]))
         self.current_ranges = crs
         self.index_entries = index_entries.tolist()
@@ -1038,10 +1047,11 @@ class HistoryRange:
         if self.number:
             # 数据量太多，predict很慢，因此用均匀采样得到100个点来计算误差
             if self.number > 100:
-                xs = np.array(xs)[np.linspace(0, self.max_key, 100).astype(int), np.newaxis]
+                step_size = self.number // 100
+                xs = np.array([[xs[i][2]] for i in range(0, step_size * 100, step_size)])
                 ys = np.arange(100)
             else:
-                xs = np.array(xs)[:, np.newaxis]
+                xs = np.array([[x[2]] for x in xs])
                 ys = np.arange(self.number)
             # 优化：单个predict->集体predict:时间比为19:1
             pres = self.model.predicts((xs - self.value) / self.value_diff - 0.5)
