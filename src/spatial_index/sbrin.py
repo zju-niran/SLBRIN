@@ -256,6 +256,7 @@ class SBRIN(SpatialIndex):
             # 3. delete crs/index entries
             del self.current_ranges[:self.meta.threshold_merge]
             self.meta.last_cr -= self.meta.threshold_merge
+            first_cr_key += offset
             del self.index_entries[first_cr_key:first_cr_key + self.meta.threshold_merge]
             end_time = time.time()
             self.merge_outdated_cr_time += end_time - start_time
@@ -279,7 +280,7 @@ class SBRIN(SpatialIndex):
         if hr.model.max_err - hr.model.min_err >= self.meta.threshold_err:
             hr.state = 1
             self.retrain_state = 1
-            # self.retrain_inefficient_model(hr_key)
+            self.retrain_inefficient_model(hr_key)
 
     def retrain_inefficient_model(self, hr_key):
         """
