@@ -130,6 +130,33 @@ class BRINSpatial(SpatialIndex):
         return [[blk, intersect(window, blk.value)]
                 for blk in self.block_ranges]
 
+    def binary_search(self, x, left, right):
+        """
+        binary search geohash in ies[left, right]
+        """
+        result = []
+        ie_max_key = len(self.index_entries) - 1
+        if right > ie_max_key:
+            right = ie_max_key
+        while left <= right:
+            mid = (left + right) // 2
+            if self.index_entries[mid][2] == x:
+                result.append(self.index_entries[mid][-1])
+                mid_left = mid - 1
+                while mid_left >= left and self.index_entries[mid_left][2] == x:
+                    result.append(self.index_entries[mid_left][-1])
+                    mid_left -= 1
+                mid_right = mid + 1
+                while mid_right <= right and self.index_entries[mid_right][2] == x:
+                    result.append(self.index_entries[mid_right][-1])
+                    mid_right += 1
+                return result
+            elif self.index_entries[mid][2] < x:
+                left = mid + 1
+            else:
+                right = mid - 1
+        return result
+
     def point_query_single(self, point):
         """
         1. 根据xy找到可能存在的blks
@@ -142,8 +169,7 @@ class BRINSpatial(SpatialIndex):
             gh = self.meta.geohash.encode(point[0], point[1])
             result = []
             for blk in blks:
-                target_points = self.index_entries[blk.blknum:blk.blknum + self.meta.datas_per_range]
-                result.extend(binary_search(target_points, 2, gh, 0, len(target_points) - 1))
+                result.extend(self.binary_search(gh, blk.blknum, blk.blknum + self.meta.datas_per_range - 1))
             return result
         else:
             return [ie[-1]
