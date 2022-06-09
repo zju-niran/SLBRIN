@@ -7,7 +7,7 @@ import time
 import numpy as np
 
 sys.path.append('/home/zju/wlj/st-learned-index')
-from src.spatial_index.common_utils import get_mbr_by_points, intersect, Region
+from src.spatial_index.common_utils import get_mbr_by_points, intersect, Region, binary_search
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 from src.experiment.common_utils import load_data, Distribution
@@ -138,10 +138,18 @@ class BRINSpatial(SpatialIndex):
         # 1. 根据xy找到可能存在的blks
         blks = self.point_query_blk(point)
         # 2. 精确过滤blks对应磁盘范围内的数据
-        return [ie[-1]
-                for blk in blks
-                for ie in self.index_entries[blk.blknum: blk.blknum + self.meta.datas_per_range]
-                if ie[0] == point[0] and ie[1] == point[1]]
+        if self.meta.is_sorted:
+            gh = self.meta.geohash.encode(point[0], point[1])
+            result = []
+            for blk in blks:
+                target_points = self.index_entries[blk.blknum:blk.blknum + self.meta.datas_per_range]
+                result.extend(binary_search(target_points, 2, gh, 0, len(target_points) - 1))
+            return result
+        else:
+            return [ie[-1]
+                    for blk in blks
+                    for ie in self.index_entries[blk.blknum: blk.blknum + self.meta.datas_per_range]
+                    if ie[0] == point[0] and ie[1] == point[1]]
 
     def range_query_single(self, window):
         """
