@@ -8,6 +8,7 @@ import numpy as np
 
 sys.path.append('/home/zju/wlj/st-learned-index')
 from src.spatial_index.common_utils import get_mbr_by_points, intersect, Region
+from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 from src.experiment.common_utils import load_data, Distribution
 
@@ -39,6 +40,8 @@ class BRINSpatial(SpatialIndex):
         # last_revmap_page
         # datas_per_range: 优化计算所需：每个blk的数据容量
         # datas_per_page: 优化计算所需：每个page的数据容量
+        # is_sorted: 增加: 优化查询，对blk内的数据按照geohash排序
+        # geohash: 增加，is_sorted=True时使用
         self.meta = meta
         # revmap pages由多个revmap分页组成
         # 忽略revmap，pages找block的过程，通过blk的id和pagesperrange直接完成
@@ -49,14 +52,29 @@ class BRINSpatial(SpatialIndex):
         self.block_ranges = block_ranges
 
     def insert_single(self, point):
-        # 1. append in xy index
-        self.index_entries.append(tuple(point))
-        # 2. create tmp blk if point is on the breakpoint
-        if point[-1] % self.meta.datas_per_range == 0:
-            self.block_ranges[-1].value = get_mbr_by_points(self.index_entries[-self.meta.datas_per_range:])
-            self.create_tmp_blk()
+        if self.meta.is_sorted:
+            # 1. compute geohash from x/y of point
+            gh = self.meta.geohash.encode(point[0], point[1])
+            # 2. encode p to geohash and create index entry(x, y, geohash, pointer)
+            point.insert(-1, gh)
+            # 3. append in xy index
+            self.index_entries.append(tuple(point))
+            # 3. create tmp blk and sort last blk if point is on the breakpoint
+            if point[-1] % self.meta.datas_per_range == 0:
+                target_points = sorted(self.index_entries[-self.meta.datas_per_range:], key=lambda x: x[2])
+                self.block_ranges[-1].value = get_mbr_by_points(target_points)
+                self.index_entries[-self.meta.datas_per_range:] = target_points
+                self.create_tmp_blk()
+        else:
+            # 1. append in xy index
+            self.index_entries.append(tuple(point))
+            # 2. create tmp blk if point is on the breakpoint
+            if point[-1] % self.meta.datas_per_range == 0:
+                self.block_ranges[-1].value = get_mbr_by_points(self.index_entries[-self.meta.datas_per_range:])
+                self.create_tmp_blk()
 
     def insert(self, points):
+        points = points.tolist()
         for point in points:
             self.insert_single(point)
         # 如果整体插入已经结束，则主动更新tmp br的value
@@ -68,16 +86,24 @@ class BRINSpatial(SpatialIndex):
     def sum_up_tmp_blk(self):
         tmp_blk = self.block_ranges[-1]
         if not tmp_blk.value:
-            tmp_blk.value = get_mbr_by_points(self.index_entries[tmp_blk.blknum:])
+            if self.meta.is_sorted:
+                target_points = sorted(self.index_entries[tmp_blk.blknum:], key=lambda x: x[2])
+                self.block_ranges[-1].value = get_mbr_by_points(target_points)
+                self.index_entries[tmp_blk.blknum:] = target_points
+            else:
+                tmp_blk.value = get_mbr_by_points(self.index_entries[tmp_blk.blknum:])
 
-    def build(self, data_list, pages_per_range, is_sorted, region):
+    def build(self, data_list, pages_per_range, is_sorted, region, data_precision):
         # 1. save xy index
         if is_sorted:
-            self.index_entries = [(data[0], data[1], data[-1]) for data in data_list]
+            self.index_entries = data_list.tolist()
+            geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
         else:
             self.index_entries = [tuple(data) for data in data_list.tolist()]
+            geohash = None
         # 2. create meta
-        self.meta = Meta(1, pages_per_range, 0, region.right - region.left, region.up - region.bottom)
+        self.meta = Meta(1, pages_per_range, 0, region.right - region.left, region.up - region.bottom,
+                         is_sorted, geohash)
         # 3. create blk by data
         blk_size = len(data_list) // self.meta.datas_per_range
         self.block_ranges = [BlockRange(i * self.meta.datas_per_range,
@@ -112,7 +138,7 @@ class BRINSpatial(SpatialIndex):
         # 1. 根据xy找到可能存在的blks
         blks = self.point_query_blk(point)
         # 2. 精确过滤blks对应磁盘范围内的数据
-        return [ie[2]
+        return [ie[-1]
                 for blk in blks
                 for ie in self.index_entries[blk.blknum: blk.blknum + self.meta.datas_per_range]
                 if ie[0] == point[0] and ie[1] == point[1]]
@@ -132,12 +158,12 @@ class BRINSpatial(SpatialIndex):
             # 3. 直接添加包含的blks对应磁盘范围内的数据
             elif target_blk[1] == 2:
                 blk = target_blk[0]
-                result.extend([ie[2]
+                result.extend([ie[-1]
                                for ie in self.index_entries[blk.blknum:blk.blknum + self.meta.datas_per_range]])
             # 2. 精确过滤相交的blks对应磁盘范围内的数据
             else:
                 blk = target_blk[0]
-                result.extend([ie[2]
+                result.extend([ie[-1]
                                for ie in self.index_entries[blk.blknum:blk.blknum + self.meta.datas_per_range]
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
         return result
@@ -167,14 +193,14 @@ class BRINSpatial(SpatialIndex):
                     elif target_blk[1] == 2:
                         blk = target_blk[0]
                         tmp_tp_list.extend(
-                            [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[2]]
+                            [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[-1]]
                              for ie in self.index_entries[blk.blknum:blk.blknum + self.meta.datas_per_range]
                              if not (old_window[0] <= ie[1] <= old_window[1] and
                                      old_window[2] <= ie[0] <= old_window[3])])
                     else:
                         blk = target_blk[0]
                         tmp_tp_list.extend(
-                            [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[2]]
+                            [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[-1]]
                              for ie in self.index_entries[blk.blknum:blk.blknum + self.meta.datas_per_range]
                              if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3] and
                              not (old_window[0] <= ie[1] <= old_window[1] and old_window[2] <= ie[0] <= old_window[3])])
@@ -185,12 +211,12 @@ class BRINSpatial(SpatialIndex):
                     elif target_blk[1] == 2:
                         blk = target_blk[0]
                         tmp_tp_list.extend(
-                            [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[2]]
+                            [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[-1]]
                              for ie in self.index_entries[blk.blknum:blk.blknum + self.meta.datas_per_range]])
                     else:
                         blk = target_blk[0]
                         tmp_tp_list.extend(
-                            [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[2]]
+                            [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[-1]]
                              for ie in self.index_entries[blk.blknum:blk.blknum + self.meta.datas_per_range]
                              if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
             tp_list.extend(tmp_tp_list)
@@ -212,20 +238,36 @@ class BRINSpatial(SpatialIndex):
         return [tp[1] for tp in tp_list[:k]]
 
     def save(self):
-        brins_meta = np.array((self.meta.version, self.meta.pages_per_range, self.meta.last_revmap_page,
-                               self.meta.region_width, self.meta.region_height))
+        brins_meta = [self.meta.version, self.meta.pages_per_range, self.meta.last_revmap_page,
+                      self.meta.region_width, self.meta.region_height]
+        if self.meta.is_sorted:
+            brins_meta.extend([1, self.meta.geohash.data_precision,
+                               self.meta.geohash.region.bottom, self.meta.geohash.region.up,
+                               self.meta.geohash.region.left, self.meta.geohash.region.right])
+            index_entries = np.array(self.index_entries, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')])
+        else:
+            brins_meta.extend([0, 0, 0, 0, 0, 0])
+            index_entries = np.array(self.index_entries, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i4')])
+        brins_meta = np.array(tuple(brins_meta))
         brins_blk = [(blk.blknum, blk.value[0], blk.value[1], blk.value[2], blk.value[3]) for blk in self.block_ranges]
         brins_blk = np.array(brins_blk, dtype=[("0", 'i4'), ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8')])
         np.save(os.path.join(self.model_path, 'brins_meta.npy'), brins_meta)
         np.save(os.path.join(self.model_path, 'brins_blk.npy'), brins_blk)
-        index_entries = np.array(self.index_entries, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i4')])
         np.save(os.path.join(self.model_path, 'index_entries.npy'), index_entries)
 
     def load(self):
         brins_meta = np.load(os.path.join(self.model_path, 'brins_meta.npy'))
         brins_blk = np.load(os.path.join(self.model_path, 'brins_blk.npy'), allow_pickle=True)
         index_entries = np.load(os.path.join(self.model_path, 'index_entries.npy'), allow_pickle=True)
-        self.meta = Meta(brins_meta[0], brins_meta[1], brins_meta[2], brins_meta[3], brins_meta[4])
+        if brins_meta[5]:
+            is_sorted = True
+            geohash = Geohash.init_by_precision(data_precision=brins_meta[6],
+                                                region=Region(brins_meta[7], brins_meta[8],
+                                                              brins_meta[9], brins_meta[10]))
+        else:
+            is_sorted = False
+            geohash = None
+        self.meta = Meta(brins_meta[0], brins_meta[1], brins_meta[2], brins_meta[3], brins_meta[4], is_sorted, geohash)
         self.block_ranges = [BlockRange(blk[0], [blk[1], blk[2], blk[3], blk[4]]) for blk in brins_blk]
         self.index_entries = index_entries.tolist()
 
@@ -235,14 +277,14 @@ class BRINSpatial(SpatialIndex):
         ie_size = index_entries.npy
         """
         # 实际上：
-        # meta一致为os.path.getsize(os.path.join(self.model_path, "brins_meta.npy"))-128=4*5=20
+        # meta一致为os.path.getsize(os.path.join(self.model_path, "brins_meta.npy"))-128=4*11=44
         # blk一致为os.path.getsize(os.path.join(self.model_path, "brins_blk.npy"))-128-64=blk_size*(8*4+4)=blk_size*36
         # revmap为none
         # index_entries一致为os.path.getsize(os.path.join(self.model_path, "index_entries.npy"))-128=data_len*(8*2+4)=data_len*20
         # 理论上：
         # revmap存blk id/pointer=meta.size*(2+4)=meta.size*6
         blk_size = len(self.block_ranges)
-        return 20 + \
+        return 44 + \
                blk_size * 36 + \
                blk_size * 6, os.path.getsize(os.path.join(self.model_path, "index_entries.npy")) - 128
 
@@ -262,7 +304,7 @@ class BRINSpatial(SpatialIndex):
 
 
 class Meta:
-    def __init__(self, version, pages_per_range, last_revmap_page, region_width, region_height):
+    def __init__(self, version, pages_per_range, last_revmap_page, region_width, region_height, is_sorted, geohash):
         # BRIN
         self.version = version
         self.pages_per_range = pages_per_range
@@ -273,6 +315,9 @@ class Meta:
         # For KNN
         self.region_width = region_width
         self.region_height = region_height
+        # For sort
+        self.is_sorted = is_sorted
+        self.geohash = geohash
 
 
 class BlockRange:
@@ -309,7 +354,8 @@ def main():
         index.build(data_list=build_data_list,
                     pages_per_range=5,
                     is_sorted=True,
-                    region=Region(40, 42, -75, -73))
+                    region=Region(40, 42, -75, -73),
+                    data_precision=6)
         index.save()
         end_time = time.time()
         build_time = end_time - start_time

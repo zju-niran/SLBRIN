@@ -103,7 +103,7 @@ def train_ts():
                 index.meta.threshold_err = 10000
                 # 开始更新
                 logging.info("*************start %s************" % target_model_path)
-                update_data_list = load_data(data_distribution, 1)[:2000000]
+                update_data_list = load_data(data_distribution, 1)
                 start_time = time.time()
                 index.insert(update_data_list)
                 index.save()

@@ -4,7 +4,7 @@ import sys
 import time
 
 sys.path.append('/home/zju/wlj/st-learned-index')
-from src.experiment.common_utils import Distribution, load_data, load_query, data_region
+from src.experiment.common_utils import Distribution, load_data, load_query, data_region, data_precision
 from src.spatial_index.brin_spatial import BRINSpatial
 
 if __name__ == '__main__':
@@ -29,7 +29,8 @@ if __name__ == '__main__':
             index.build(data_list=build_data_list,
                         pages_per_range=ppr,
                         is_sorted=False,
-                        region=data_region[data_distribution])
+                        region=data_region[data_distribution],
+                        data_precision=data_precision[data_distribution])
             index.save()
             end_time = time.time()
             build_time = end_time - start_time
@@ -74,7 +75,8 @@ if __name__ == '__main__':
             index.build(data_list=build_data_list,
                         pages_per_range=ppr,
                         is_sorted=True,
-                        region=data_region[data_distribution])
+                        region=data_region[data_distribution],
+                        data_precision=data_precision[data_distribution])
             index.save()
             end_time = time.time()
             build_time = end_time - start_time
