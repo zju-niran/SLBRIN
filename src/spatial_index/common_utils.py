@@ -438,37 +438,6 @@ def quick_sort_n(nums, field, n, left, right):
             quick_sort_n(nums, field, n, m + 1, n)
 
 
-def get_nearest_none(lt, pre, left, right):
-    """
-    找到lt中[left, right]范围内离pre最近的None
-    通过offset的增大，找到pre右侧offset的位置或pre左侧offset的None
-    如果pre到边界，则left_free和right_free为-1，两者都为-1则return None
-    """
-    offset = 1
-    left_free = 1
-    right_free = 1
-    if pre < left or pre > right:
-        print("invalid pre")
-    while True:
-        if left_free:
-            key = pre + offset
-            if key > right:
-                left_free = -1
-            else:
-                if lt[key] is None:
-                    return key
-        if right_free:
-            key = pre - offset
-            if key < left:
-                right_free = -1
-            else:
-                if lt[key] is None:
-                    return key
-        if left_free + right_free == -2:
-            return None
-        offset += 1
-
-
 def normalize_input(na):
     min_v = na.min(axis=0)
     max_v = na.max(axis=0)
