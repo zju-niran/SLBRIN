@@ -308,58 +308,6 @@ def total_size(o, handlers={}, verbose=False):
     return sizeof(o)
 
 
-def merge_sorted_list(lst1, lst2, field):
-    len1 = len(lst1)
-    if not len1:
-        return lst2
-    len2 = len(lst2)
-    if not len2:
-        return lst1
-    result = [None] * (len1 + len2)
-    i = 0
-    j = 0
-    k = 0
-    while True:
-        if lst1[i][field] < lst2[j][field]:
-            result[k] = lst1[i]
-            i += 1
-            k += 1
-            if i == len1:
-                break
-        else:
-            result[k] = lst2[j]
-            j += 1
-            k += 1
-            if j == len2:
-                break
-    if i < len1:
-        result[k:] = lst1[i:]
-        return result
-    if j < len2:
-        result[k:] = lst2[j:]
-        return result
-    return result
-
-
-def merge_sorted_list2(lst1, lst2, field):
-    len1 = len(lst1)
-    if not len1:
-        return lst2
-    len2 = len(lst2)
-    if not len2:
-        return lst1
-    i = 0
-    j = 0
-    while i < len1 and j < len2:
-        if lst1[i][field] >= lst2[j][field]:
-            j += 1
-        else:
-            lst2.insert(j, lst1[i])
-            i += 1
-            j +=1
-    return lst2
-
-
 def binary_search_less_max(nums, field, x, left, right):
     """
     二分查找比x小的最大值
@@ -488,36 +436,6 @@ def quick_sort_n(nums, field, n, left, right):
             quick_sort_n(nums, field, n, left, m - 1)
         else:
             quick_sort_n(nums, field, n, m + 1, n)
-
-
-def merge_sorted_array(nums1, field, left, right, nums2):
-    """
-    合并有序数组nums2到有序数组nums的[left, right]之后，并重新排序
-    """
-    size = len(nums2)
-    j = 0
-    while j < size:
-        if nums1[left][field] >= nums2[j][field]:
-            nums1.insert(left, nums2[j])
-            j += 1
-        left += 1
-    while j < size:
-        nums1.append(nums2[j])
-    new_right = right + size + 1
-    del nums1[new_right:new_right + size]
-
-
-def get_min_max(lt):
-    if len(lt) == 0:
-        return None, None
-    min_v = float("inf")
-    max_v = float("-inf")
-    for i in lt:
-        if i > max_v:
-            max_v = i
-        if i < min_v:
-            min_v = i
-    return min_v, max_v
 
 
 def get_nearest_none(lt, pre, left, right):

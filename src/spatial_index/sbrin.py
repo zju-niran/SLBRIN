@@ -370,10 +370,7 @@ class SBRIN(SpatialIndex):
         # quicksort->merge_sorted_array->sorted->binary_search and insert => 50:2:1:0.5
         offset = hr_key * self.meta.threshold_number
         target_points = self.index_entries[offset:offset + hr.number]
-        j = 0
-        for point in points:
-            j = binary_search_less_max(target_points, 2, point[2], j, hr.max_key) + 1
-            target_points.insert(j, point)
+        merge_sorted_list(target_points, points)
         target_points_len = len(target_points)
         if target_points_len > self.meta.threshold_number and hr.length < self.meta.threshold_length:
             # split hr
@@ -1002,6 +999,24 @@ def build_nn(model_path, model_key, inputs, labels, is_new, is_simple, is_gpu, w
     del tmp_index
     gc.collect(generation=0)
     tmp_dict[model_key] = abstract_index
+
+
+def merge_sorted_list(lst1, lst2):
+    left = 0
+    max_key1 = len(lst1) - 1
+    for num2 in lst2:
+        right = max_key1
+        while left <= right:
+            mid = (left + right) // 2
+            if lst1[mid][2] == num2[2]:
+                left = mid
+                break
+            elif lst1[mid][2] < num2[2]:
+                left = mid + 1
+            else:
+                right = mid - 1
+        lst1.insert(left, num2)
+        max_key1 += 1
 
 
 class Meta:
