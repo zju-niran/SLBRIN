@@ -75,6 +75,12 @@ if __name__ == '__main__':
                 logging.info("Structure size: %s" % structure_size)
                 logging.info("Index entry size: %s" % ie_size)
                 logging.info("IO cost: %s" % index.io())
+                if index.name == "SBRIN":
+                    model_num = index.meta.last_hr + 1
+                    logging.info("Model num: %s" % model_num)
+                    model_precisions = [(hr.model.max_err - hr.model.min_err) for hr in index.history_ranges]
+                    model_precisions_avg = sum(model_precisions) / model_num
+                    logging.info("Model precision avg: %s" % model_precisions_avg)
                 # 点查询跑三次，避免算力波动的影响
                 for k in range(3):
                     point_query_list = load_query(data_distribution, "point").tolist()

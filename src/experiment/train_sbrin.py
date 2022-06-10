@@ -52,8 +52,7 @@ def train_tn():
             logging.info("IO cost: %s" % index.io())
             model_num = index.meta.last_hr + 1
             logging.info("Model num: %s" % model_num)
-            model_precisions = [(hr.model.max_err - hr.model.min_err)
-                                for hr in index.history_ranges]
+            model_precisions = [(hr.model.max_err - hr.model.min_err) for hr in index.history_ranges]
             model_precisions_avg = sum(model_precisions) / model_num
             logging.info("Model precision avg: %s" % model_precisions_avg)
             point_query_list = load_query(data_distribution, "point").tolist()
