@@ -31,7 +31,7 @@ if __name__ == '__main__':
                         threshold_number=20000,
                         data_precision=data_precision[data_distribution],
                         region=data_region[data_distribution],
-                        threshold_err=200,
+                        threshold_err=1,
                         threshold_summary=1000,
                         threshold_merge=5,
                         is_new=True,

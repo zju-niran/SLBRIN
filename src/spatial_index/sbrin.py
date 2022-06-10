@@ -153,10 +153,10 @@ class SBRIN(SpatialIndex):
             os.makedirs(model_hdf_dir)
         pool = multiprocessing.Pool(processes=thread_pool_size)
         mp_dict = multiprocessing.Manager().dict()
-        for i in range(self.meta.last_hr + 1):
-            hr = self.history_ranges[i]
+        for hr_key in range(self.meta.last_hr + 1):
+            hr = self.history_ranges[hr_key]
             # 训练数据为左下角点+分区数据+右上角点
-            inputs = [ie[2] for ie in self.index_entries[i]]
+            inputs = [ie[2] for ie in self.index_entries[hr_key]]
             inputs.insert(0, hr.value)
             inputs.append(hr.value + hr.value_diff)
             data_num = hr.number + 2
@@ -165,7 +165,7 @@ class SBRIN(SpatialIndex):
             if batch_size < 1:
                 batch_size = 1
             # batch_size = batch_num
-            pool.apply_async(build_nn, (self.model_path, i, inputs, labels, is_new, is_simple, is_gpu,
+            pool.apply_async(build_nn, (self.model_path, hr_key, inputs, labels, is_new, is_simple, is_gpu,
                                         weight, core, train_step, batch_size, learning_rate,
                                         use_threshold, threshold, retrain_time_limit, mp_dict))
         pool.close()
@@ -272,12 +272,12 @@ class SBRIN(SpatialIndex):
             if m_hr_key < r_hr_key:
                 self.split_data_by_hr(data, m_hr_key + 1, r_hr_key, m_data_key + 1, r_data_key, result)
 
-    def get_retrain_inefficient_model(self, hr_key):
+    def get_retrain_inefficient_model(self, hr_key, old_err):
         """
         在模型更新时，监听误差范围，如果超过ts_err(inefficient)，则设为inefficient状态
         """
         hr = self.history_ranges[hr_key]
-        if hr.model.max_err - hr.model.min_err >= self.meta.threshold_err:
+        if hr.model.max_err - hr.model.min_err >= self.meta.threshold_err * old_err:
             hr.state = 1
             self.retrain_state = 1
             self.retrain_inefficient_model(hr_key)
@@ -289,8 +289,7 @@ class SBRIN(SpatialIndex):
         start_time = time.time()
         hr = self.history_ranges[hr_key]
         if hr.state:
-            first_key = hr_key * self.meta.threshold_number
-            inputs = [j[2] for j in self.index_entries[first_key:first_key + hr.number]]
+            inputs = [j[2] for j in self.index_entries[hr_key]]
             inputs.insert(0, hr.value)
             inputs.append(hr.value + hr.value_diff)
             data_num = hr.number + 2
@@ -298,9 +297,10 @@ class SBRIN(SpatialIndex):
             batch_size = 2 ** math.ceil(math.log(data_num / self.batch_num, 2))
             if batch_size < 1:
                 batch_size = 1
+            if len(inputs) != len(labels):
+                print("")
             tmp_index = TrainedNN(self.model_path, str(hr_key), inputs, labels, True, self.is_gpu, self.weight,
-                                  self.cores, self.train_step, batch_size, self.learning_rate,
-                                  False, None, None)
+                                  self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
             tmp_index.train_simple(hr.model.matrices)
             hr.model = AbstractNN(tmp_index.matrices, hr.model.hl_nums,
                                   math.ceil(tmp_index.min_err),
@@ -339,8 +339,9 @@ class SBRIN(SpatialIndex):
             # update hr metadata
             hr.number = hr_number
             hr.max_key = hr_number - 1
+            old_err = hr.model.max_err - hr.model.min_err
             hr.model_update(hr_data)
-            self.get_retrain_inefficient_model(hr_key)
+            self.get_retrain_inefficient_model(hr_key, old_err)
             return 0
 
     def split_hr(self, hr, hr_key, hr_data):
@@ -368,8 +369,7 @@ class SBRIN(SpatialIndex):
             else:
                 range_list.append(cur)
         child_len = len(range_list)
-        child_ies = []
-        child_hrs = []
+        child_ranges = []
         for r in range_list:
             child_data = hr_data[r[3]:r[3] + r[2]]
             # TODO: 当前model直接继承，需要改为计算得到父model的1/4部分
@@ -377,23 +377,20 @@ class SBRIN(SpatialIndex):
                                     hr.scope.up_right_less_region(region_offset),
                                     2 << self.meta.geohash.sum_bits - r[1] - 1)
             child_hr.model_update(child_data)
-            child_hrs.append(child_hr)
-            child_ies.append(child_data)
-        # 2. replace old hr with child hrs
+            child_ranges.append([child_hr, child_data])
+        # 2. replace old hr and data
+        del self.index_entries[hr_key]
         del self.history_ranges[hr_key]
-        child_hrs.reverse()  # 倒序一下，有助于insert
-        for child_hr in child_hrs:
-            self.history_ranges.insert(hr_key, child_hr)
+        child_ranges.reverse()  # 倒序一下，有助于insert
+        for child_range in child_ranges:
+            self.history_ranges.insert(hr_key, child_range[0])
+            self.index_entries.insert(hr_key, child_range[1])
         # 3. update meta
         self.meta.last_hr += child_len - 1
-        # 4. replace old data with child data
-        del self.index_entries[hr_key]
-        child_ies.reverse()
-        for child_ie in child_ies:
-            self.index_entries.insert(hr_key, child_ie)
-        # 5. check model inefficient
+        # 4. check model inefficient
+        old_err = hr.model.max_err - hr.model.min_err
         for i in range(child_len):
-            self.get_retrain_inefficient_model(hr_key + i)
+            self.get_retrain_inefficient_model(hr_key + i, old_err)
         return child_len
 
     def point_query_hr(self, point):
@@ -708,7 +705,6 @@ class SBRIN(SpatialIndex):
                 tmp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
                             for ie in hr_data[key_left:key_right] if compare_func(ie)]
             if len(tmp_list) > 0:
-                # TODO 可以改成有序数组合并
                 tp_list.extend(tmp_list)
                 tp_list = sorted(tp_list)[:k]
                 max_dist = tp_list[-1][0]
@@ -1105,7 +1101,7 @@ def main():
                     threshold_number=1000,
                     data_precision=6,
                     region=Region(40, 42, -75, -73),
-                    threshold_err=200,
+                    threshold_err=1,
                     threshold_summary=1000,
                     threshold_merge=5,
                     is_new=False,

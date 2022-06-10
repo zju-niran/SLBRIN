@@ -26,7 +26,7 @@ def train_tn():
                         threshold_number=tn,
                         data_precision=data_precision[data_distribution],
                         region=data_region[data_distribution],
-                        threshold_err=200,
+                        threshold_err=1,
                         threshold_summary=1000,
                         threshold_merge=5,
                         is_new=False,
@@ -80,18 +80,19 @@ def train_tn():
                 logging.info("KNN query time: %s" % search_time)
 
 
-def train_ts():
+def train_ts_tm():
     data_distributions = [Distribution.UNIFORM, Distribution.NORMAL, Distribution.NYCT]
+    tn = 10000
     ts_list = [20000, 10000, 5000, 1000]
     tm_list = [100, 50, 10]
-    origin_path = "model/sbrin/%s_SORTED/tn_10000"
-    target_path = "model/sbrin/%s_SORTED/tn_10000_ts_%s_tm_%s"
+    origin_path = "model/sbrin/%s_SORTED/tn_%s"
+    target_path = "model/sbrin/%s_SORTED/tn_%s_ts_%s_tm_%s"
     for data_distribution in data_distributions:
         for ts in ts_list:
             for tm in tm_list:
                 # 拷贝目标索引磁盘文件
-                origin_model_path = origin_path % data_distribution.name
-                target_model_path = target_path % (data_distribution.name, ts, tm)
+                origin_model_path = origin_path % (data_distribution.name, tn)
+                target_model_path = target_path % (data_distribution.name, tn, ts, tm)
                 if os.path.exists(target_model_path):
                     shutil.rmtree(target_model_path)
                 copy_dirs(origin_model_path, target_model_path, ignore_file='hdf')
@@ -110,11 +111,47 @@ def train_ts():
                 end_time = time.time()
                 logging.info("Sum up full cr time: %s" % index.sum_up_full_cr_time)
                 logging.info("Merge outdated cr time: %s" % index.merge_outdated_cr_time)
-                logging.info("Retrain inefficient model time: %s" % index.retrain_inefficient_model_time)
-                logging.info("Retrain inefficient model num: %s" % index.retrain_inefficient_model_num)
                 update_time = end_time - start_time - \
                               index.sum_up_full_cr_time - index.merge_outdated_cr_time - index.retrain_inefficient_model_time
                 logging.info("Update time: %s" % update_time)
+
+
+def train_te():
+    data_distributions = [Distribution.UNIFORM, Distribution.NORMAL, Distribution.NYCT]
+    tn = 10000
+    ts = 1000
+    tm = 50
+    te_list = [3.0, 2.0, 1.5, 1.0]
+    origin_path = "model/sbrin/%s_SORTED/tn_%s"
+    target_path = "model/sbrin/%s_SORTED/tn_%s_ts_%s_tm_%s_te_%s"
+    for data_distribution in data_distributions:
+        for te in te_list:
+            # 拷贝目标索引磁盘文件
+            origin_model_path = origin_path % (data_distribution.name, tn)
+            target_model_path = target_path % (data_distribution.name, tn, ts, tm, te)
+            if os.path.exists(target_model_path):
+                shutil.rmtree(target_model_path)
+            copy_dirs(origin_model_path, target_model_path, ignore_file='hdf')
+            # 加载索引结构到内存
+            index = SBRIN(model_path=target_model_path)
+            index.load()
+            index.meta.threshold_summary = ts
+            index.meta.threshold_merge = tm
+            index.meta.threshold_err = te
+            # 开始更新
+            logging.info("*************start %s************" % target_model_path)
+            update_data_list = load_data(data_distribution, 1)
+            start_time = time.time()
+            index.insert(update_data_list)
+            index.save()
+            end_time = time.time()
+            logging.info("Sum up full cr time: %s" % index.sum_up_full_cr_time)
+            logging.info("Merge outdated cr time: %s" % index.merge_outdated_cr_time)
+            logging.info("Retrain inefficient model time: %s" % index.retrain_inefficient_model_time)
+            logging.info("Retrain inefficient model num: %s" % index.retrain_inefficient_model_num)
+            update_time = end_time - start_time - \
+                          index.sum_up_full_cr_time - index.merge_outdated_cr_time - index.retrain_inefficient_model_time
+            logging.info("Update time: %s" % update_time)
 
 
 if __name__ == '__main__':
@@ -126,4 +163,5 @@ if __name__ == '__main__':
                         level=logging.INFO,
                         format="%(message)s")
     # train_tn()
-    train_ts()
+    # train_ts_tm()
+    train_te()
