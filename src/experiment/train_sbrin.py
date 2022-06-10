@@ -124,13 +124,16 @@ def train_te():
     te_list = [3.0, 2.0, 1.5, 1.0]
     origin_path = "model/sbrin/%s_SORTED/tn_%s"
     target_path = "model/sbrin/%s_SORTED/tn_%s_ts_%s_tm_%s_te_%s"
-    for data_distribution in data_distributions:
-        for te in te_list:
+    for te in te_list:
+        for data_distribution in data_distributions:
             # 拷贝目标索引磁盘文件
             origin_model_path = origin_path % (data_distribution.name, tn)
             target_model_path = target_path % (data_distribution.name, tn, ts, tm, te)
             if os.path.exists(target_model_path):
                 shutil.rmtree(target_model_path)
+            target_model_hdf_dir = os.path.join(target_model_path, "hdf/")
+            if os.path.exists(target_model_hdf_dir) is False:
+                os.makedirs(target_model_hdf_dir)
             copy_dirs(origin_model_path, target_model_path, ignore_file='hdf')
             # 加载索引结构到内存
             index = SBRIN(model_path=target_model_path)

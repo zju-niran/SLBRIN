@@ -10,6 +10,7 @@ from src.spatial_index.pr_quad_tree import PRQuadTree
 from src.spatial_index.kd_tree import KDTree
 from src.spatial_index.brin_spatial import BRINSpatial
 from src.spatial_index.zm_index import ZMIndex
+from src.spatial_index.sbrin import SBRIN
 from src.experiment.common_utils import Distribution, load_data, load_query, copy_dirs
 
 if __name__ == '__main__':
@@ -26,21 +27,21 @@ if __name__ == '__main__':
                KDTree,
                BRINSpatial,
                ZMIndex,
-               # SBRIN
+               SBRIN
                ]
     origin_model_paths = ["rtree/%s/fill_factor_0.8",
                           "prquadtree/%s/n_500",
                           "kdtree/%s",
                           "brinspatial/%s_SORTED/ppr_sorted_64",
                           "zmindex/%s_SORTED/stage2_num_5000",
-                          # "sbrin/%s_SORTED/tn_10000"
+                          "sbrin/%s_SORTED/tn_10000"
                           ]
     target_model_paths = ["rtree/%s",
                           "prquadtree/%s",
                           "kdtree/%s",
                           "brinspatial/%s",
                           "zmindex/%s",
-                          # "sbrin/%s"
+                          "sbrin/%s"
                           ]
     data_distributions = [Distribution.UNIFORM, Distribution.NORMAL, Distribution.NYCT]
     for i in range(len(indices)):
