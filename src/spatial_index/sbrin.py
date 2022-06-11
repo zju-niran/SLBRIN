@@ -187,6 +187,8 @@ class SBRIN(SpatialIndex):
         points = points.tolist()
         for point in points:
             self.insert_single(point)
+        # 理论上重训练发生在get_retrain_inefficient_model，但TS和TM一旦变小，重训练的次数就指数上升，因此可以在每次插入任务结束时进行
+        self.post_retrain_inefficient_model()
 
     def create_cr(self):
         self.current_ranges.append(CurrentRange(value=None, number=0, state=0))
@@ -280,7 +282,7 @@ class SBRIN(SpatialIndex):
         if hr.model.max_err - hr.model.min_err >= self.meta.threshold_err * old_err:
             hr.state = 1
             self.retrain_state = 1
-            self.retrain_inefficient_model(hr_key)
+            # self.retrain_inefficient_model(hr_key)
 
     def retrain_inefficient_model(self, hr_key):
         """
@@ -306,7 +308,6 @@ class SBRIN(SpatialIndex):
                                   math.ceil(tmp_index.min_err),
                                   math.ceil(tmp_index.max_err))
             hr.state = 0
-        self.retrain_state = 0
         end_time = time.time()
         self.retrain_inefficient_model_time += end_time - start_time
         self.retrain_inefficient_model_num += 1
