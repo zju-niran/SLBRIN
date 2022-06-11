@@ -95,15 +95,15 @@ class TrainedNN:
                                                             mode='min',
                                                             save_freq='epoch')
             early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss',
-                                                              patience=50,
+                                                              patience=self.train_step // 100,
                                                               mode='min',
                                                               verbose=0)
             # reduce = tf.keras.callbacks.ReduceLROnPlateau(monitor='loss',
             #                                               factor=0.5,
-            #                                               patience=45,
+            #                                               patience=int(self.train_step // 100 * 0.9),
             #                                               verbose=0,
             #                                               mode='min',
-            #                                               min_lr=0.0001)
+            #                                               min_lr=self.learning_rate / 100)
             self.model.fit(self.train_x, self.train_y,
                            epochs=self.train_step,
                            initial_epoch=0,

@@ -52,7 +52,7 @@ class TrainedNN_Simple:
 
     def train_model(self):
         early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss',
-                                                          patience=50,
+                                                          patience=self.train_step // 100,
                                                           mode='min',
                                                           verbose=0)
         self.model.fit(self.train_x, self.train_y,
