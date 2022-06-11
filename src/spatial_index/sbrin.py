@@ -290,24 +290,21 @@ class SBRIN(SpatialIndex):
         """
         start_time = time.time()
         hr = self.history_ranges[hr_key]
-        if hr.state:
-            inputs = [j[2] for j in self.index_entries[hr_key]]
-            inputs.insert(0, hr.value)
-            inputs.append(hr.value + hr.value_diff)
-            data_num = hr.number + 2
-            labels = list(range(data_num))
-            batch_size = 2 ** math.ceil(math.log(data_num / self.batch_num, 2))
-            if batch_size < 1:
-                batch_size = 1
-            if len(inputs) != len(labels):
-                print("")
-            tmp_index = TrainedNN(self.model_path, str(hr_key), inputs, labels, True, self.is_gpu, self.weight,
-                                  self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
-            tmp_index.train_simple(hr.model.matrices)
-            hr.model = AbstractNN(tmp_index.matrices, hr.model.hl_nums,
-                                  math.ceil(tmp_index.min_err),
-                                  math.ceil(tmp_index.max_err))
-            hr.state = 0
+        inputs = [j[2] for j in self.index_entries[hr_key]]
+        inputs.insert(0, hr.value)
+        inputs.append(hr.value + hr.value_diff)
+        data_num = hr.number + 2
+        labels = list(range(data_num))
+        batch_size = 2 ** math.ceil(math.log(data_num / self.batch_num, 2))
+        if batch_size < 1:
+            batch_size = 1
+        tmp_index = TrainedNN(self.model_path, str(hr_key), inputs, labels, True, self.is_gpu, self.weight,
+                              self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
+        tmp_index.train_simple(hr.model.matrices)
+        hr.model = AbstractNN(tmp_index.matrices, hr.model.hl_nums,
+                              math.ceil(tmp_index.min_err),
+                              math.ceil(tmp_index.max_err))
+        hr.state = 0
         end_time = time.time()
         self.retrain_inefficient_model_time += end_time - start_time
         self.retrain_inefficient_model_num += 1
@@ -318,8 +315,7 @@ class SBRIN(SpatialIndex):
         """
         if self.retrain_state:
             for i in range(self.meta.last_hr + 1):
-                hr = self.history_ranges[i]
-                if hr.state:
+                if self.history_ranges[i].state:
                     self.retrain_inefficient_model(i)
             self.retrain_state = 0
 
