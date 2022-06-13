@@ -344,7 +344,7 @@ class SBRIN(SpatialIndex):
     def split_hr(self, hr, hr_key, hr_data):
         # 1. create child hrs, of which model is inherited from parent hr and update err by inherited index entries
         region_offset = pow(10, -self.meta.geohash.data_precision - 1)
-        range_stack = [(hr.value, hr.length, len(hr_data), 0, hr.scope.up_right_more_region(region_offset))]
+        range_stack = [(hr.value, hr.length, len(hr_data), 0, hr.scope.up_right_more_region(region_offset), hr.model)]
         range_list = []
         while len(range_stack):
             cur = range_stack.pop(-1)
@@ -356,11 +356,13 @@ class SBRIN(SpatialIndex):
                 child_list = [None] * 4
                 length = cur[1] + 2
                 r_bound = cur[0]
+                child_matrices_list = cur[5].splits()
                 for i in range(4):
                     value = r_bound
                     r_bound = cur[0] + (i + 1 << self.meta.geohash.sum_bits - length)
                     tmp_r_key = binary_search_less_max(hr_data, 2, r_bound, tmp_l_key, r_key)
-                    child_list[i] = (value, length, tmp_r_key - tmp_l_key + 1, tmp_l_key, child_regions[i])
+                    child_list[i] = (value, length, tmp_r_key - tmp_l_key + 1, tmp_l_key, child_regions[i],
+                                     child_matrices_list[i])
                     tmp_l_key = tmp_r_key + 1
                 range_stack.extend(child_list[::-1])
             else:
@@ -369,9 +371,7 @@ class SBRIN(SpatialIndex):
         child_ranges = []
         for r in range_list:
             child_data = hr_data[r[3]:r[3] + r[2]]
-            # TODO: 当前model直接继承，需要改为计算得到父model的1/4部分
-            child_hr = HistoryRange(r[0], r[1], r[2], copy.copy(hr.model), 0,
-                                    hr.scope.up_right_less_region(region_offset),
+            child_hr = HistoryRange(r[0], r[1], r[2], r[5], 0, r[4].up_right_less_region(region_offset),
                                     2 << self.meta.geohash.sum_bits - r[1] - 1)
             child_hr.model_update(child_data)
             child_ranges.append([child_hr, child_data])
@@ -1024,8 +1024,9 @@ class HistoryRange:
             # 数据量太多，predict很慢，因此用均匀采样得到100个点来计算误差
             if self.number > 100:
                 step_size = self.number // 100
-                xs = np.array([[xs[i][2]] for i in range(0, step_size * 100, step_size)])
-                ys = np.arange(100)
+                sample_keys = [i for i in range(0, step_size * 100, step_size)]
+                xs = np.array([[xs[i][2]] for i in sample_keys])
+                ys = np.array(sample_keys)
             else:
                 xs = np.array([[x[2]] for x in xs])
                 ys = np.arange(self.number)
@@ -1068,6 +1069,32 @@ class AbstractNN:
         for i in range(self.hl_nums):
             xs = sigmoid(xs * self.matrices[i * 2] + self.matrices[i * 2 + 1])
         return (np.dot(xs, self.matrices[-2]) + self.matrices[-1]).flatten()
+
+    def splits(self):
+        """
+        将矩阵按照输入切割为四分，只限于隐藏层数=1
+        :return:
+        """
+        w0, b0, w1, b1 = self.matrices
+        xbks = [[-0.5], [-0.25], [0], [0.25], [0.5]]
+        ybks = self.predicts(xbks)
+        m_0 = 0.25 * w0
+        m01 = (-0.375 * w0 + b0).flatten()  # 隐藏层w是(1, 128), b是(128,)，算出来shape变为(1, 128)，所以需要flatten为(128,)
+        m02 = w1 / (ybks[1] - ybks[0])
+        m03 = (b1 - ybks[0]) / (ybks[1] - ybks[0])
+        m11 = (-0.125 * w0 + b0).flatten()
+        m12 = w1 / (ybks[2] - ybks[1])
+        m13 = (b1 - ybks[1]) / (ybks[2] - ybks[1])
+        m21 = (0.125 * w0 + b0).flatten()
+        m22 = w1 / (ybks[3] - ybks[2])
+        m23 = (b1 - ybks[2]) / (ybks[3] - ybks[2])
+        m31 = (0.375 * w0 + b0).flatten()
+        m32 = w1 / (ybks[4] - ybks[3])
+        m33 = (b1 - ybks[3]) / (ybks[4] - ybks[3])
+        return [AbstractNN([m_0, m01, m02, m03], self.hl_nums, 0, 0),
+                AbstractNN([m_0, m11, m12, m13], self.hl_nums, 0, 0),
+                AbstractNN([m_0, m21, m22, m23], self.hl_nums, 0, 0),
+                AbstractNN([m_0, m31, m32, m33], self.hl_nums, 0, 0)]
 
 
 def main():
@@ -1121,6 +1148,11 @@ def main():
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
     logging.info("IO cost: %s" % index.io())
+    model_num = index.meta.last_hr + 1
+    logging.info("Model num: %s" % model_num)
+    model_precisions = [(hr.model.max_err - hr.model.min_err) for hr in index.history_ranges]
+    model_precisions_avg = sum(model_precisions) / model_num
+    logging.info("Model precision avg: %s" % model_precisions_avg)
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()
@@ -1157,6 +1189,11 @@ def main():
     logging.info("Merge outdated cr time: %s" % index.merge_outdated_cr_time)
     logging.info("Retrain inefficient model time: %s" % index.retrain_inefficient_model_time)
     logging.info("Retrain inefficient model num: %s" % index.retrain_inefficient_model_num)
+    model_num = index.meta.last_hr + 1
+    logging.info("Model num: %s" % model_num)
+    model_precisions = [(hr.model.max_err - hr.model.min_err) for hr in index.history_ranges]
+    model_precisions_avg = sum(model_precisions) / model_num
+    logging.info("Model precision avg: %s" % model_precisions_avg)
     update_time = end_time - start_time - \
                   index.sum_up_full_cr_time - index.merge_outdated_cr_time - index.retrain_inefficient_model_time
     logging.info("Update time: %s" % update_time)

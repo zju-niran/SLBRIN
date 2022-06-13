@@ -97,7 +97,8 @@ class TrainedNN:
             early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss',
                                                               patience=self.train_step // 100,
                                                               mode='min',
-                                                              verbose=0)
+                                                              verbose=0,
+                                                              restore_best_weights=True)
             # reduce = tf.keras.callbacks.ReduceLROnPlateau(monitor='loss',
             #                                               factor=0.5,
             #                                               patience=int(self.train_step // 100 * 0.9),
@@ -168,7 +169,8 @@ class TrainedNN:
         early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss',
                                                           patience=self.train_step // 100,
                                                           mode='min',
-                                                          verbose=0)
+                                                          verbose=0,
+                                                          restore_best_weights=True)
         self.model.fit(self.train_x, self.train_y,
                        epochs=self.train_step,
                        initial_epoch=0,
