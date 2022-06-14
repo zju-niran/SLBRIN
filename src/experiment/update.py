@@ -81,11 +81,32 @@ if __name__ == '__main__':
                     model_precisions = [(hr.model.max_err - hr.model.min_err) for hr in index.history_ranges]
                     model_precisions_avg = sum(model_precisions) / model_num
                     logging.info("Model precision avg: %s" % model_precisions_avg)
-                # 点查询跑三次，避免算力波动的影响
-                for k in range(3):
+                    logging.info("Sum up full cr time: %s" % index.sum_up_full_cr_time)
+                    logging.info("Merge outdated cr time: %s" % index.merge_outdated_cr_time)
+                    logging.info("Retrain inefficient model time: %s" % index.retrain_inefficient_model_time)
+                    logging.info("Retrain inefficient model num: %s" % index.retrain_inefficient_model_num)
+                    update_time = end_time - start_time - \
+                                  index.sum_up_full_cr_time - index.merge_outdated_cr_time - index.retrain_inefficient_model_time
+                    logging.info("Update time: %s" % update_time)
+                # 查询跑多次，避免算力波动的影响
+                for k in range(5):
                     point_query_list = load_query(data_distribution, "point").tolist()
                     start_time = time.time()
                     index.test_point_query(point_query_list)
                     end_time = time.time()
                     search_time = (end_time - start_time) / len(point_query_list)
                     logging.info("Point query time: %s" % search_time)
+                for k in range(5):
+                    range_query_list = load_query(data_distribution, "range").tolist()
+                    start_time = time.time()
+                    index.test_range_query(range_query_list)
+                    end_time = time.time()
+                    search_time = (end_time - start_time) / len(range_query_list)
+                    logging.info("Range query time: %s" % search_time)
+                for k in range(5):
+                    knn_query_list = load_query(data_distribution, "knn").tolist()
+                    start_time = time.time()
+                    index.test_knn_query(knn_query_list)
+                    end_time = time.time()
+                    search_time = (end_time - start_time) / len(knn_query_list)
+                    logging.info("KNN query time: %s" % search_time)
