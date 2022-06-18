@@ -110,6 +110,8 @@ def train_ts_tm():
                 end_time = time.time()
                 logging.info("Sum up full cr time: %s" % index.sum_up_full_cr_time)
                 logging.info("Merge outdated cr time: %s" % index.merge_outdated_cr_time)
+                logging.info("Retrain inefficient model time: %s" % index.retrain_inefficient_model_time)
+                logging.info("Retrain inefficient model num: %s" % index.retrain_inefficient_model_num)
                 update_time = end_time - start_time - \
                               index.sum_up_full_cr_time - index.merge_outdated_cr_time - index.retrain_inefficient_model_time
                 logging.info("Update time: %s" % update_time)
@@ -120,7 +122,7 @@ def train_te():
     tn = 10000
     ts = 1000
     tm = 50
-    te_list = [3.0, 2.0, 1.5, 1.0]
+    te_list = [10.0, 5.0, 2.0, 1.5, 1.0]
     origin_path = "model/sbrin/%s_SORTED/tn_%s"
     target_path = "model/sbrin/%s_SORTED/tn_%s_ts_%s_tm_%s_te_%s"
     for te in te_list:
@@ -165,5 +167,5 @@ if __name__ == '__main__':
                         level=logging.INFO,
                         format="%(message)s")
     # train_tn()
-    # train_ts_tm()
-    train_te()
+    train_ts_tm()
+    # train_te()

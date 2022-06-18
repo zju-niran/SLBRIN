@@ -184,6 +184,11 @@ class SBRIN(SpatialIndex):
         self.get_merge_outdated_cr()
 
     def insert(self, points):
+        # 重置计数和计时属性
+        self.sum_up_full_cr_time = 0.0
+        self.merge_outdated_cr_time = 0.0
+        self.retrain_inefficient_model_time = 0.0
+        self.retrain_inefficient_model_num = 0
         points = points.tolist()
         for point in points:
             self.insert_single(point)
