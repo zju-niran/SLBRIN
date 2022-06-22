@@ -114,7 +114,7 @@ def geohash_and_sort(input_path, output_path, data_precision, region):
     else:
         data = np.load(input_path, allow_pickle=True)
         data = [(data[i][0], data[i][1], geohash.encode(data[i][0], data[i][1]), data[i][2]) for i in range(len(data))]
-    data = sorted(data, key=lambda x: x[2])
+    data.sort(key=lambda x: x[2])
     np.save(output_path, np.array(data, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')]))
 
 
@@ -141,7 +141,7 @@ def create_data(output_path, data_size, scope, data_precision, type):
 
 def plot_npy(input_path):
     from matplotlib import pyplot as plt
-    data = np.load(input_path)
+    data = np.load(input_path, allow_pickle=True)
     plt.scatter(data[:, 0], data[:, 1])
     plt.legend()
     plt.show()
@@ -151,34 +151,6 @@ def create_distinct_data(input_path, output_path):
     data = np.load(input_path)
     distinct_data = np.unique(data, axis=0)
     np.save(output_path, distinct_data)
-
-
-def log_to_csv(input_path, output_path):
-    """
-    提取指定文件夹里的非csv文件的数据，存为同名的csv文件
-    """
-    files = os.listdir(input_path)
-    for file in files:
-        result = []
-        filename, suffix = file.split(".")
-        if suffix == "csv":
-            continue
-        output_file = filename + ".csv"
-        with open(os.path.join(input_path, file), 'r') as f1,\
-                open(os.path.join(output_path, output_file), 'w', newline='') as f2:
-            data = []
-            for line in f1.readlines():
-                if 'start' in line:
-                    result.append(data)
-                    data = []
-                else:
-                    value = line.split(':')[-1][:-1]
-                    data.append(value)
-            result.append(data)
-            csv_w = csv.writer(f2)
-            for data in result:
-                if len(data):
-                    csv_w.writerow(data)
 
 
 if __name__ == '__main__':
@@ -228,7 +200,10 @@ if __name__ == '__main__':
     # create_data(output_path, 14507253, [0, 1, 0, 1], 8, 'normal')
     # output_path = "./table/normal_2.npy"
     # create_data(output_path, 13729724, [0, 1, 0, 1], 8, 'normal')
-    # plot_npy(output_path)
+    # output_path = "./table/uniform_1.npy"
+    # output_path = "./table/normal_1.npy"
+    output_path = "./table/trip_data_1_filter.npy"
+    plot_npy(output_path)
     # 4. 生成10w的数据
     # input_path = "./table/uniform_1.npy"
     # output_path_10w_sample = './table/uniform_1_10w.npy'
@@ -302,8 +277,3 @@ if __name__ == '__main__':
     # query_number_limit = 1000
     # n_list = [4, 8, 16, 32, 64]
     # create_knn_query(input_path, output_path, query_number_limit, n_list)
-
-    # 实验结果日志转csv，把result里的所有非csv文件转成csv
-    input_path = "../result"
-    output_path = "../result"
-    log_to_csv(input_path, output_path)
