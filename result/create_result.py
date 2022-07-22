@@ -77,13 +77,9 @@ def plot_group_histogram(x, y_list, model_path, x_title, y_title, color_list, is
     plt.xticks(x_arange, x, fontsize=font_size)
     plt.yticks(fontsize=font_size)
     plt.yscale("log")
-    if check_less_1(y_list):
-        left = 0.175
-    else:
-        left = 0.15
-    plt.gcf().subplots_adjust(right=0.97, left=left, top=0.97, bottom=0.15)
+    plt.gcf().subplots_adjust(right=0.97, left=0.18, top=0.97, bottom=0.18)
     if is_legend:
-        plt.legend(loc=legend_pos, frameon=False, fontsize=font_size, ncol=2)
+        plt.legend(loc=legend_pos, frameon=False, fontsize=font_size, ncol=2, columnspacing=0.5)
     plt.savefig(model_path)
     plt.close()
 
@@ -116,8 +112,9 @@ def plot_group_histogram_and_line(x, y_list, model_path, x_title, y_title, line_
     plt.xticks(group_x, x, fontsize=font_size)
     plt.yticks(fontsize=font_size)
     plt.yscale("log")
-    plt.gcf().subplots_adjust(right=0.97, left=0.15, top=0.97, bottom=0.15)
-    plt.legend(handles=group_member_labels + overlay_line_labels, loc='best', frameon=False, fontsize=font_size, ncol=2)
+    plt.gcf().subplots_adjust(right=0.97, left=0.18, top=0.97, bottom=0.18)
+    plt.legend(handles=group_member_labels + overlay_line_labels, loc='best', frameon=False, fontsize=font_size,
+               ncol=2, columnspacing=0.5)
     plt.savefig(model_path)
     plt.close()
 
@@ -135,13 +132,9 @@ def plot_lines(x, y_list, model_path, x_title, y_title, color_list, marker_list,
     plt.xticks(group_x, x, fontsize=font_size)
     plt.yticks(fontsize=font_size)
     plt.yscale("log")
-    if check_less_1(y_list):
-        left = 0.175
-    else:
-        left = 0.15
-    plt.gcf().subplots_adjust(right=0.97, left=left, top=0.97, bottom=0.15)
+    plt.gcf().subplots_adjust(right=0.97, left=0.18, top=0.97, bottom=0.18)
     if is_legend:
-        plt.legend(loc=legend_pos, frameon=False, fontsize=font_size, ncol=2)
+        plt.legend(loc=legend_pos, frameon=False, fontsize=font_size, ncol=2, columnspacing=0.5)
     plt.margins(x=0)
     plt.savefig(model_path)
     plt.close()
@@ -189,18 +182,10 @@ def plot_result(input_path, output_path):
                          'Data distribution', 'Average query time (ms)', competitor_colors, True, 'upper left')
     range_sizes = [0.0006, 0.0025, 0.01, 0.04, 0.16]
     range_size_len = len(range_sizes)
-    range_query_uniform = [[competitors[j], [result.iloc[7 + i][2 + j] * 1000 for i in range(range_size_len)]]
-                           for j in range(competitor_len)]
-    plot_lines(range_sizes, range_query_uniform, output_path + "/range_query_uniform.png",
-               'Query window size (%)', 'Average query time (ms)', competitor_colors, competitor_markers)
-    range_query_normal = [[competitors[j], [result.iloc[25 + i][2 + j] * 1000 for i in range(range_size_len)]]
-                          for j in range(competitor_len)]
-    plot_lines(range_sizes, range_query_normal, output_path + "/range_query_normal.png",
-               'Query windowe size (%)', 'Average query time (ms)', competitor_colors, competitor_markers)
     range_query_nyct = [[competitors[j], [result.iloc[43 + i][2 + j] * 1000 for i in range(range_size_len)]]
                         for j in range(competitor_len)]
     plot_lines(range_sizes, range_query_nyct, output_path + "/range_query_nyct.png",
-               'Query window size (%)', 'Average query time (ms)', competitor_colors, competitor_markers)
+               'Query range size (%)', 'Average query time (ms)', competitor_colors, competitor_markers)
     # knn query
     knn_query = [[competitors[j], [result.iloc[18 + i * 18][2 + j] * 1000 for i in range(dataset_len)]]
                  for j in range(competitor_len)]
@@ -208,86 +193,78 @@ def plot_result(input_path, output_path):
                          'Data distribution', 'Average query time (ms)', competitor_colors)
     knn_sizes = [4, 8, 16, 32, 64]
     knn_size_len = len(knn_sizes)
-    knn_query_uniform = [[competitors[j], [result.iloc[13 + i][2 + j] for i in range(knn_size_len)]]
-                         for j in range(competitor_len)]
-    plot_lines(knn_sizes, knn_query_uniform, output_path + "/knn_query_uniform.png",
-               'k', 'Average query time (μs)', competitor_colors, competitor_markers)
-    knn_query_normal = [[competitors[j], [result.iloc[31 + i][2 + j] for i in range(knn_size_len)]]
-                        for j in range(competitor_len)]
-    plot_lines(knn_sizes, knn_query_normal, output_path + "/knn_query_normal.png",
-               'k', 'Average query time (μs)', competitor_colors, competitor_markers)
     knn_query_nyct = [[competitors[j], [result.iloc[49 + i][2 + j] for i in range(knn_size_len)]]
                       for j in range(competitor_len)]
     plot_lines(knn_sizes, knn_query_nyct, output_path + "/knn_query_nyct.png",
-               'k', 'Average query time (μs)', competitor_colors, competitor_markers, True, 'upper left')
+               'k', 'Average query time (ms)', competitor_colors, competitor_markers, True, 'upper left')
     # update
     result = pd.ExcelFile.parse(xls, sheet_name='update_optimized', header=None)
-    insert_point_percents = [10, 20, 30, 40, 50]
-    insert_point_percent_len = len(insert_point_percents)
+    update_point_percents = [10, 20, 30, 40, 50]
+    update_point_percent_len = len(update_point_percents)
     competitors = ['RT', 'PRQT', 'KDT', 'BRINS', 'ZM', 'SBRIN-SCR', 'SBRIN-MCR', 'SBRIN-RM', 'SBRIN']
     competitor_colors = ['#95CCBA', '#F2C477', '#BFC0D5', '#FCE166', '#86B2C5', '#E63025']
     competitor_markers = ['v', 's', 'p', '*', 'x', 'o']
     competitor_ids = [0, 1, 2, 3, 4, 8]
     # update nyct
-    update_time_nyct = [[competitors[j], result.iloc[21][1 + insert_point_percent_len * j:
-                                                         1 + insert_point_percent_len * (j + 1)].tolist()]
+    update_time_nyct = [[competitors[j], result.iloc[21][1 + update_point_percent_len * j:
+                                                         1 + update_point_percent_len * (j + 1)].tolist()]
                         for j in competitor_ids]
-    plot_lines(insert_point_percents, update_time_nyct, output_path + "/update_time_nyct.png",
-               'Inserted points (%)', 'Update time (s)', competitor_colors, competitor_markers)
-    update_point_query_nyct = [[competitors[j], (result.iloc[25][1 + insert_point_percent_len * j:
-                                                                 1 + insert_point_percent_len * (j + 1)]
+    plot_lines(update_point_percents, update_time_nyct, output_path + "/update_time_nyct.png",
+               'Updated points (%)', 'Update time (s)', competitor_colors, competitor_markers)
+    update_point_query_nyct = [[competitors[j], (result.iloc[25][1 + update_point_percent_len * j:
+                                                                 1 + update_point_percent_len * (j + 1)]
                                                  * 1000000).tolist()]
                                for j in competitor_ids]
-    plot_lines(insert_point_percents, update_point_query_nyct, output_path + "/update_point_query_nyct.png",
-               'Inserted points (%)', 'Average query time (μs)', competitor_colors, competitor_markers, False)
-    update_range_query_nyct = [[competitors[j], (result.iloc[26][1 + insert_point_percent_len * j:
-                                                                 1 + insert_point_percent_len * (j + 1)]
+    plot_lines(update_point_percents, update_point_query_nyct, output_path + "/update_point_query_nyct.png",
+               'Updated points (%)', 'Average query time (μs)', competitor_colors, competitor_markers, False)
+    update_range_query_nyct = [[competitors[j], (result.iloc[26][1 + update_point_percent_len * j:
+                                                                 1 + update_point_percent_len * (j + 1)]
                                                  * 1000).tolist()]
                                for j in competitor_ids]
-    plot_lines(insert_point_percents, update_range_query_nyct, output_path + "/update_range_query_nyct.png",
-               'Inserted points (%)', 'Average query time (ms)', competitor_colors, competitor_markers, False)
-    update_knn_query_nyct = [[competitors[j], (result.iloc[27][1 + insert_point_percent_len * j:
-                                                               1 + insert_point_percent_len * (j + 1)]
+    plot_lines(update_point_percents, update_range_query_nyct, output_path + "/update_range_query_nyct.png",
+               'Updated points (%)', 'Average query time (ms)', competitor_colors, competitor_markers, False)
+    update_knn_query_nyct = [[competitors[j], (result.iloc[27][1 + update_point_percent_len * j:
+                                                               1 + update_point_percent_len * (j + 1)]
                                                * 1000).tolist()]
                              for j in competitor_ids]
-    plot_lines(insert_point_percents, update_knn_query_nyct, output_path + "/update_knn_query_nyct.png",
-               'Inserted points (%)', 'Average query time (ms)', competitor_colors, competitor_markers, False)
+    plot_lines(update_point_percents, update_knn_query_nyct, output_path + "/update_knn_query_nyct.png",
+               'Updated points (%)', 'Average query time (ms)', competitor_colors, competitor_markers, False)
     # update sbrin variants
     competitor_colors = ['#E6B597', '#FF962A', '#EA7D80', '#E63025']
     competitor_markers = ['o', 'o', 'o', 'o']
     competitor_ids = [5, 6, 7, 8]
-    update_time_nyct_sbrin = [[competitors[j], result.iloc[21][1 + insert_point_percent_len * j:
-                                                               1 + insert_point_percent_len * (j + 1)].tolist()]
+    update_time_nyct_sbrin = [[competitors[j], result.iloc[21][1 + update_point_percent_len * j:
+                                                               1 + update_point_percent_len * (j + 1)].tolist()]
                               for j in competitor_ids]
-    plot_lines(insert_point_percents, update_time_nyct_sbrin, output_path + "/update_time_nyct_sbrin.png",
-               'Inserted points (%)', 'Update time (s)', competitor_colors, competitor_markers)
-    update_point_query_nyct_sbrin = [[competitors[j], (result.iloc[25][1 + insert_point_percent_len * j:
-                                                                       1 + insert_point_percent_len * (j + 1)]
+    plot_lines(update_point_percents, update_time_nyct_sbrin, output_path + "/update_time_nyct_sbrin.png",
+               'Updated points (%)', 'Update time (s)', competitor_colors, competitor_markers)
+    update_point_query_nyct_sbrin = [[competitors[j], (result.iloc[25][1 + update_point_percent_len * j:
+                                                                       1 + update_point_percent_len * (j + 1)]
                                                        * 1000000).tolist()]
                                      for j in competitor_ids]
-    plot_lines(insert_point_percents, update_point_query_nyct_sbrin, output_path + "/update_point_query_nyct_sbrin.png",
-               'Inserted points (%)', 'Average query time (μs)', competitor_colors, competitor_markers, False)
-    update_range_query_nyct_sbrin = [[competitors[j], (result.iloc[26][1 + insert_point_percent_len * j:
-                                                                       1 + insert_point_percent_len * (j + 1)]
+    plot_lines(update_point_percents, update_point_query_nyct_sbrin, output_path + "/update_point_query_nyct_sbrin.png",
+               'Updated points (%)', 'Average query time (μs)', competitor_colors, competitor_markers, False)
+    update_range_query_nyct_sbrin = [[competitors[j], (result.iloc[26][1 + update_point_percent_len * j:
+                                                                       1 + update_point_percent_len * (j + 1)]
                                                        * 1000).tolist()]
                                      for j in competitor_ids]
-    plot_lines(insert_point_percents, update_range_query_nyct_sbrin, output_path + "/update_range_query_nyct_sbrin.png",
-               'Inserted points (%)', 'Average query time (ms)', competitor_colors, competitor_markers, False)
-    update_knn_query_nyct_sbrin = [[competitors[j], (result.iloc[27][1 + insert_point_percent_len * j:
-                                                                     1 + insert_point_percent_len * (j + 1)]
+    plot_lines(update_point_percents, update_range_query_nyct_sbrin, output_path + "/update_range_query_nyct_sbrin.png",
+               'Updated points (%)', 'Average query time (ms)', competitor_colors, competitor_markers, False)
+    update_knn_query_nyct_sbrin = [[competitors[j], (result.iloc[27][1 + update_point_percent_len * j:
+                                                                     1 + update_point_percent_len * (j + 1)]
                                                      * 1000).tolist()]
                                    for j in competitor_ids]
-    plot_lines(insert_point_percents, update_knn_query_nyct_sbrin, output_path + "/update_knn_query_nyct_sbrin.png",
-               'Inserted points (%)', 'Average query time (ms)', competitor_colors, competitor_markers, False)
+    plot_lines(update_point_percents, update_knn_query_nyct_sbrin, output_path + "/update_knn_query_nyct_sbrin.png",
+               'Updated points (%)', 'Average query time (ms)', competitor_colors, competitor_markers, False)
     # update sbrin/zm model avg err
     competitors = ['ZM', 'SBRIN-SCR', 'SBRIN-MCR', 'SBRIN-RM', 'SBRIN']
     competitor_colors = ['#86B2C5', '#FADEA7', '#FF962A', '#EA7D80', '#E63025']
     competitor_markers = ['x', 'o', 'o', 'o', 'o']
     competitor_len = len(competitors)
-    update_err_nyct_sbrin = [[competitors[j], (result.iloc[45 + j][1:1 + insert_point_percent_len]).tolist()]
+    update_err_nyct_sbrin = [[competitors[j], (result.iloc[45 + j][1:1 + update_point_percent_len]).tolist()]
                              for j in range(competitor_len)]
-    plot_lines(insert_point_percents, update_err_nyct_sbrin, output_path + "/update_err_nyct_sbrin.png",
-               'Inserted points (%)', 'Error bounds', competitor_colors, competitor_markers)
+    plot_lines(update_point_percents, update_err_nyct_sbrin, output_path + "/update_err_nyct_sbrin.png",
+               'Updated points (%)', 'Error bounds', competitor_colors, competitor_markers)
 
 
 if __name__ == '__main__':
