@@ -60,8 +60,8 @@ def main():
         os.makedirs(model_path)
     index = RStarTree(model_path=model_path)
     index_name = index.name
-    load_index_from_json = False
-    if load_index_from_json:
+    load_index_from_file = False
+    if load_index_from_file:
         index.load()
     else:
         index.logging.info("*************start %s************" % index_name)

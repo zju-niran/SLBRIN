@@ -40,7 +40,7 @@ class Geohash:
         计算geohash_int的point
         1. 使用split_bits分开geohash_int为整数的经纬度
         2. 反归一化经纬度，并且round到指定精度
-        注意：使用round后，geohash_int转化的point不一定=计算geohash_int的原始point，因为保留有效位数的point和geohash_int是多对一的
+        注意：使用load_index_from_file后，geohash_int转化的point不一定=计算geohash_int的原始point，因为保留有效位数的point和geohash_int是多对一的
         如果要一对一，则encode的入口point和decode的出口point都不要用round
         """
         lng_zoom, lat_zoom = self.split_bits(geohash_int)

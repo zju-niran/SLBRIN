@@ -178,7 +178,7 @@ if __name__ == '__main__':
     # input_path = "./table/trip_data_2.csv"
     # output_path = "./table/trip_data_2.npy"
     # csv_to_npy(input_path, output_path)
-    # 2. 数据清洗，只选取region内且
+    # 2. 数据清洗，只选取region内
     # 数据总记录数：14776615+13990176，region内14507253+13729724=28236977
     # 文件size：1.50GB+1.39GB，region内1.47GB+1.37GB=2.84GB
     # input_path = "./table/trip_data_1.npy"

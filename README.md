@@ -13,4 +13,4 @@ Please understand that the ReadMe instructions will be added after the paper is 
   * spatial_index: the source code of our SBRIN and other competitors. 
   * experiment: the experiments in the paper.
   * learned_model*.py: the RMI version for learned model.
-* requirement.txt: a list python dependencies, which can install by 'pip install -r requirement.txt'
+* requirement.txt: a list python dependencies, which can be installed by 'pip install -r requirement.txt'
