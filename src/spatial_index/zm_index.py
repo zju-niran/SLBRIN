@@ -71,46 +71,46 @@ class ZMIndex(SpatialIndex):
         train_inputs[0][0] = [data[2] for data in data_list]
         train_labels[0][0] = list(range(0, self.train_data_length + 1))
         # 2. create rmi to train geohash->key data
-        # 构建stage_nums结构的树状NNs
-        for i in range(self.stage_length - 1):
-            for j in range(stages[i]):
-                if train_labels[i][j] is None:
-                    continue
+        for i in range(self.stage_length):
+            pool = multiprocessing.Pool(processes=thread_pool_size)
+            task_size = stages[i]
+            mp_list = multiprocessing.Manager().list([None] * task_size)
+            for j in range(task_size):
+                # 2.1 create non-leaf node
+                if i < self.stage_length - 1:
+                    if train_labels[i][j] is None:
+                        continue
+                    else:
+                        # build inputs
+                        inputs = train_inputs[i][j]
+                        # build labels
+                        divisor = stages[i + 1] * 1.0 / (self.train_data_length + 1)
+                        labels = [int(k * divisor) for k in train_labels[i][j]]
+                        # train model
+                        build_nn(self.model_path, i, j, inputs, labels, is_new, is_simple, is_gpu,
+                                 weight, cores[i], train_steps[i], batch_nums[i], learning_rates[i],
+                                 use_thresholds[i], thresholds[i], retrain_time_limits[i], mp_list)
+                        # predict and build inputs and labels for next stage
+                        for ind in range(len(train_inputs[i][j])):
+                            # pick model in next stage with output of this model
+                            pre = int(self.rmi[i][j].predict(train_inputs[i][j][ind]))
+                            train_inputs[i + 1][pre].append(train_inputs[i][j][ind])
+                            train_labels[i + 1][pre].append(train_labels[i][j][ind])
+                        # clear the data already used
+                        train_inputs[i] = None
+                        train_labels[i] = None
+                # 2.2 create leaf node
                 else:
                     inputs = train_inputs[i][j]
-                    # 非叶子结点决定下一层要用的NN是哪个
-                    # first stage, calculate how many models in next stage
-                    divisor = stages[i + 1] * 1.0 / (self.train_data_length + 1)
-                    labels = [int(k * divisor) for k in train_labels[i][j]]
-                    # train model
-                    build_nn(self.model_path, i, j, inputs, labels, is_new, is_simple, is_gpu,
-                             weight, cores[i], train_steps[i], batch_nums[i], learning_rates[i],
-                             use_thresholds[i], thresholds[i], retrain_time_limits[i], None, self.rmi)
-                    # allocate data into training set for models in next stage
-                    for ind in range(len(train_inputs[i][j])):
-                        # pick model in next stage with output of this model
-                        pre = int(self.rmi[i][j].predict(train_inputs[i][j][ind]))
-                        train_inputs[i + 1][pre].append(train_inputs[i][j][ind])
-                        train_labels[i + 1][pre].append(train_labels[i][j][ind])
-                    # 释放已经训练完的数据
-                    train_inputs[i] = None
-                    train_labels[i] = None
-        # 叶子节点使用线程池训练
-        pool = multiprocessing.Pool(processes=thread_pool_size)
-        i = self.stage_length - 1
-        task_size = stages[i]
-        mp_list = multiprocessing.Manager().list([None] * task_size)
-        for j in range(task_size):
-            inputs = train_inputs[i][j]
-            labels = train_labels[i][j]
-            if labels is None or len(labels) == 0:
-                continue
-            pool.apply_async(build_nn, (self.model_path, i, j, inputs, labels, is_new, is_simple, is_gpu,
-                                        weight, cores[i], train_steps[i], batch_nums[i], learning_rates[i],
-                                        use_thresholds[i], thresholds[i], retrain_time_limits[i], mp_list, None))
-        pool.close()
-        pool.join()
-        self.rmi[i] = [model for model in mp_list]
+                    labels = train_labels[i][j]
+                    if labels is None or len(labels) == 0:
+                        continue
+                    pool.apply_async(build_nn, (self.model_path, i, j, inputs, labels, is_new, is_simple, is_gpu,
+                                                weight, cores[i], train_steps[i], batch_nums[i], learning_rates[i],
+                                                use_thresholds[i], thresholds[i], retrain_time_limits[i], mp_list))
+            pool.close()
+            pool.join()
+            self.rmi[i] = [model for model in mp_list]
 
     def insert_single(self, point):
         """
@@ -422,24 +422,34 @@ class ZMIndex(SpatialIndex):
         data io由model误差范围决定，update data io由model update部分的数据量决定
         先计算单个node的node io和data io，然后乘以node的数据量，最后除以总数据量，来计算整体的平均io
         """
-        stage2_model_num = len([model for model in self.rmi[1] if model])
-        # io when load node
-        if stage2_model_num + 1 < MODELS_PER_RA:
-            model_io_list = [1] * stage2_model_num
+        if self.stage_length <= 1:
+            # io when load data
+            model = self.rmi[0][0]
+            data_io = math.ceil((model.max_err - model.min_err) / ITEMS_PER_RA)
+            # io when load update data
+            model = self.update_index[0]
+            update_data_io = math.ceil(len(model) / ITEMS_PER_RA)
+            return data_io + update_data_io
         else:
-            model_io_list = [1] * (MODELS_PER_RA - 1)
-            model_io_list.extend([2] * (stage2_model_num + 1 - MODELS_PER_RA))
-        # io when load data
-        data_io_list = [math.ceil((model.max_err - model.min_err) / ITEMS_PER_RA) for model in self.rmi[1] if model]
-        # compute avg io: data io + node io
-        data_num_list = [model.output_max - model.output_min + 1 for model in self.rmi[1] if model]
-        data_node_io_list = [(model_io_list[i] + data_io_list[i]) * data_num_list[i] for i in range(stage2_model_num)]
-        data_node_io = sum(data_node_io_list) / sum(data_num_list)
-        # io when load update data
-        update_data_num = sum([len(model) for model in self.update_index])
-        update_data_io_list = [math.ceil(len(model) / ITEMS_PER_RA) * len(model) for model in self.update_index]
-        update_data_io = sum(update_data_io_list) / update_data_num if update_data_num else 0
-        return data_node_io + update_data_io
+            stage2_model_num = len([model for model in self.rmi[1] if model]) if self.stage_length > 1 else 0
+            # io when load node
+            if stage2_model_num + 1 < MODELS_PER_RA:
+                model_io_list = [1] * stage2_model_num
+            else:
+                model_io_list = [1] * (MODELS_PER_RA - 1)
+                model_io_list.extend([2] * (stage2_model_num + 1 - MODELS_PER_RA))
+            # io when load data
+            data_io_list = [math.ceil((model.max_err - model.min_err) / ITEMS_PER_RA) for model in self.rmi[1] if model]
+            # compute avg io: data io + node io
+            data_num_list = [model.output_max - model.output_min + 1 for model in self.rmi[1] if model]
+            data_node_io_list = [(model_io_list[i] + data_io_list[i]) * data_num_list[i] for i in
+                                 range(stage2_model_num)]
+            data_io = sum(data_node_io_list) / sum(data_num_list)
+            # io when load update data
+            update_data_num = sum([len(model) for model in self.update_index])
+            update_data_io_list = [math.ceil(len(model) / ITEMS_PER_RA) * len(model) for model in self.update_index]
+            update_data_io = sum(update_data_io_list) / update_data_num if update_data_num else 0
+            return data_io + update_data_io
 
     def model_clear(self):
         """
@@ -455,7 +465,7 @@ class ZMIndex(SpatialIndex):
 
 def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new, is_simple, is_gpu,
              weight, core, train_step, batch_num, learning_rate,
-             use_threshold, threshold, retrain_time_limit, mp_list=None, rmi=None):
+             use_threshold, threshold, retrain_time_limit, mp_list=None):
     # stage1由于是全部数据输入，batch_size会太大，导致tensor变量初始化所需GPU内存超出
     batch_size = 2 ** math.ceil(math.log(len(inputs) / batch_num, 2))
     if batch_size < 1:
@@ -476,11 +486,7 @@ def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new,
                                 math.ceil(tmp_index.min_err), math.ceil(tmp_index.max_err))
     del tmp_index
     gc.collect(generation=0)
-    if mp_list:
-        mp_list[j] = abstract_index
-    else:
-        rmi[i][j] = abstract_index
-
+    mp_list[j] = abstract_index
 
 class AbstractNN:
     def __init__(self, matrices, core_nums, input_min, input_max, output_min, output_max, min_err, max_err):
