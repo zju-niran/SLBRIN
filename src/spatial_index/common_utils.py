@@ -523,7 +523,7 @@ def fun100(data):
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data = np.load("../data/table/trip_data_1_filter_10w.npy", allow_pickle=True)[:, [10, 11, -1]]
+    data = np.load("../data/table/nyct_1_10w.npy", allow_pickle=True)
     profile = line_profiler.LineProfiler(fun100)
     profile.enable()
     # quick_sort:quick_sort_n:sorted=>14:2:1

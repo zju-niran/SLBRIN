@@ -4,18 +4,17 @@ import os
 import numpy as np
 import pandas
 
-from src.spatial_index.common_utils import Point
+from src.spatial_index.common_utils import Point, Region
 from src.spatial_index.geohash_utils import Geohash
 
 
 class MyError(Exception):
-
     def __init__(self, message):
         self.message = message
 
 
 def csv_to_npy(input_path, output_path):
-    np.save(output_path, pandas.read_csv(input_path).values)
+    np.save(output_path, pandas.read_csv(input_path).values[:, [10, 11]])
 
 
 def count_csv(path):
@@ -29,7 +28,7 @@ def count_csv(path):
 
 def filter_row_in_region(input_path, output_path, range_limit):
     data_list = np.load(input_path, allow_pickle=True)
-    contain_filter = np.apply_along_axis(lambda x: range_limit.contain(Point(x[10], x[11])), axis=1, arr=data_list)
+    contain_filter = np.apply_along_axis(lambda x: range_limit.contain(Point(x[0], x[1])), axis=1, arr=data_list)
     contain_data_list = data_list[contain_filter]
     np.save(output_path, contain_data_list)
 
@@ -44,8 +43,10 @@ def add_key_field(input_path, output_path, first_key):
 
 
 def get_region(input_path):
-    df = pandas.read_csv(input_path)
-    print("Region: %f, %f, %f, %f" % (df.y.min(), df.y.max(), df.x.min(), df.x.max()))
+    data_list = np.load(input_path, allow_pickle=True)
+    mins = np.min(data_list, axis=0)
+    maxs = np.max(data_list, axis=0)
+    print("Region: %f, %f, %f, %f" % (mins[1], maxs[1], mins[0], maxs[0]))
 
 
 def sample(input_path, output_path, lines_limit):
@@ -56,10 +57,7 @@ def sample(input_path, output_path, lines_limit):
 
 
 def create_point_query(input_path, output_path, query_number_limit):
-    if "nyct" in output_path:
-        data_list = np.load(input_path, allow_pickle=True)[:, [10, 11]]
-    else:
-        data_list = np.load(input_path, allow_pickle=True)[:, [0, 1]]
+    data_list = np.load(input_path, allow_pickle=True)[:, [0, 1]]
     np.random.seed(1)
     sample_key = np.random.randint(0, len(data_list) - 1, size=query_number_limit)
     np.save(output_path, data_list[sample_key])
@@ -91,10 +89,7 @@ def create_range_query(output_path, data_range, query_number_limit, range_ratio_
 
 
 def create_knn_query(input_path, output_path, query_number_limit, n_list):
-    if "nyct" in output_path:
-        data_list = np.load(input_path, allow_pickle=True)[:, [10, 11]]
-    else:
-        data_list = np.load(input_path, allow_pickle=True)[:, [0, 1]]
+    data_list = np.load(input_path, allow_pickle=True)[:, [0, 1]]
     data_len = len(data_list)
     result = np.empty(shape=(0, 3))
     for n in n_list:
@@ -109,13 +104,19 @@ def create_knn_query(input_path, output_path, query_number_limit, n_list):
 
 def geohash_and_sort(input_path, output_path, data_precision, region):
     geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
-    if "nyct" in output_path:
-        data = np.load(input_path, allow_pickle=True)[:, [10, 11, -1]]
+    data_list = np.load(input_path, allow_pickle=True)
+    data_list = [(data[0], data[1], geohash.encode(data[0], data[1]), data[2]) for data in data_list]
+    data_list.sort(key=lambda x: x[2])
+    np.save(output_path, data_list)
+
+
+def npy_to_table(input_path, output_path, is_sorted):
+    data_list = np.load(input_path, allow_pickle=True)
+    if is_sorted:
+        dtype = [("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')]
     else:
-        data = np.load(input_path, allow_pickle=True)
-        data = [(data[i][0], data[i][1], geohash.encode(data[i][0], data[i][1]), data[i][2]) for i in range(len(data))]
-    data.sort(key=lambda x: x[2])
-    np.save(output_path, np.array(data, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')]))
+        dtype = [("0", 'f8'), ("1", 'f8'), ("3", 'i4')]
+    np.save(output_path, np.array([tuple(data) for data in data_list.tolist()], dtype=dtype))
 
 
 def create_data(output_path, data_size, scope, data_precision, type):
@@ -169,26 +170,27 @@ if __name__ == '__main__':
                'pickup_latitude',
                'dropoff_longitude',
                'dropoff_latitude']
-
     # 1. 把csv转npy
     # 数据来源：从http://www.andresmh.com/nyctaxitrips/下载trip_data.7z，拿到其中的一月份和二月份数据csv，转成npy
     # npy是外存结构，size=128Byte的头文件大小+数据大小，csv的内容都是string
-    # input_path = "./table/trip_data_1.csv"
-    # output_path = "./table/trip_data_1.npy"
-    # input_path = "./table/trip_data_2.csv"
-    # output_path = "./table/trip_data_2.npy"
+    # input_path = r"D:\科研\毕业论文-新\trip_data_1.csv"
+    # output_path = "./table/nyct_1.npy"
+    # csv_to_npy(input_path, output_path)
+    # input_path = r"D:\科研\毕业论文-新\trip_data_2.csv"
+    # output_path = "./table/nyct_2.npy"
     # csv_to_npy(input_path, output_path)
     # 2. 数据清洗，只选取region内
     # 数据总记录数：14776615+13990176，region内14507253+13729724=28236977
     # 文件size：1.50GB+1.39GB，region内1.47GB+1.37GB=2.84GB
-    # input_path = "./table/trip_data_1.npy"
-    # input_path = "./table/trip_data_2.npy"
-    # output_path = "./table/trip_data_1_filter.npy"
-    # output_path = "./table/trip_data_2_filter.npy"
+    # input_path = "./table/nyct_1.npy"
+    # output_path = "./table/nyct_1.npy"
+    # filter_row_in_region(input_path, output_path, Region(40, 42, -75, -73))
+    # input_path = "./table/nyct_2.npy"
+    # output_path = "./table/nyct_2.npy"
     # filter_row_in_region(input_path, output_path, Region(40, 42, -75, -73))
     # 输出数据spatial scope
     # 40.016666, 41.933331, -74.990433, -73.000938
-    # input_path = "./table/trip_data_1_filter.npy"
+    # input_path = "./table/nyct_1.npy"
     # get_region(input_path)
     # 3. 生成uniform和normal的数据
     # 精度8，范围0-1-0-1，geohash长度为60，精度9的话长度就66了，超过了int64的范围
@@ -202,37 +204,46 @@ if __name__ == '__main__':
     # create_data(output_path, 13729724, [0, 1, 0, 1], 8, 'normal')
     # output_path = "./table/uniform_1.npy"
     # output_path = "./table/normal_1.npy"
-    output_path = "./table/trip_data_1_filter.npy"
-    plot_npy(output_path)
+    # output_path = "./table/nyct_1.npy"
+    # plot_npy(output_path)
     # 4. 生成10w的数据
     # input_path = "./table/uniform_1.npy"
     # output_path_10w_sample = './table/uniform_1_10w.npy'
-    # input_path = "./table/normal_1.npy"
-    # output_path_10w_sample = './table/normal_1_10w.npy'
+    # sample(input_path, output_path_10w_sample, 100000)
     # input_path = "./table/uniform_2.npy"
     # output_path_10w_sample = './table/uniform_2_10w.npy'
+    # sample(input_path, output_path_10w_sample, 100000)
+    # input_path = "./table/normal_1.npy"
+    # output_path_10w_sample = './table/normal_1_10w.npy'
+    # sample(input_path, output_path_10w_sample, 100000)
     # input_path = "./table/normal_2.npy"
     # output_path_10w_sample = './table/normal_2_10w.npy'
     # sample(input_path, output_path_10w_sample, 100000)
+    # input_path = "./table/nyct_1.npy"
+    # output_path_10w_sample = './table/nyct_1_10w.npy'
+    # sample(input_path, output_path_10w_sample, 100000)
+    # input_path = "./table/nyct_2.npy"
+    # output_path_10w_sample = './table/nyct_2_10w.npy'
+    # sample(input_path, output_path_10w_sample, 100000)
     # [Optional] 5. 生成不重复的数据
-    # input_path = "./table/trip_data_1_filter_10w.npy"
-    # output_path = "./table/trip_data_1_10w_distinct.npy"
+    # input_path = "./table/nyct_1_10w.npy"
+    # output_path = "./table/nyct_1_10w_distinct.npy"
     # create_distinct_data(input_path, output_path)
     # 6. 生成索引列
-    # output_path = "./table/trip_data_1_filter.npy"
-    # output_path = "./table/trip_data_1_filter_10w.npy"
-    # output_path = "./table/normal_1.npy"
-    # output_path = "./table/normal_1_10w.npy"
     # output_path = "./table/uniform_1.npy"
     # output_path = "./table/uniform_1_10w.npy"
+    # output_path = "./table/normal_1.npy"
+    # output_path = "./table/normal_1_10w.npy"
+    # output_path = "./table/nyct_1.npy"
+    # output_path = "./table/nyct_1_10w.npy"
     # first_key = 0
-    # output_path = "./table/trip_data_2_filter.npy"
-    # output_path = "./table/normal_2.npy"
     # output_path = "./table/uniform_2.npy"
+    # output_path = "./table/normal_2.npy"
+    # output_path = "./table/nyct_2.npy"
     # first_key = 14507253
-    # output_path = "./table/trip_data_2_filter_10w.npy"
-    # output_path = "./table/normal_2_10w.npy"
     # output_path = "./table/uniform_2_10w.npy"
+    # output_path = "./table/normal_2_10w.npy"
+    # output_path = "./table/nyct_2_10w.npy"
     # first_key = 100000
     # add_key_field(output_path, output_path, first_key)
     # 7. Geohash排序数据
@@ -242,13 +253,28 @@ if __name__ == '__main__':
     # output_path = "./index/normal_1_sorted.npy"
     # data_precision = 8
     # region = Region(0, 1, 0, 1)
-    # input_path = "./table/trip_data_1_filter.npy"
+    # input_path = "./table/nyct_1.npy"
     # output_path = "./index/nyct_1_sorted.npy"
-    # input_path = "./table/trip_data_1_filter_10w.npy"
+    # input_path = "./table/nyct_1_10w.npy"
     # output_path = "./index/nyct_1_10w_sorted.npy"
     # data_precision = 6
     # region = Region(40, 42, -75, -73)
     # geohash_and_sort(input_path, output_path, data_precision, region)
+    # 8 npy转标准table表格存储：xyzi为'f8, f8, i8, i4'
+    # output_path = "./table/uniform_1.npy"
+    # output_path = "./table/uniform_1_10w.npy"
+    # output_path = "./table/normal_1.npy"
+    # output_path = "./table/normal_1_10w.npy"
+    # output_path = "./table/nyct_1.npy"
+    # output_path = "./table/nyct_1_10w.npy"
+    # output_path = "./table/nyct_2.npy"
+    # output_path = "./table/nyct_2_10w.npy"
+    # npy_to_table(output_path, output_path, False)
+    # output_path = "./index/uniform_1_sorted.npy"
+    # output_path = "./index/normal_1_sorted.npy"
+    # output_path = "./index/nyct_1_sorted.npy"
+    output_path = "./index/nyct_1_10w_sorted.npy"
+    npy_to_table(output_path, output_path, True)
     # 1. 生成point检索范围
     # input_path = './table/uniform_1.npy'
     # output_path = './query/point_query_uniform.npy'

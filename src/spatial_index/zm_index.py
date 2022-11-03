@@ -472,12 +472,10 @@ def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new,
     batch_size = 2 ** math.ceil(math.log(len(inputs) / batch_num, 2))
     if batch_size < 1:
         batch_size = 1
-    i = curr_stage
-    j = current_stage_step
     if is_simple:
         tmp_index = TrainedNN_Simple(inputs, labels, is_gpu, weight, core, train_step, batch_size, learning_rate)
     else:
-        model_key = "%s_%s" % (i, j)
+        model_key = "%s_%s" % (curr_stage, current_stage_step)
         tmp_index = TrainedNN(model_path, model_key, inputs, labels, is_new, is_gpu,
                               weight, core, train_step, batch_size, learning_rate,
                               use_threshold, threshold, retrain_time_limit)
@@ -488,7 +486,8 @@ def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new,
                                 math.ceil(tmp_index.min_err), math.ceil(tmp_index.max_err))
     del tmp_index
     gc.collect(generation=0)
-    mp_list[j] = abstract_index
+    mp_list[current_stage_step] = abstract_index
+
 
 class AbstractNN:
     def __init__(self, matrices, core_nums, input_min, input_max, output_min, output_max, min_err, max_err):

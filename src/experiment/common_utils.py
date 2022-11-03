@@ -24,10 +24,10 @@ class Distribution(Enum):
 build_data_path = {
     Distribution.UNIFORM: "../../data/table/uniform_1.npy",
     Distribution.NORMAL: "../../data/table/normal_1.npy",
-    Distribution.NYCT: "../../data/table/trip_data_1_filter.npy",
+    Distribution.NYCT: "../../data/table/nyct_1.npy",
     Distribution.UNIFORM_10W: "../../data/table/uniform_1_10w.npy",
     Distribution.NORMAL_10W: "../../data/table/normal_1_10w.npy",
-    Distribution.NYCT_10W: "../../data/table/trip_data_1_filter_10w.npy",
+    Distribution.NYCT_10W: "../../data/table/nyct_1_10w.npy",
     Distribution.UNIFORM_SORTED: "../../data/index/uniform_1_sorted.npy",
     Distribution.NORMAL_SORTED: "../../data/index/normal_1_sorted.npy",
     Distribution.NYCT_SORTED: "../../data/index/nyct_1_sorted.npy",
@@ -37,10 +37,10 @@ build_data_path = {
 update_data_path = {
     Distribution.UNIFORM: "../../data/table/uniform_2.npy",
     Distribution.NORMAL: "../../data/table/normal_2.npy",
-    Distribution.NYCT: "../../data/table/trip_data_2_filter.npy",
+    Distribution.NYCT: "../../data/table/nyct_2.npy",
     Distribution.UNIFORM_10W: "../../data/table/uniform_2_10w.npy",
     Distribution.NORMAL_10W: "../../data/table/normal_2_10w.npy",
-    Distribution.NYCT_10W: "../../data/table/trip_data_2_filter_10w.npy",
+    Distribution.NYCT_10W: "../../data/table/nyct_2_10w.npy",
 }
 data_precision = {
     Distribution.UNIFORM: 8,
@@ -70,15 +70,9 @@ data_region = {
 
 def load_data(distribution, type):
     if type == 0:
-        if distribution in [Distribution.NYCT, Distribution.NYCT_10W]:
-            return np.load(build_data_path[distribution], allow_pickle=True)[:, [10, 11, -1]]
-        else:
-            return np.load(build_data_path[distribution], allow_pickle=True)
+        return np.load(build_data_path[distribution], allow_pickle=True)
     else:
-        if distribution in [Distribution.NYCT, Distribution.NYCT_10W]:
-            return np.load(update_data_path[distribution], allow_pickle=True)[:, [10, 11, -1]]
-        else:
-            return np.load(update_data_path[distribution], allow_pickle=True)
+        return np.load(update_data_path[distribution], allow_pickle=True)
 
 
 point_query_path = {
