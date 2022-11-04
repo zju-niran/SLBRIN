@@ -1,4 +1,3 @@
-import copy
 import gc
 import logging
 import math
@@ -11,8 +10,8 @@ import line_profiler
 import numpy as np
 
 sys.path.append('/home/zju/wlj/st-learned-index')
-from src.learned_model_sbrin import TrainedNN
-from src.learned_model_sbrin_simple import TrainedNN_Simple
+from src.mlp import MLP
+from src.mlp_simple import MLPSimple
 from src.spatial_index.common_utils import Region, binary_search_less_max, sigmoid, biased_search_almost, \
     biased_search, get_mbr_by_points
 from src.spatial_index.geohash_utils import Geohash
@@ -175,7 +174,7 @@ class SBRIN(SpatialIndex):
 
     def insert_single(self, point):
         # 1. encode p to geohash and create index entry(x, y, geohash, pointer)
-        point.insert(-1, self.meta.geohash.encode(point[0], point[1]))
+        point = (point[0], point[1], self.meta.geohash.encode(point[0], point[1]), point[2])
         # 2. insert into cr
         self.current_ranges[-1].number += 1
         self.index_entries[-1].append(tuple(point))
@@ -303,8 +302,8 @@ class SBRIN(SpatialIndex):
         batch_size = 2 ** math.ceil(math.log(data_num / self.batch_num, 2))
         if batch_size < 1:
             batch_size = 1
-        tmp_index = TrainedNN(self.model_path, str(hr_key), inputs, labels, True, self.is_gpu, self.weight,
-                              self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
+        tmp_index = NN(self.model_path, str(hr_key), inputs, labels, True, self.is_gpu, self.weight,
+                       self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
         tmp_index.train_simple(hr.model.matrices)
         hr.model = AbstractNN(tmp_index.matrices, hr.model.hl_nums,
                               math.ceil(tmp_index.min_err),
@@ -845,11 +844,11 @@ class SBRIN(SpatialIndex):
 
     def model_clear(self):
         """
-        清除非最小误差的model
+        clear the models which are not the best
         """
         for i in range(self.meta.last_hr + 1):
-            tmp_index = TrainedNN(self.model_path, str(i), [0], [0], None, None, None,
-                                  None, None, None, None, None, None, None)
+            tmp_index = NN(self.model_path, str(i), [0], [0],
+                           None, None, None, None, None, None, None, None, None, None)
             tmp_index.clean_not_best_model_file()
 
 
@@ -954,10 +953,10 @@ range_position_funcs = [
 def build_nn(model_path, model_key, inputs, labels, is_new, is_simple, is_gpu, weight, core, train_step, batch_size,
              learning_rate, use_threshold, threshold, retrain_time_limit, tmp_dict=None):
     if is_simple:
-        tmp_index = TrainedNN_Simple(inputs, labels, is_gpu, weight, core, train_step, batch_size, learning_rate)
+        tmp_index = NNSimple(inputs, labels, is_gpu, weight, core, train_step, batch_size, learning_rate)
     else:
-        tmp_index = TrainedNN(model_path, str(model_key), inputs, labels, is_new, is_gpu, weight, core,
-                              train_step, batch_size, learning_rate, use_threshold, threshold, retrain_time_limit)
+        tmp_index = NN(model_path, str(model_key), inputs, labels, is_new, is_gpu, weight, core,
+                       train_step, batch_size, learning_rate, use_threshold, threshold, retrain_time_limit)
     tmp_index.train()
     abstract_index = AbstractNN(tmp_index.matrices, len(core) - 1,
                                 math.ceil(tmp_index.min_err),
@@ -1055,6 +1054,62 @@ class CurrentRange:
         self.number = number
         self.state = state
         # For compute
+
+
+class NN(MLP):
+    def __init__(self, model_path, model_key, train_x, train_y, is_new, is_gpu, weight, core, train_step, batch_size,
+                 learning_rate, use_threshold, threshold, retrain_time_limit):
+        self.name = "ZM Index NN"
+        # train_x的是有序的，归一化不需要计算最大最小值
+        train_x_min = train_x[0]
+        train_x_max = train_x[-1]
+        train_x = (np.array(train_x) - train_x_min) / (train_x_max - train_x_min) - 0.5
+        train_y_min = train_y[0]
+        train_y_max = train_y[-1]
+        train_y = (np.array(train_y) - train_y_min) / (train_y_max - self.train_y_min)
+        super().__init__(model_path, model_key, train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
+                         is_new, is_gpu, weight, core, train_step, batch_size, learning_rate, use_threshold, threshold,
+                         retrain_time_limit)
+
+    # 计算err的时候不考虑breakpoints
+    def get_err(self):
+        inputs = self.train_x[1:-1]
+        input_len = len(inputs)
+        if input_len:
+            pres = self.model(inputs).numpy().flatten()
+            pres[pres < 0] = 0
+            pres[pres > 1] = 1
+            errs = pres * (input_len - 1) - np.arange(input_len)
+            return errs.min(), errs.max()
+        else:
+            return 0.0, 0.0
+
+
+class NNSimple(MLPSimple):
+    def __init__(self, train_x, train_y, is_gpu, weight, core, train_step, batch_size, learning_rate):
+        self.name = "ZM Index NN"
+        # train_x的是有序的，归一化不需要计算最大最小值
+        train_x_min = train_x[0]
+        train_x_max = train_x[-1]
+        train_x = (np.array(train_x) - train_x_min) / (train_x_max - train_x_min) - 0.5
+        train_y_min = train_y[0]
+        train_y_max = train_y[-1]
+        train_y = (np.array(train_y) - train_y_min) / (train_y_max - self.train_y_min)
+        super().__init__(train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
+                         is_gpu, weight, core, train_step, batch_size, learning_rate)
+
+    # 计算err的时候不考虑breakpoints
+    def get_err(self):
+        inputs = self.train_x[1:-1]
+        input_len = len(inputs)
+        if input_len:
+            pres = self.model(inputs).numpy().flatten()
+            pres[pres < 0] = 0
+            pres[pres > 1] = 1
+            errs = pres * (input_len - 1) - np.arange(input_len)
+            return errs.min(), errs.max()
+        else:
+            return 0.0, 0.0
 
 
 class AbstractNN:

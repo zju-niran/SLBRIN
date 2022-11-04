@@ -6,17 +6,19 @@ import os
 import sys
 import time
 
+import line_profiler
 import numpy as np
 
 sys.path.append('/home/zju/wlj/st-learned-index')
+from src.mlp import MLP
+from src.mlp_simple import MLPSimple
 from src.spatial_index.common_utils import Region, biased_search, normalize_input_minmax, denormalize_output_minmax, \
-    sigmoid, binary_search_less_max, binary_search
+    binary_search_less_max, binary_search, relu, normalize_output, normalize_input
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
-from src.learned_model import TrainedNN
-from src.learned_model_simple import TrainedNN_Simple
-from src.experiment.common_utils import load_data, Distribution
+from src.experiment.common_utils import load_data, Distribution, data_region, data_precision
 
+# 预设pagesize=4096, read_ahead_pages=256, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
 RA_PAGES = 256
 PAGE_SIZE = 4096
 MODEL_SIZE = 2000
@@ -26,20 +28,28 @@ ITEMS_PER_RA = RA_PAGES * int(PAGE_SIZE / ITEM_SIZE)
 
 
 class ZMIndex(SpatialIndex):
-    def __init__(self, model_path=None, geohash=None, train_data_length=None, stage_length=0, rmi=None):
+    def __init__(self, model_path=None):
         super(ZMIndex, self).__init__("ZM Index")
-        self.geohash = geohash
-        self.train_data_length = train_data_length
-        self.stage_length = stage_length
-        self.rmi = rmi
-        self.geohash_index = None
-        self.update_index = None
+        self.geohash = None
+        self.stages = None
+        self.non_leaf_stage_len = 0
+        self.max_key = 0
+        self.rmi = None
         self.model_path = model_path
         logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
                             level=logging.INFO,
                             format="%(asctime)s - %(levelname)s - %(message)s",
                             datefmt="%Y/%m/%d %H:%M:%S %p")
         self.logging = logging.getLogger(self.name)
+        # 训练所需：
+        self.is_gpu = None
+        self.weight = None
+        self.cores = None
+        self.train_step = None
+        self.batch_num = None
+        self.learning_rate = None
+        # 统计所需：
+        self.io_cost = 0
 
     def build(self, data_list, is_sorted, data_precision, region, is_new, is_simple, is_gpu, weight,
               stages, cores, train_steps, batch_nums, learning_rates, use_thresholds, thresholds, retrain_time_limits,
@@ -49,134 +59,210 @@ class ZMIndex(SpatialIndex):
         1. ordering x/y point by geohash
         2. create rmi to train geohash->key data
         """
+        self.is_gpu = is_gpu
+        self.weight = weight
+        self.cores = cores[-1]
+        self.train_step = train_steps[-1]
+        self.batch_num = batch_nums[-1]
+        self.learning_rate = learning_rates[-1]
         model_hdf_dir = os.path.join(self.model_path, "hdf/")
         if os.path.exists(model_hdf_dir) is False:
             os.makedirs(model_hdf_dir)
         self.geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
-        self.stage_length = len(stages)
-        train_inputs = [[[] for j in range(stages[i])] for i in range(self.stage_length)]
-        train_labels = [[[] for j in range(stages[i])] for i in range(self.stage_length)]
-        self.rmi = [[None for j in range(stages[i])] for i in range(self.stage_length)]
-        self.update_index = [[] for j in range(stages[-1])]
+        self.stages = stages
+        stage_len = len(stages)
+        self.non_leaf_stage_len = stage_len - 1
+        train_inputs = [[[] for j in range(stages[i])] for i in range(stage_len)]
+        train_labels = [[[] for j in range(stages[i])] for i in range(stage_len)]
+        self.rmi = [None for i in range(stage_len)]
         # 1. ordering x/y point by geohash
+        data_len = len(data_list)
+        self.max_key = data_len
         if not is_sorted:
             data_list = [(data_list[i][0], data_list[i][1], self.geohash.encode(data_list[i][0], data_list[i][1]), i)
-                         for i in range(len(data_list))]
-            data_list = np.array(sorted(data_list, key=lambda x: x[2]),
-                                 dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')])
-        self.geohash_index = data_list
-        self.train_data_length = len(self.geohash_index) - 1
-        train_inputs[0][0] = [data[2] for data in data_list]
-        train_labels[0][0] = list(range(0, self.train_data_length + 1))
+                         for i in range(0, data_len)]
+            data_list = sorted(data_list, key=lambda x: x[2])
+        else:
+            data_list = data_list.tolist()
+        train_inputs[0][0] = data_list
+        train_labels[0][0] = list(range(0, data_len))
         # 2. create rmi to train geohash->key data
-        for i in range(self.stage_length):
+        for i in range(stage_len):
+            core = cores[i]
+            train_step = train_steps[i]
+            batch_num = batch_nums[i]
+            learning_rate = learning_rates[i]
+            use_threshold = use_thresholds[i]
+            threshold = thresholds[i]
+            retrain_time_limit = retrain_time_limits[i]
             pool = multiprocessing.Pool(processes=thread_pool_size)
             task_size = stages[i]
             mp_list = multiprocessing.Manager().list([None] * task_size)
-            for j in range(task_size):
-                # 2.1 create non-leaf node
-                if i < self.stage_length - 1:
-                    if train_labels[i][j] is None:
+            train_input = train_inputs[i]
+            train_label = train_labels[i]
+            # 2.1 create non-leaf node
+            if i < self.non_leaf_stage_len:
+                for j in range(task_size):
+                    if train_label[j] is None:
                         continue
                     else:
                         # build inputs
-                        inputs = train_inputs[i][j]
+                        inputs = [data[2] for data in train_input[j]]
                         # build labels
-                        divisor = stages[i + 1] * 1.0 / (self.train_data_length + 1)
-                        labels = [int(k * divisor) for k in train_labels[i][j]]
+                        divisor = stages[i + 1] * 1.0 / data_len
+                        labels = [int(k * divisor) for k in train_label[j]]
                         # train model
                         pool.apply_async(build_nn, (self.model_path, i, j, inputs, labels, is_new, is_simple, is_gpu,
-                                                    weight, cores[i], train_steps[i], batch_nums[i], learning_rates[i],
-                                                    use_thresholds[i], thresholds[i], retrain_time_limits[i], mp_list))
-                # 2.2 create leaf node
-                else:
-                    inputs = train_inputs[i][j]
-                    labels = train_labels[i][j]
-                    if labels is None or len(labels) == 0:
+                                                    weight, core, train_step, batch_num, learning_rate,
+                                                    use_threshold, threshold, retrain_time_limit, mp_list))
+                pool.close()
+                pool.join()
+                nodes = [Node(model, None, None) for model in mp_list]
+                for j in range(task_size):
+                    node = nodes[j]
+                    if node is None:
+                        continue
+                    else:
+                        # predict and build inputs and labels for next stage
+                        for ind in range(len(train_input[j])):
+                            # pick model in next stage with output of this model
+                            pre = int(node.model.predict(train_input[j][ind][2]))
+                            train_inputs[i + 1][pre].append(train_input[j][ind])
+                            train_labels[i + 1][pre].append(train_label[j][ind])
+                        # clear the data already used
+                        train_inputs[i] = None
+                        train_labels[i] = None
+            # 2.2 create leaf node
+            else:
+                for j in range(task_size):
+                    inputs = [data[2] for data in train_input[j]]
+                    labels = list(range(0, len(inputs)))
+                    if not labels:
                         continue
                     pool.apply_async(build_nn, (self.model_path, i, j, inputs, labels, is_new, is_simple, is_gpu,
-                                                weight, cores[i], train_steps[i], batch_nums[i], learning_rates[i],
-                                                use_thresholds[i], thresholds[i], retrain_time_limits[i], mp_list))
-            pool.close()
-            pool.join()
-            self.rmi[i] = [model for model in mp_list]
-            # 2.1 create non-leaf node
-            if i < self.stage_length - 1:
-                # predict and build inputs and labels for next stage
-                for ind in range(len(train_inputs[i][j])):
-                    # pick model in next stage with output of this model
-                    pre = int(self.rmi[i][j].predict(train_inputs[i][j][ind]))
-                    train_inputs[i + 1][pre].append(train_inputs[i][j][ind])
-                    train_labels[i + 1][pre].append(train_labels[i][j][ind])
-                # clear the data already used
-                train_inputs[i] = None
-                train_labels[i] = None
+                                                weight, core, train_step, batch_num, learning_rate,
+                                                use_threshold, threshold, retrain_time_limit, mp_list))
+                pool.close()
+                pool.join()
+                nodes = [Node(mp_list[j], train_input[j], []) for j in range(task_size)]
+            self.rmi[i] = nodes
+        self.io_cost = math.ceil(self.size()[0] / ITEMS_PER_RA)
 
     def insert_single(self, point):
         """
         1. compute geohash from x/y of point
         2. encode p to geohash and create index entry(x, y, geohash, pointer)
-        3. predict the leaf_model by rmi
+        3. predict the leaf_node by rmi
         4. insert ie into update index
         """
         # 1. compute geohash from x/y of point
         gh = self.geohash.encode(point[0], point[1])
         # 2. encode p to geohash and create index entry(x, y, geohash, pointer)
-        point.insert(-1, gh)
-        # 3. predict the leaf_model by rmi
-        leaf_model_key = 0
-        for i in range(0, self.stage_length - 1):
-            leaf_model_key = int(self.rmi[i][leaf_model_key].predict(gh))
+        point = (point[0], point[1], gh, point[2])
+        # 3. predict the leaf_node by rmi
+        node_key = 0
+        for i in range(0, self.non_leaf_stage_len):
+            node_key = int(self.rmi[i][node_key].model.predict(gh))
         # 4. insert ie into update index
-        update_leaf_model = self.update_index[leaf_model_key]
-        update_leaf_model.insert(binary_search_less_max(update_leaf_model, 2, gh, 0, len(update_leaf_model) - 1) + 1,
-                                 point)
+        leaf_node = self.rmi[-1][node_key]
+        leaf_node.delta_index.insert(
+            binary_search_less_max(leaf_node.index, 2, gh, 0, len(leaf_node.index) - 1) + 1, point)
 
     def insert(self, points):
         points = points.tolist()
         for point in points:
             self.insert_single(point)
-        # 重训练RMI
-        print("")
+
+    def fun(self, l1, l2):
+        len1 = len(l1)
+        len2 = len(l2)
+        res = [None] * (len1 + len2)
+        cur = 0
+        x = 0
+        y = 0
+        while x < len1 and y < len2:
+            if l1[x][2] <= l2[y][2]:
+                res[cur] = l1[x]
+                x += 1
+            else:
+                res[cur] = l2[y]
+                y += 1
+            cur += 1
+        while y < len2:
+            res[cur] = l2[y]
+            y += 1
+            cur += 1
+        while x < len1:
+            res[cur] = l1[x]
+            x += 1
+            cur += 1
+
+    def update(self):
+        leaf_nodes = self.rmi[-1]
+        for j in range(0, self.stages[-1]):
+            leaf_node = leaf_nodes[j]
+            if leaf_node.delta_index:
+                # 1. merge delta index into index
+                if leaf_node.index:
+                    res = self.fun(leaf_node.index, leaf_node.delta_index)
+                    leaf_node.index.extend(leaf_node.delta_index)
+                    leaf_node.index.sort(key=lambda x: x[2])  # 待优化
+                else:
+                    leaf_node.index = leaf_node.delta_index
+                # 2. retrain model
+                inputs = [data[2] for data in leaf_node.index]
+                inputs_num = len(inputs)
+                labels = list(range(0, inputs_num))
+                batch_size = 2 ** math.ceil(math.log(inputs_num / self.batch_num, 2))
+                if batch_size < 1:
+                    batch_size = 1
+                model_key = "retrain_%s" % j
+                tmp_index = NN(self.model_path, model_key, inputs, labels, True, self.is_gpu, self.weight,
+                               self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
+                tmp_index.train_simple(leaf_node.model.matrices if leaf_node.model else None)
+                leaf_node.model = AbstractNN(tmp_index.get_matrices(), self.cores,
+                                             int(tmp_index.train_x_min), int(tmp_index.train_x_max),
+                                             0, inputs_num - 1,  # update the range of output
+                                             math.ceil(tmp_index.min_err), math.ceil(tmp_index.max_err))
+                self.logging.info("retrain leaf model %s" % model_key)
 
     def predict(self, key):
         """
         predict key from key
-        1. predict the leaf_model by rmi
+        1. predict the leaf_node by rmi
         2. return the less max key when leaf model is None
-        3. predict the key by leaf_model
+        3. predict the key by leaf_node
         :param key: float
-        :return: the key predicted by rmi, min_err and max_err of leaf_model
+        :return: leaf node, the key predicted by rmi, left and right err bounds
         """
-        # 1. predict the leaf_model by rmi
-        leaf_model_key = 0
-        for i in range(0, self.stage_length - 1):
-            leaf_model_key = int(self.rmi[i][leaf_model_key].predict(key))
+        # 1. predict the leaf_node by rmi
+        node_key = 0
+        for i in range(0, self.non_leaf_stage_len):
+            node_key = int(self.rmi[i][node_key].model.predict(key))
         # 2. return the less max key when leaf model is None
-        leaf_model = self.rmi[-1][leaf_model_key]
-        if leaf_model is None:
-            while self.rmi[-1][leaf_model_key] is None:
-                if leaf_model_key < 0:
-                    return leaf_model_key, 0, 0, 0
-                else:
-                    leaf_model_key -= 1
-            return leaf_model_key, self.rmi[-1][leaf_model_key].output_max, 0, 0
-        # 3. predict the key by leaf_model
-        pre = int(leaf_model.predict(key))
-        return leaf_model_key, pre, leaf_model.min_err, leaf_model.max_err
+        leaf_node = self.rmi[-1][node_key]
+        if leaf_node.model is None:
+            while self.rmi[-1][node_key].model is None:
+                node_key -= 1
+                if node_key <= 0:
+                    break
+            return self.rmi[-1][node_key], node_key, self.rmi[-1][node_key].model.output_max, 0, 0
+        # 3. predict the key by leaf_node
+        pre = int(leaf_node.model.predict(key))
+        return leaf_node, node_key, pre, leaf_node.model.min_err, leaf_node.model.max_err
 
-    def weight(self, key):
+    def get_weight(self, key):
         """
         calculate weight from key
         uniform分布的斜率理论上为1，密集分布则大于1，稀疏分布则小于1
         """
-        leaf_model_key = 0
-        for i in range(0, self.stage_length - 1):
-            leaf_model_key = int(self.rmi[i][leaf_model_key].predict(key))
-        leaf_model = self.rmi[-1][leaf_model_key]
+        node_key = 0
+        for i in range(0, self.non_leaf_stage_len):
+            node_key = int(self.rmi[i][node_key].model.predict(key))
+        leaf_model = self.rmi[-1][node_key].model
         if leaf_model is None:
             return 1
-        return leaf_model.weight(key)
+        return leaf_model.get_weight(key)
 
     def point_query_single(self, point):
         """
@@ -188,16 +274,18 @@ class ZMIndex(SpatialIndex):
         # 1. compute geohash from x/y of point
         gh = self.geohash.encode(point[0], point[1])
         # 2. predict by geohash and create key scope [pre - min_err, pre + max_err]
-        leaf_model_key, pre, min_err, max_err = self.predict(gh)
+        leaf_node, _, pre, min_err, max_err = self.predict(gh)
         l_bound = max(pre - max_err, 0)
-        r_bound = min(pre - min_err, self.train_data_length)
+        r_bound = min(pre - min_err, leaf_node.model.output_max)
         # 3. binary search in scope
-        geohash_keys = biased_search(self.geohash_index, 2, gh, pre, l_bound, r_bound)
-        result = [self.geohash_index[key][3] for key in geohash_keys]
+        result = [leaf_node.index[key][3] for key in biased_search(leaf_node.index, 2, gh, pre, l_bound, r_bound)]
+        self.io_cost += math.ceil((r_bound - l_bound) / ITEMS_PER_RA)
         # 4. filter in update index
-        leaf_model = self.update_index[leaf_model_key]
-        update_geohash_keys = binary_search(leaf_model, 2, gh, 0, len(leaf_model) - 1)
-        result.extend([leaf_model[key][3] for key in update_geohash_keys])
+        if leaf_node.delta_index:
+            delta_index_len = len(leaf_node.delta_index)
+            result.extend([leaf_node.dalta_index[key][3]
+                           for key in binary_search(leaf_node.dalta_index, 2, gh, 0, len(leaf_node.dalta_index) - 1)])
+            self.io_cost += delta_index_len // ITEMS_PER_RA + 1
         return result
 
     def range_query_single(self, window):
@@ -213,45 +301,78 @@ class ZMIndex(SpatialIndex):
         gh2 = self.geohash.encode(window[3], window[1])
         # 2. find key_left by point query
         # if point not found, key_left = pre - min_err
-        leaf_model_key1, pre1, min_err1, max_err1 = self.predict(gh1)
+        leaf_node1, leaf_key1, pre1, min_err1, max_err1 = self.predict(gh1)
         l_bound1 = max(pre1 - max_err1, 0)
-        r_bound1 = min(pre1 - min_err1, self.train_data_length)
-        key_left = biased_search(self.geohash_index, 2, gh1, pre1, l_bound1, r_bound1)
+        r_bound1 = min(pre1 - min_err1, leaf_node1.model.output_max)
+        key_left = biased_search(leaf_node1.index, 2, gh1, pre1, l_bound1, r_bound1)
         key_left = l_bound1 if len(key_left) == 0 else min(key_left)
         # 3. find key_right by point query
         # if point not found, key_right = pre - max_err
-        leaf_model_key2, pre2, min_err2, max_err2 = self.predict(gh2)
+        leaf_node2, leaf_key2, pre2, min_err2, max_err2 = self.predict(gh2)
         l_bound2 = max(pre2 - max_err2, 0)
-        r_bound2 = min(pre2 - min_err2, self.train_data_length)
-        key_right = biased_search(self.geohash_index, 2, gh2, pre2, l_bound2, r_bound2)
+        r_bound2 = min(pre2 - min_err2, leaf_node2.model.output_max)
+        key_right = biased_search(leaf_node2.index, 2, gh2, pre2, l_bound2, r_bound2)
         key_right = r_bound2 if len(key_right) == 0 else max(key_right)
         # 4. filter all the point of scope[key1, key2] by range(x1/y1/x2/y2).contain(point)
-        result = [ie[3] for ie in self.geohash_index[key_left:key_right + 1]
-                  if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
         # 5. filter in update index
-        l_leaf_model = self.update_index[leaf_model_key1]
-        l_leaf_model_num = len(l_leaf_model)
-        update_l_bound = binary_search_less_max(l_leaf_model, 2, gh1, 0, l_leaf_model_num - 1)
-        if leaf_model_key1 == leaf_model_key2:
-            if l_leaf_model:
-                update_r_bound = binary_search_less_max(l_leaf_model, 2, gh2, update_l_bound, l_leaf_model_num - 1)
+        if leaf_key1 == leaf_key2:
+            # filter index
+            result = [ie[3] for ie in leaf_node1.index[key_left:key_right + 1]
+                      if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
+            self.io_cost += math.ceil((r_bound2 - l_bound1) / ITEMS_PER_RA)
+            # filter delta index
+            delta_index = leaf_node1.delta_index
+            if delta_index:
+                delta_index_len = len(delta_index)
+                key_left = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
+                key_right = binary_search_less_max(delta_index, 2, gh2, key_left, delta_index_len - 1)
                 result.extend([ie[3]
-                               for ie in l_leaf_model[update_l_bound:update_r_bound + 1]
+                               for ie in delta_index[key_left:key_right + 1]
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                self.io_cost += math.ceil(delta_index_len / ITEMS_PER_RA)
         else:
+            # filter index
+            io_index_len = len(leaf_node1.index) + r_bound2 - l_bound1
+            result = [ie[3]
+                      for ie in leaf_node1.index[key_left:]
+                      if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
+            if leaf_key2 - leaf_key1 > 1:
+                result.extend([ie[3]
+                               for leaf_key in range(leaf_key1 + 1, leaf_key2)
+                               for ie in self.rmi[-1][leaf_key].index
+                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                for leaf_key in range(leaf_key1 + 1, leaf_key2):
+                    io_index_len += len(self.rmi[-1][leaf_key].index)
             result.extend([ie[3]
-                           for ie in l_leaf_model[update_l_bound:]
+                           for ie in leaf_node2.index[:key_right + 1]
                            if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-            result.extend([ie[3]
-                           for leaf_model in self.update_index[leaf_model_key1 + 1:leaf_model_key2]
-                           for ie in leaf_model
-                           if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-            r_leaf_model = self.update_index[leaf_model_key2]
-            r_leaf_model_num = len(r_leaf_model)
-            update_r_bound = binary_search_less_max(r_leaf_model, 2, gh2, 0, r_leaf_model_num - 1)
-            result.extend([ie[3]
-                           for ie in r_leaf_model[:update_r_bound + 1]
-                           if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+            self.io_cost += math.ceil(io_index_len / ITEMS_PER_RA)
+            # filter delta index
+            delta_index = leaf_node1.delta_index
+            io_index_len = 0
+            if delta_index:
+                delta_index_len = len(delta_index)
+                io_index_len += delta_index_len
+                key_left = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
+                result.extend([ie[3]
+                               for ie in delta_index[key_left:]
+                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+            if leaf_key2 - leaf_key1 > 1:
+                result.extend([ie[3]
+                               for leaf_key in range(leaf_key1 + 1, leaf_key2)
+                               for ie in self.rmi[-1][leaf_key].delta_index
+                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                for leaf_key in range(leaf_key1 + 1, leaf_key2):
+                    io_index_len += len(self.rmi[-1][leaf_key].delta_index)
+            delta_index = leaf_node2.delta_index
+            if delta_index:
+                delta_index_len = len(delta_index)
+                io_index_len += delta_index_len
+                key_right = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
+                result.extend([ie[3]
+                               for ie in delta_index[:key_right + 1]
+                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+            self.io_cost += math.ceil(io_index_len / ITEMS_PER_RA)
         return result
 
     def knn_query_single(self, knn):
@@ -263,97 +384,84 @@ class ZMIndex(SpatialIndex):
         """
         # 1. init window by weight on CDF(key)
         x, y, k = knn
-        w = self.weight(self.geohash.encode(x, y))
+        w = self.get_weight(self.geohash.encode(x, y))
         if w > 0:
-            window_ratio = (k / (self.train_data_length + 1)) ** 0.5 / w
+            window_ratio = (k / self.max_key) ** 0.5 / w
         else:
-            window_ratio = (k / (self.train_data_length + 1)) ** 0.5
+            window_ratio = (k / self.max_key) ** 0.5
         window_radius = window_ratio * self.geohash.region_width / 2
         tp_list = []
         old_window = None
         while True:
             window = [y - window_radius, y + window_radius, x - window_radius, x + window_radius]
-            # 处理超出边界的情况
+            # limit window within region
             self.geohash.region.clip_region(window, self.geohash.data_precision)
             # 2. iter: query target points by range query
             gh1 = self.geohash.encode(window[2], window[0])
             gh2 = self.geohash.encode(window[3], window[1])
-            leaf_model_key1, pre1, min_err1, max_err1 = self.predict(gh1)
+            leaf_node1, leaf_key1, pre1, min_err1, max_err1 = self.predict(gh1)
             l_bound1 = max(pre1 - max_err1, 0)
-            r_bound1 = min(pre1 - min_err1, self.train_data_length)
-            key_left = biased_search(self.geohash_index, 2, gh1, pre1, l_bound1, r_bound1)
+            r_bound1 = min(pre1 - min_err1, leaf_node1.model.output_max)
+            key_left = biased_search(leaf_node1.index, 2, gh1, pre1, l_bound1, r_bound1)
             key_left = l_bound1 if len(key_left) == 0 else min(key_left)
-            leaf_model_key2, pre2, min_err2, max_err2 = self.predict(gh2)
+            leaf_node2, leaf_key2, pre2, min_err2, max_err2 = self.predict(gh1)
             l_bound2 = max(pre2 - max_err2, 0)
-            r_bound2 = min(pre2 - min_err2, self.train_data_length)
-            key_right = biased_search(self.geohash_index, 2, gh2, pre2, l_bound2, r_bound2)
+            r_bound2 = min(pre2 - min_err2, leaf_node2.model.output_max)
+            key_right = biased_search(leaf_node2.index, 2, gh2, pre2, l_bound2, r_bound2)
             key_right = r_bound2 if len(key_right) == 0 else max(key_right)
             if old_window:
-                tmp_tp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                               for ie in self.geohash_index[key_left:key_right + 1]
-                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3] and
-                               not (old_window[0] <= ie[1] <= old_window[1] and
-                                    old_window[2] <= ie[0] <= old_window[3])]
-                l_leaf_model = self.update_index[leaf_model_key1]
-                l_leaf_model_num = len(l_leaf_model)
-                update_l_bound = binary_search_less_max(l_leaf_model, 2, gh1, 0, l_leaf_model_num - 1)
-                if leaf_model_key1 == leaf_model_key2:
-                    if l_leaf_model:
-                        update_r_bound = binary_search_less_max(l_leaf_model, 2, gh2, update_l_bound,
-                                                                l_leaf_model_num - 1)
-                        tmp_tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                                            for ie in l_leaf_model[update_l_bound:update_r_bound + 1]
-                                            if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3] and
-                                            not (old_window[0] <= ie[1] <= old_window[1] and
-                                                 old_window[2] <= ie[0] <= old_window[3])])
-                else:
-                    tmp_tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                                        for ie in l_leaf_model[update_l_bound:]
-                                        if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3] and
-                                        not (old_window[0] <= ie[1] <= old_window[1] and
-                                             old_window[2] <= ie[0] <= old_window[3])])
-                    tmp_tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                                        for leaf_model in self.update_index[leaf_model_key1 + 1:leaf_model_key2]
-                                        for ie in leaf_model
-                                        if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3] and
-                                        not (old_window[0] <= ie[1] <= old_window[1] and
-                                             old_window[2] <= ie[0] <= old_window[3])])
-                    r_leaf_model = self.update_index[leaf_model_key2]
-                    r_leaf_model_num = len(r_leaf_model)
-                    update_r_bound = binary_search_less_max(r_leaf_model, 2, gh2, 0, r_leaf_model_num - 1)
-                    tmp_tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                                        for ie in r_leaf_model[:update_r_bound + 1]
-                                        if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3] and
-                                        not (old_window[0] <= ie[1] <= old_window[1] and
-                                             old_window[2] <= ie[0] <= old_window[3])])
+                filter_lambda = lambda ie: window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3] and not (
+                        old_window[0] <= ie[1] <= old_window[1] and old_window[2] <= ie[0] <= old_window[3])
             else:
+                filter_lambda = lambda ie: window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]
+            if leaf_key1 == leaf_key2:
                 tmp_tp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                               for ie in self.geohash_index[key_left:key_right + 1]
-                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
-                l_leaf_model = self.update_index[leaf_model_key1]
-                l_leaf_model_num = len(l_leaf_model)
-                update_l_bound = binary_search_less_max(l_leaf_model, 2, gh1, 0, l_leaf_model_num - 1)
-                if leaf_model_key1 == leaf_model_key2:
-                    if l_leaf_model:
-                        update_r_bound = binary_search_less_max(l_leaf_model, 2, gh2, update_l_bound,
-                                                                l_leaf_model_num - 1)
-                        tmp_tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                                            for ie in l_leaf_model[update_l_bound:update_r_bound + 1]
-                                            if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-                else:
+                               for ie in leaf_node1.index[key_left:key_right + 1] if filter_lambda(ie)]
+                self.io_cost += math.ceil((r_bound2 - l_bound1) / ITEMS_PER_RA)
+                delta_index = leaf_node1.delta_index
+                if delta_index:
+                    delta_index_len = len(delta_index)
+                    key_left = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
+                    key_right = binary_search_less_max(delta_index, 2, gh2, key_left, delta_index_len - 1)
                     tmp_tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                                        for ie in l_leaf_model[update_l_bound:]
-                                        if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-                    tmp_tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                                        for leaf_model in self.update_index[leaf_model_key1 + 1:leaf_model_key2]
-                                        for ie in leaf_model
-                                        if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-                    r_leaf_model = self.update_index[leaf_model_key2]
-                    r_leaf_model_num = len(r_leaf_model)
-                    update_r_bound = binary_search_less_max(r_leaf_model, 2, gh2, 0, r_leaf_model_num - 1)
-                    tmp_tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                                        for ie in r_leaf_model[:update_r_bound + 1]
-                                        if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                                        for ie in delta_index[key_left:key_right + 1] if filter_lambda(ie)])
+                    self.io_cost += math.ceil(delta_index_len / ITEMS_PER_RA)
+            else:
+                io_index_len = len(leaf_node1.index) + r_bound2 - l_bound1
+                result = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                          for ie in leaf_node1.index[key_left:] if filter_lambda(ie)]
+                if leaf_key2 - leaf_key1 > 1:
+                    result.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                                   for leaf_key in range(leaf_key1 + 1, leaf_key2)
+                                   for ie in self.rmi[-1][leaf_key].index if filter_lambda(ie)])
+                    for leaf_key in range(leaf_key1 + 1, leaf_key2):
+                        io_index_len += len(self.rmi[-1][leaf_key].index)
+                result.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                               for ie in leaf_node2.index[:key_right + 1] if filter_lambda(ie)])
+                self.io_cost += math.ceil(io_index_len / ITEMS_PER_RA)
+                # filter delta index
+                delta_index = leaf_node1.delta_index
+                io_index_len = 0
+                if delta_index:
+                    delta_index_len = len(delta_index)
+                    io_index_len += delta_index_len
+                    key_left = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
+                    result.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                                   for ie in delta_index[key_left:] if filter_lambda(ie)])
+                if leaf_key2 - leaf_key1 > 1:
+                    result.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                                   for leaf_key in range(leaf_key1 + 1, leaf_key2)
+                                   for ie in self.rmi[-1][leaf_key].delta_index if filter_lambda(ie)])
+                    for leaf_key in range(leaf_key1 + 1, leaf_key2):
+                        io_index_len += len(self.rmi[-1][leaf_key].delta_index)
+                delta_index = leaf_node2.delta_index
+                if delta_index:
+                    delta_index_len = len(delta_index)
+                    io_index_len += delta_index_len
+                    key_right = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
+                    result.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                                   for ie in delta_index[:key_right + 1] if filter_lambda(ie)])
+                    self.io_cost += math.ceil(io_index_len / ITEMS_PER_RA)
             tp_list.extend(tmp_tp_list)
             old_window = window
             # 3. if target points is not enough, set window = 2 * window
@@ -376,109 +484,141 @@ class ZMIndex(SpatialIndex):
         zmin_meta = np.array((self.geohash.data_precision,
                               self.geohash.region.bottom, self.geohash.region.up,
                               self.geohash.region.left, self.geohash.region.right,
-                              self.stage_length, self.train_data_length),
+                              self.is_gpu, self.weight, self.train_step, self.batch_num, self.learning_rate),
                              dtype=[("0", 'i4'),
                                     ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8'),
-                                    ("5", 'i4'), ("6", 'i4')])
-        np.save(os.path.join(self.model_path, 'zmin_meta.npy'), zmin_meta)
-        rmi_list = []
+                                    ("5", 'i1'), ("6", 'f4'), ("7", 'i2'), ("8", 'i2'), ("9", 'f4')])
+        np.save(os.path.join(self.model_path, 'meta.npy'), zmin_meta)
+        np.save(os.path.join(self.model_path, 'stages.npy'), self.stages)
+        np.save(os.path.join(self.model_path, 'cores.npy'), self.cores)
+        models = []
         for stage in self.rmi:
-            rmi_list.extend(stage)
-        np.save(os.path.join(self.model_path, 'zmin_rmi.npy'), rmi_list)
-        np.save(os.path.join(self.model_path, 'geohash_index.npy'), self.geohash_index)
-        np.save(os.path.join(self.model_path, 'update_index.npy'), self.update_index)
+            models.extend([node.model for node in stage])
+        np.save(os.path.join(self.model_path, 'models.npy'), models)
+        indexes = []
+        index_lens = []
+        delta_indexes = []
+        delta_index_lens = []
+        for node in self.rmi[-1]:
+            indexes.extend(node.index)
+            index_lens.append(len(node.index))
+            delta_indexes.extend(node.delta_index)
+            delta_index_lens.append(len(node.delta_index))
+        np.save(os.path.join(self.model_path, 'indexes.npy'),
+                np.array(indexes, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')]))
+        np.save(os.path.join(self.model_path, 'index_lens.npy'), index_lens)
+        np.save(os.path.join(self.model_path, 'delta_indexes.npy'),
+                np.array(delta_indexes, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')]))
+        np.save(os.path.join(self.model_path, 'delta_index_lens.npy'), delta_index_lens)
 
     def load(self):
-        zmin_meta = np.load(os.path.join(self.model_path, 'zmin_meta.npy'), allow_pickle=True).item()
-        region = Region(zmin_meta[1], zmin_meta[2], zmin_meta[3], zmin_meta[4])
-        self.geohash = Geohash.init_by_precision(data_precision=zmin_meta[0], region=region)
-        self.stage_length = zmin_meta[5]
-        self.train_data_length = zmin_meta[6]
-        geohash_index = np.load(os.path.join(self.model_path, 'geohash_index.npy'), allow_pickle=True)
-        self.geohash_index = geohash_index
-        zmin_rmi = np.load(os.path.join(self.model_path, 'zmin_rmi.npy'), allow_pickle=True)
+        meta = np.load(os.path.join(self.model_path, 'meta.npy'), allow_pickle=True).item()
+        region = Region(meta[1], meta[2], meta[3], meta[4])
+        self.geohash = Geohash.init_by_precision(data_precision=meta[0], region=region)
+        self.stages = np.load(os.path.join(self.model_path, 'stages.npy'), allow_pickle=True).tolist()
+        self.non_leaf_stage_len = len(self.stages) - 1
+        self.cores = np.load(os.path.join(self.model_path, 'cores.npy'), allow_pickle=True).tolist()
+        self.is_gpu = bool(meta[5])
+        self.weight = meta[6]
+        self.train_step = meta[7]
+        self.batch_num = meta[8]
+        self.learning_rate = meta[9]
+        models = np.load(os.path.join(self.model_path, 'models.npy'), allow_pickle=True)
+        indexes = np.load(os.path.join(self.model_path, 'indexes.npy'), allow_pickle=True).tolist()
+        index_lens = np.load(os.path.join(self.model_path, 'index_lens.npy'), allow_pickle=True).tolist()
+        delta_indexes = np.load(os.path.join(self.model_path, 'delta_indexes.npy'), allow_pickle=True).tolist()
+        delta_index_lens = np.load(os.path.join(self.model_path, 'delta_index_lens.npy'), allow_pickle=True).tolist()
+        self.max_key = len(indexes)
+        model_cur = 0
         self.rmi = []
-        self.rmi.append([zmin_rmi[0]])
-        self.rmi.append(zmin_rmi[1:].tolist())
-        update_index = np.load(os.path.join(self.model_path, 'update_index.npy'), allow_pickle=True)
-        self.update_index = update_index if update_index.size > 0 else [[] for j in range(len(zmin_rmi[1:]))]
+        for i in range(len(self.stages)):
+            if i < self.non_leaf_stage_len:
+                self.rmi.append([Node(model, None, None) for model in models[model_cur:model_cur + self.stages[i]]])
+                model_cur += self.stages[i]
+            else:
+                index_cur = 0
+                delta_index_cur = 0
+                leaf_nodes = []
+                for j in range(self.stages[i]):
+                    leaf_nodes.append(Node(models[model_cur],
+                                           indexes[index_cur:index_cur + index_lens[j]],
+                                           delta_indexes[delta_index_cur:delta_index_cur + delta_index_lens[j]]))
+                    model_cur += 1
+                    index_cur += index_lens[j]
+                    delta_index_cur += delta_index_lens[j]
+                self.rmi.append(leaf_nodes)
+        self.io_cost = math.ceil(self.size()[0] / ITEMS_PER_RA)
 
     def size(self):
         """
-        structure_size = zmin_rmi.npy + zmin_meta.npy
-        ie_size = geohash_index.npy + update_index.npy
+        structure_size = meta.npy + stages.npy + cores.npy + models.npy
+        ie_size = index_lens.npy + indexes.npy + delta_index_lens.npy + delta_indexes.npy
         """
-        # 实际上：
-        # meta=os.path.getsize(os.path.join(self.model_path, "zmin_meta.npy"))-128-64=4*3+8*4=44
-        # 理论上：
-        # meta只存geohash_length/stage_length/train_data_length=4*3=12
-        return os.path.getsize(os.path.join(self.model_path, "zmin_rmi.npy")) - 128 + \
-               12, \
-               os.path.getsize(os.path.join(self.model_path, "geohash_index.npy")) - 128 + \
-               os.path.getsize(os.path.join(self.model_path, "update_index.npy")) - 128
+        return os.path.getsize(os.path.join(self.model_path, "meta.npy")) - 128 - 64 * 2 + \
+               os.path.getsize(os.path.join(self.model_path, "stages.npy")) - 128 + \
+               os.path.getsize(os.path.join(self.model_path, "cores.npy")) - 128 + \
+               os.path.getsize(os.path.join(self.model_path, "models.npy")) - 128, \
+               os.path.getsize(os.path.join(self.model_path, "index_lens.npy")) - 128 + \
+               os.path.getsize(os.path.join(self.model_path, "indexes.npy")) - 128 + \
+               os.path.getsize(os.path.join(self.model_path, "delta_index_lens.npy")) - 128 + \
+               os.path.getsize(os.path.join(self.model_path, "delta_indexes.npy")) - 128
 
-    def io(self):
+    def get_io_cost(self):
         """
         假设查询条件和数据分布一致，io=获取meta的io+获取stage1 node的io+获取stage2 node的io+获取data的io+获取update data的io
         一次read_ahead可以拿512个node，因此前面511个stage2 node的io是1，后面统一为2
         data io由model误差范围决定，update data io由model update部分的数据量决定
         先计算单个node的node io和data io，然后乘以node的数据量，最后除以总数据量，来计算整体的平均io
         """
-        if self.stage_length <= 1:
-            # io when load data
-            model = self.rmi[0][0]
-            data_io = math.ceil((model.max_err - model.min_err) / ITEMS_PER_RA)
-            # io when load update data
-            model = self.update_index[0]
-            update_data_io = math.ceil(len(model) / ITEMS_PER_RA)
-            return data_io + update_data_io
+        stage2_model_num = len(
+            [node.model for node in self.rmi[-1] if node.model]) if self.non_leaf_stage_len > 0 else 0
+        # io when load node
+        if stage2_model_num + 1 < MODELS_PER_RA:
+            model_io_list = [1] * stage2_model_num
         else:
-            stage2_model_num = len([model for model in self.rmi[1] if model]) if self.stage_length > 1 else 0
-            # io when load node
-            if stage2_model_num + 1 < MODELS_PER_RA:
-                model_io_list = [1] * stage2_model_num
-            else:
-                model_io_list = [1] * (MODELS_PER_RA - 1)
-                model_io_list.extend([2] * (stage2_model_num + 1 - MODELS_PER_RA))
-            # io when load data
-            data_io_list = [math.ceil((model.max_err - model.min_err) / ITEMS_PER_RA) for model in self.rmi[1] if model]
-            # compute avg io: data io + node io
-            data_num_list = [model.output_max - model.output_min + 1 for model in self.rmi[1] if model]
-            data_node_io_list = [(model_io_list[i] + data_io_list[i]) * data_num_list[i] for i in
-                                 range(stage2_model_num)]
-            data_io = sum(data_node_io_list) / sum(data_num_list)
-            # io when load update data
-            update_data_num = sum([len(model) for model in self.update_index])
-            update_data_io_list = [math.ceil(len(model) / ITEMS_PER_RA) * len(model) for model in self.update_index]
-            update_data_io = sum(update_data_io_list) / update_data_num if update_data_num else 0
-            return data_io + update_data_io
+            model_io_list = [1] * (MODELS_PER_RA - 1)
+            model_io_list.extend([2] * (stage2_model_num + 1 - MODELS_PER_RA))
+        # io when load data
+        data_io_list = [math.ceil((node.model.max_err - node.model.min_err) / ITEMS_PER_RA) for node in self.rmi[-1] if
+                        node.model]
+        # compute avg io: data io + node io
+        data_num_list = [node.model.output_max - node.model.output_min + 1 for node in self.rmi[-1] if node.model]
+        data_node_io_list = [(model_io_list[i] + data_io_list[i]) * data_num_list[i] for i in
+                             range(stage2_model_num)]
+        data_io = sum(data_node_io_list) / sum(data_num_list)
+        # io when load update data
+        update_data_num = sum([len(node.delta_index) for node in self.rmi[-1]])
+        update_data_io_list = [math.ceil(len(node.delta_index) / ITEMS_PER_RA) * len(node.delta_index) for node in
+                               self.rmi[-1]]
+        update_data_io = sum(update_data_io_list) / update_data_num if update_data_num else 0
+        return data_io + update_data_io
 
     def model_clear(self):
         """
-        清除非最小误差的model
+        clear the models which are not the best
         """
-        for i in range(self.stage_length):
+        for i in range(0, self.non_leaf_stage_len + 1):
             for j in range(len(self.rmi[i])):
                 model_key = "%s_%s" % (i, j)
-                tmp_index = TrainedNN(self.model_path, model_key, None, None, None, None, None,
-                                      None, None, None, None, None, None, None)
+                tmp_index = NN(self.model_path, model_key,
+                               None, None, None, None, None, None, None, None, None, None, None, None)
                 tmp_index.clean_not_best_model_file()
 
 
 def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new, is_simple, is_gpu,
              weight, core, train_step, batch_num, learning_rate,
              use_threshold, threshold, retrain_time_limit, mp_list=None):
-    # stage1由于是全部数据输入，batch_size会太大，导致tensor变量初始化所需GPU内存超出
+    # In high stage, the data is too large to overflow in cpu/gpu, so adapt the batch_size normally by inputs
     batch_size = 2 ** math.ceil(math.log(len(inputs) / batch_num, 2))
     if batch_size < 1:
         batch_size = 1
     if is_simple:
-        tmp_index = TrainedNN_Simple(inputs, labels, is_gpu, weight, core, train_step, batch_size, learning_rate)
+        tmp_index = NNSimple(inputs, labels, is_gpu, weight, core, train_step, batch_size, learning_rate)
     else:
         model_key = "%s_%s" % (curr_stage, current_stage_step)
-        tmp_index = TrainedNN(model_path, model_key, inputs, labels, is_new, is_gpu,
-                              weight, core, train_step, batch_size, learning_rate,
-                              use_threshold, threshold, retrain_time_limit)
+        tmp_index = NN(model_path, model_key, inputs, labels, is_new, is_gpu,
+                       weight, core, train_step, batch_size, learning_rate,
+                       use_threshold, threshold, retrain_time_limit)
     tmp_index.train()
     abstract_index = AbstractNN(tmp_index.get_matrices(), core,
                                 int(tmp_index.train_x_min), int(tmp_index.train_x_max),
@@ -487,6 +627,30 @@ def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new,
     del tmp_index
     gc.collect(generation=0)
     mp_list[current_stage_step] = abstract_index
+
+
+class NN(MLP):
+    def __init__(self, model_path, model_key, train_x, train_y, is_new, is_gpu, weight, core, train_step, batch_size,
+                 learning_rate, use_threshold, threshold, retrain_time_limit):
+        self.name = "ZM Index NN"
+        # 当只有一个输入输出时，整数的key作为y_true会导致loss中y_true-y_pred出现类型错误：
+        # TypeError: Input 'y' of 'Sub' Op has type float32 that does not match type int32 of argument 'x'.
+        train_x, train_x_min, train_x_max = normalize_input(np.array(train_x).astype("float"))
+        train_y, train_y_min, train_y_max = normalize_output(np.array(train_y).astype("float"))
+        super().__init__(model_path, model_key, train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
+                         is_new, is_gpu, weight, core, train_step, batch_size, learning_rate, use_threshold, threshold,
+                         retrain_time_limit)
+
+
+class NNSimple(MLPSimple):
+    def __init__(self, train_x, train_y, is_gpu, weight, core, train_step, batch_size, learning_rate):
+        self.name = "ZM Index NN"
+        # 当只有一个输入输出时，整数的key作为y_true会导致loss中y_true-y_pred出现类型错误：
+        # TypeError: Input 'y' of 'Sub' Op has type float32 that does not match type int32 of argument 'x'.
+        train_x, train_x_min, train_x_max = normalize_input(np.array(train_x).astype("float"))
+        train_y, train_y_min, train_y_max = normalize_output(np.array(train_y).astype("float"))
+        super().__init__(train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
+                         is_gpu, weight, core, train_step, batch_size, learning_rate)
 
 
 class AbstractNN:
@@ -542,10 +706,12 @@ def main():
         # meta+stage0 node存一个page，stage2 node需要22/2=11个page，data需要10w/146=685page
         # 单次扫描IO=读取meta+读取每个stage的rmi+读取叶stage对应geohash数据=1+11/512+10w/37376
         # 索引体积为geohash索引+rmi+meta
+        data_distribution = Distribution.NYCT_10W_SORTED
+        build_data_list = load_data(data_distribution, 0)
         index.build(data_list=build_data_list,
                     is_sorted=True,
-                    data_precision=6,
-                    region=Region(40, 42, -75, -73),
+                    data_precision=data_precision[data_distribution],
+                    region=data_region[data_distribution],
                     is_new=False,
                     is_simple=False,
                     is_gpu=True,

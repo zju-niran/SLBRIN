@@ -1,19 +1,29 @@
 import math
-import os
+import os.path
 
 import numpy as np
 import tensorflow as tf
 
-from src.spatial_index.common_utils import normalize_output, normalize_input
+"""
+区别于MLP:
+1. 不做任何的中间数据持久化，包括日志/checkpoint
+2. 不使用retrain和threshold来提高单个模型的精度
+3. 模型fit后只使用最后一个epoch的参数，而不是最优参数
+"""
 
 
-class TrainedNN_Simple:
-    def __init__(self, train_x, train_y, is_gpu, weight, core, train_step, batch_size, learning_rate):
+class MLPSimple:
+    def __init__(self, train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
+                 is_gpu, weight, core, train_step, batch_size, learning_rate):
         # common
-        self.name = "Trained NN"
+        self.name = "MLP"
         # data
-        self.train_x, self.train_x_min, self.train_x_max = normalize_input(np.array(train_x).astype("float"))
-        self.train_y, self.train_y_min, self.train_y_max = normalize_output(np.array(train_y).astype("float"))
+        self.train_x = train_x
+        self.train_x_min = train_x_min
+        self.train_x_max = train_x_max
+        self.train_y = train_y
+        self.train_y_min = train_y_min
+        self.train_y_max = train_y_max
         # model structure
         self.is_gpu = is_gpu
         self.weight = weight
@@ -27,10 +37,22 @@ class TrainedNN_Simple:
         self.min_err = None
         self.max_err = None
 
-    def train(self):
+    def init_model(self):
+        self.model = tf.keras.Sequential()
+        for i in range(len(self.core) - 1):
+            self.model.add(tf.keras.layers.Dense(units=self.core[i + 1],
+                                                 input_dim=self.core[i],
+                                                 activation='relu'))
+        self.model.add(tf.keras.layers.Dense(units=1))
+        optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
+        self.model.compile(optimizer=optimizer, loss=self.mse)
+
+    def train_simple(self, matrices):
         if self.is_gpu:
             os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
             os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+            # 不输出报错：This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the
+            # following CPU instructions in performance-critical operations:  AVX AVX2
             os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
             gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
             for gpu in gpus:
@@ -38,19 +60,11 @@ class TrainedNN_Simple:
         else:
             os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
         self.init_model()
-        self.train_model()
+        if matrices:
+            self.set_matrices(matrices)
+        self.train_model_simple()
 
-    def init_model(self):
-        self.model = tf.keras.Sequential()
-        for i in range(len(self.core) - 1):
-            self.model.add(tf.keras.layers.Dense(units=self.core[i + 1],
-                                                 input_dim=self.core[i],
-                                                 activation='sigmoid'))
-        self.model.add(tf.keras.layers.Dense(units=1))
-        optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
-        self.model.compile(optimizer=optimizer, loss=self.score)
-
-    def train_model(self):
+    def train_model_simple(self):
         early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss',
                                                           patience=self.train_step // 100,
                                                           mode='min',
@@ -61,8 +75,8 @@ class TrainedNN_Simple:
                        batch_size=self.batch_size,
                        verbose=0,
                        callbacks=[early_stopping])
-        self.min_err, self.max_err = self.get_err()
         self.matrices = self.get_matrices()
+        self.min_err, self.max_err = self.get_err()
 
     def get_matrices(self):
         return self.model.get_weights()
@@ -70,15 +84,23 @@ class TrainedNN_Simple:
     def set_matrices(self, matrices):
         self.model.set_weights(matrices)
 
-    def score(self, y_true, y_pred):
-        y_pred_clip = tf.keras.backend.clip(y_pred, 0, 1)
-        diff_clip = y_true - y_pred_clip
-        range_loss = tf.keras.backend.max(diff_clip) - tf.keras.backend.min(diff_clip)
+    def mse(self, y_true, y_pred):
+        diff = y_true - y_pred
+        mse_loss = tf.keras.backend.mean(tf.keras.backend.square(diff), axis=-1)
+        return mse_loss
+
+    def mse_and_err_bound(self, y_true, y_pred):
+        diff = y_true - y_pred
+        range_loss = tf.keras.backend.max(diff) - tf.keras.backend.min(diff)
         diff = y_true - y_pred
         mse_loss = tf.keras.backend.mean(tf.keras.backend.square(diff), axis=-1)
         return self.weight * range_loss + mse_loss
 
     def batch_predict(self):
+        """
+        分batch predict来减少内存占用
+        避免一次性redict形成size(self.train_x) * 1的tensor造成内存溢出
+        """
         train_x_len = len(self.train_x)
         step = 10000
         pres = np.empty(shape=(0, 1))

@@ -1,28 +1,32 @@
 import logging
+import math
 import os.path
 import random
 import time
 
 import numpy as np
 import tensorflow as tf
+from matplotlib import pyplot as plt
+
+from src.spatial_index.common_utils import normalize_output, normalize_input
 
 
-class TrainedNN:
-    def __init__(self, model_path, model_key, train_x, train_y, is_new, is_gpu, weight, core, train_step,
-                 batch_size, learning_rate, use_threshold, threshold, retrain_time_limit):
+class MLP:
+    def __init__(self, model_path, model_key, train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
+                 is_new, is_gpu, weight, core, train_step, batch_size, learning_rate,
+                 use_threshold, threshold, retrain_time_limit):
         # common
-        self.name = "Trained NN"
+        self.name = "MLP"
         self.model_path = model_path
         self.model_hdf_dir = os.path.join(model_path, "hdf/")
         self.model_key = model_key
         # data
-        # 区别：train_x的是有序的，因此归一化不用计算最大最小值
-        self.train_x_min = train_x[0]
-        self.train_x_max = train_x[-1]
-        self.train_x = (np.array(train_x) - self.train_x_min) / (self.train_x_max - self.train_x_min) - 0.5
-        self.train_y_min = train_y[0]
-        self.train_y_max = train_y[-1]
-        self.train_y = (np.array(train_y) - self.train_y_min) / (self.train_y_max - self.train_y_min)
+        self.train_x = train_x
+        self.train_x_min = train_x_min
+        self.train_x_max = train_x_max
+        self.train_y = train_y
+        self.train_y_min = train_y_min
+        self.train_y_max = train_y_max
         # model structure
         self.is_new = is_new
         self.is_gpu = is_gpu
@@ -60,7 +64,7 @@ class TrainedNN:
         else:
             self.get_best_model_file()
             try:
-                self.model = tf.keras.models.load_model(self.model_hdf_file, custom_objects={'score': self.score})
+                self.model = tf.keras.models.load_model(self.model_hdf_file, custom_objects={'score': self.mse})
             except Exception:
                 # {ValueError}No model config found in the file
                 # {OSError}SavedModel file does not exist
@@ -80,10 +84,10 @@ class TrainedNN:
         for i in range(len(self.core) - 1):
             self.model.add(tf.keras.layers.Dense(units=self.core[i + 1],
                                                  input_dim=self.core[i],
-                                                 activation='sigmoid'))
+                                                 activation='relu'))
         self.model.add(tf.keras.layers.Dense(units=1))
         optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
-        self.model.compile(optimizer=optimizer, loss=self.score)
+        self.model.compile(optimizer=optimizer, loss=self.mse)
 
     def train_model(self, is_new):
         start_time = time.time()
@@ -112,10 +116,11 @@ class TrainedNN:
                            verbose=0,
                            callbacks=[checkpoint, early_stopping])
             # 加载loss最小的模型
-            self.model = tf.keras.models.load_model(self.model_hdf_file, custom_objects={'score': self.score})
+            self.model = tf.keras.models.load_model(self.model_hdf_file, custom_objects={'score': self.mse})
             min_err, max_err = self.get_err()
             err_length = max_err - min_err
             self.rename_model_file_by_err(err_length)
+            self.plot()
         else:
             min_err, max_err = self.get_err()
             err_length = max_err - min_err
@@ -156,7 +161,8 @@ class TrainedNN:
             os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
         self.init_model()
         self.model_hdf_file = os.path.join(self.model_hdf_dir, self.model_key + ".best.hdf5")
-        self.set_matrices(matrices)
+        if matrices:
+            self.set_matrices(matrices)
         self.train_model_simple()
 
     def train_model_simple(self):
@@ -178,43 +184,65 @@ class TrainedNN:
                        verbose=0,
                        callbacks=[checkpoint, early_stopping])
         # 加载loss最小的模型
-        self.model = tf.keras.models.load_model(self.model_hdf_file, custom_objects={'score': self.score})
+        self.model = tf.keras.models.load_model(self.model_hdf_file, custom_objects={'score': self.mse})
         self.matrices = self.get_matrices()
         self.min_err, self.max_err = self.get_err()
+        self.plot()
 
-    # nn的weights不用matrix存，用原本的ndarray体积更下
     def get_matrices(self):
         return self.model.get_weights()
 
     def set_matrices(self, matrices):
         self.model.set_weights(matrices)
 
-    def score(self, y_true, y_pred):
+    # 对比mse/mae/mae+err_bound，最后选择mse+err_bound
+    def mse(self, y_true, y_pred):
+        diff = y_true - y_pred
+        mse_loss = tf.keras.backend.mean(tf.keras.backend.square(diff), axis=-1)
+        return mse_loss
+
+    def mse_and_err_bound(self, y_true, y_pred):
         """
         自定义loss，用mse描述拟合程度，最大最小误差描述误差范围
-        TODO: checkpoint保存下来的最优模型(loss最小)不一定是误差范围小的
         """
-        # 对比mse/mae/mae+minmax，最后选择mse+minmax
-        # 这里的y应该是局部的，因此scores和err算出来不一致
-        y_pred_clip = tf.keras.backend.clip(y_pred, 0, 1)
-        diff_clip = y_true - y_pred_clip
-        range_loss = tf.keras.backend.max(diff_clip) - tf.keras.backend.min(diff_clip)
+        # y_pred_clip = tf.keras.backend.clip(y_pred, 0, 1)
+        # diff_clip = y_true - y_pred_clip
+        # range_loss = tf.keras.backend.max(diff_clip) - tf.keras.backend.min(diff_clip)
+        diff = y_true - y_pred
+        range_loss = tf.keras.backend.max(diff) - tf.keras.backend.min(diff)
         diff = y_true - y_pred
         mse_loss = tf.keras.backend.mean(tf.keras.backend.square(diff), axis=-1)
         return self.weight * range_loss + mse_loss
 
+    def batch_predict(self):
+        """
+        分batch predict来减少内存占用
+        避免一次性redict形成size(self.train_x) * 1的tensor造成内存溢出
+        """
+        train_x_len = len(self.train_x)
+        step = 10000
+        pres = np.empty(shape=(0, 1))
+        for i in range(math.ceil(train_x_len / step)):
+            tmp_pres = self.model(self.train_x[i * step:(i + 1) * step].reshape(-1, 1)).numpy()
+            pres = np.vstack((pres, tmp_pres))
+        return pres.flatten()
+
     def get_err(self):
-        # 区别：计算err的时候不考虑breakpoints
-        inputs = self.train_x[1:-1]
-        input_len = len(inputs)
-        if input_len:
-            pres = self.model(inputs).numpy().flatten()
-            pres[pres < 0] = 0
-            pres[pres > 1] = 1
-            errs = pres * (input_len - 1) - np.arange(input_len)
-            return errs.min(), errs.max()
-        else:
+        if self.train_y_max == self.train_y_min:
             return 0.0, 0.0
+        pres = self.batch_predict()
+        pres[pres < 0] = 0
+        pres[pres > 1] = 1
+        errs = (pres - self.train_y) * (self.train_y_max - self.train_y_min)
+        return errs.min(), errs.max()
+
+    def plot(self):
+        pres = self.batch_predict()
+        plt.plot(self.train_x, self.train_y, 'y--', label="true")
+        plt.plot(self.train_x, pres, 'm--', label="predict")
+        plt.legend()
+        plt.savefig(self.model_hdf_file.replace("hdf5", "png").replace("hdf", "png"))
+        plt.close()
 
     def get_best_model_file(self):
         """

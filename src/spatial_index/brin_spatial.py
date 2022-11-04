@@ -56,7 +56,7 @@ class BRINSpatial(SpatialIndex):
             # 1. compute geohash from x/y of point
             gh = self.meta.geohash.encode(point[0], point[1])
             # 2. encode p to geohash and create index entry(x, y, geohash, pointer)
-            point.insert(-1, gh)
+            point = (point[0], point[1], gh, point[2])
             # 3. append in xy index
             self.index_entries.append(tuple(point))
             # 3. create tmp blk and sort last blk if point is on the breakpoint

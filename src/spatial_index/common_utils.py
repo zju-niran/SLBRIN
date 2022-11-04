@@ -487,7 +487,6 @@ def elu(x, alpha=1):
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
-
 def get_mbr_by_points(points):
     x_max = x_min = points[0][0]
     y_max = y_min = points[0][1]
