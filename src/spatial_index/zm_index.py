@@ -594,7 +594,7 @@ def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new,
                        weight, core, train_step, batch_size, learning_rate,
                        use_threshold, threshold, retrain_time_limit)
     tmp_index.train()
-    abstract_index = AbstractNN(tmp_index.get_matrices(), core,
+    abstract_index = AbstractNN(tmp_index.get_matrices(), len(core) - 1,
                                 int(tmp_index.train_x_min), int(tmp_index.train_x_max),
                                 int(tmp_index.train_y_min), int(tmp_index.train_y_max),
                                 math.ceil(tmp_index.min_err), math.ceil(tmp_index.max_err))
@@ -635,9 +635,9 @@ class NNSimple(MLPSimple):
 
 
 class AbstractNN:
-    def __init__(self, matrices, core_nums, input_min, input_max, output_min, output_max, min_err, max_err):
+    def __init__(self, matrices, hl_nums, input_min, input_max, output_min, output_max, min_err, max_err):
         self.matrices = matrices
-        self.core_nums = core_nums
+        self.hl_nums = hl_nums
         self.input_min = input_min
         self.input_max = input_max
         self.output_min = output_min
@@ -647,7 +647,7 @@ class AbstractNN:
 
     def predict(self, input_key):
         y = normalize_input_minmax(input_key, self.input_min, self.input_max)
-        for i in range(len(self.core_nums) - 1):
+        for i in range(self.hl_nums):
             y = relu(y * self.matrices[i * 2] + self.matrices[i * 2 + 1])
         y = np.dot(y, self.matrices[-2]) + self.matrices[-1]
         return denormalize_output_minmax(y[0, 0], self.output_min, self.output_max)
@@ -660,7 +660,7 @@ class AbstractNN:
         delta = 0.00000001
         y1 = normalize_input_minmax(input_key, self.input_min, self.input_max)
         y2 = y1 + delta
-        for i in range(len(self.core_nums) - 1):
+        for i in range(self.hl_nums):
             y1 = relu(y1 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
             y2 = relu(y2 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
         return np.dot((y2 - y1), self.matrices[-2])[0, 0] / delta
