@@ -645,10 +645,11 @@ class AbstractNN:
         self.min_err = min_err
         self.max_err = max_err
 
+    # compared with *, np.dot is a little slower, but closer to nn.predict
     def predict(self, input_key):
         y = normalize_input_minmax(input_key, self.input_min, self.input_max)
         for i in range(self.hl_nums):
-            y = relu(y * self.matrices[i * 2] + self.matrices[i * 2 + 1])
+            y = relu(np.dot(y, self.matrices[i * 2]) + self.matrices[i * 2 + 1])
         y = np.dot(y, self.matrices[-2]) + self.matrices[-1]
         return denormalize_output_minmax(y[0, 0], self.output_min, self.output_max)
 

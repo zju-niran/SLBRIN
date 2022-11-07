@@ -1122,12 +1122,12 @@ class AbstractNN:
     # model.predict有小偏差，可能是exp的e和elu的e不一致
     def predict(self, x):
         for i in range(self.hl_nums):
-            x = sigmoid(x * self.matrices[i * 2] + self.matrices[i * 2 + 1])
+            x = sigmoid(np.dot(x, self.matrices[i * 2]) + self.matrices[i * 2 + 1])
         return (np.dot(x, self.matrices[-2]) + self.matrices[-1])[0, 0]
 
     def predicts(self, xs):
         for i in range(self.hl_nums):
-            xs = sigmoid(xs * self.matrices[i * 2] + self.matrices[i * 2 + 1])
+            xs = sigmoid(np.dot(xs, self.matrices[i * 2]) + self.matrices[i * 2 + 1])
         return (np.dot(xs, self.matrices[-2]) + self.matrices[-1]).flatten()
 
     def splits(self):
