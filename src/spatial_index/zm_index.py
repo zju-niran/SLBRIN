@@ -6,7 +6,6 @@ import os
 import sys
 import time
 
-import line_profiler
 import numpy as np
 
 sys.path.append('/home/zju/wlj/st-learned-index')
@@ -173,30 +172,6 @@ class ZMIndex(SpatialIndex):
         for point in points:
             self.insert_single(point)
 
-    def fun(self, l1, l2):
-        len1 = len(l1)
-        len2 = len(l2)
-        res = [None] * (len1 + len2)
-        cur = 0
-        x = 0
-        y = 0
-        while x < len1 and y < len2:
-            if l1[x][2] <= l2[y][2]:
-                res[cur] = l1[x]
-                x += 1
-            else:
-                res[cur] = l2[y]
-                y += 1
-            cur += 1
-        while y < len2:
-            res[cur] = l2[y]
-            y += 1
-            cur += 1
-        while x < len1:
-            res[cur] = l1[x]
-            x += 1
-            cur += 1
-
     def update(self):
         leaf_nodes = self.rmi[-1]
         for j in range(0, self.stages[-1]):
@@ -204,9 +179,8 @@ class ZMIndex(SpatialIndex):
             if leaf_node.delta_index:
                 # 1. merge delta index into index
                 if leaf_node.index:
-                    res = self.fun(leaf_node.index, leaf_node.delta_index)
                     leaf_node.index.extend(leaf_node.delta_index)
-                    leaf_node.index.sort(key=lambda x: x[2])  # 待优化
+                    leaf_node.index.sort(key=lambda x: x[2])  # 优化：有序数组合并->sorted:2.5->1
                 else:
                     leaf_node.index = leaf_node.delta_index
                 # 2. retrain model
@@ -629,6 +603,13 @@ def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new,
     mp_list[current_stage_step] = abstract_index
 
 
+class Node:
+    def __init__(self, model, index, delta_index):
+        self.model = model
+        self.index = index
+        self.delta_index = delta_index
+
+
 class NN(MLP):
     def __init__(self, model_path, model_key, train_x, train_y, is_new, is_gpu, weight, core, train_step, batch_size,
                  learning_rate, use_threshold, threshold, retrain_time_limit):
@@ -667,11 +648,11 @@ class AbstractNN:
     def predict(self, input_key):
         y = normalize_input_minmax(input_key, self.input_min, self.input_max)
         for i in range(len(self.core_nums) - 1):
-            y = sigmoid(y * self.matrices[i * 2] + self.matrices[i * 2 + 1])
+            y = relu(y * self.matrices[i * 2] + self.matrices[i * 2 + 1])
         y = np.dot(y, self.matrices[-2]) + self.matrices[-1]
         return denormalize_output_minmax(y[0, 0], self.output_min, self.output_max)
 
-    def weight(self, input_key):
+    def get_weight(self, input_key):
         """
         calculate weight
         """
@@ -680,8 +661,8 @@ class AbstractNN:
         y1 = normalize_input_minmax(input_key, self.input_min, self.input_max)
         y2 = y1 + delta
         for i in range(len(self.core_nums) - 1):
-            y1 = sigmoid(y1 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
-            y2 = sigmoid(y2 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
+            y1 = relu(y1 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
+            y2 = relu(y2 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
         return np.dot((y2 - y1), self.matrices[-2])[0, 0] / delta
 
 
@@ -692,20 +673,12 @@ def main():
         os.makedirs(model_path)
     index = ZMIndex(model_path=model_path)
     index_name = index.name
-    load_index_from_json = False
+    load_index_from_json = True
     if load_index_from_json:
         index.load()
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        build_data_list = load_data(Distribution.NYCT_10W_SORTED, 0)
-        # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y/g)=8, meta单独一个page
-        # node体积=2000，一个page存2个node，单read_ahead读取256*2=512node
-        # data体积=x/y/g/key=8*3+4=28，一个page存146个data，单read_ahead读取256*146=37376data
-        # 10w数据，[1, 100]参数下：
-        # meta+stage0 node存一个page，stage2 node需要22/2=11个page，data需要10w/146=685page
-        # 单次扫描IO=读取meta+读取每个stage的rmi+读取叶stage对应geohash数据=1+11/512+10w/37376
-        # 索引体积为geohash索引+rmi+meta
         data_distribution = Distribution.NYCT_10W_SORTED
         build_data_list = load_data(data_distribution, 0)
         index.build(data_list=build_data_list,
@@ -717,7 +690,7 @@ def main():
                     is_gpu=True,
                     weight=1,
                     stages=[1, 100],
-                    cores=[[1, 128], [1, 128]],
+                    cores=[[1, 32], [1, 32]],
                     train_steps=[5000, 5000],
                     batch_nums=[64, 64],
                     learning_rates=[0.1, 0.1],
@@ -732,34 +705,45 @@ def main():
     structure_size, ie_size = index.size()
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
-    logging.info("IO cost: %s" % index.io())
-    # path = '../../data/query/point_query_nyct.npy'
-    # point_query_list = np.load(path, allow_pickle=True).tolist()
-    # start_time = time.time()
-    # results = index.point_query(point_query_list)
-    # end_time = time.time()
-    # search_time = (end_time - start_time) / len(point_query_list)
-    # logging.info("Point query time: %s" % search_time)
-    # np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    # path = '../../data/query/range_query_nyct.npy'
-    # range_query_list = np.load(path, allow_pickle=True).tolist()
-    # start_time = time.time()
-    # results = index.range_query(range_query_list)
-    # end_time = time.time()
-    # search_time = (end_time - start_time) / len(range_query_list)
-    # logging.info("Range query time: %s" % search_time)
-    # np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    # path = '../../data/query/knn_query_nyct.npy'
-    # knn_query_list = np.load(path, allow_pickle=True).tolist()
-    # start_time = time.time()
-    # results = index.knn_query(knn_query_list)
-    # end_time = time.time()
-    # search_time = (end_time - start_time) / len(knn_query_list)
-    # logging.info("KNN query time: %s" % search_time)
-    # np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    logging.info("IO cost: %s" % index.get_io_cost())
+    io_cost = index.io_cost
+    logging.info("IO cost: %s" % io_cost)
+    path = '../../data/query/point_query_nyct.npy'
+    point_query_list = np.load(path, allow_pickle=True).tolist()
+    start_time = time.time()
+    results = index.point_query(point_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(point_query_list)
+    logging.info("Point query time: %s" % search_time)
+    logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
+    io_cost = index.io_cost
+    np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    path = '../../data/query/range_query_nyct.npy'
+    range_query_list = np.load(path, allow_pickle=True).tolist()
+    start_time = time.time()
+    results = index.range_query(range_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(range_query_list)
+    logging.info("Range query time: %s" % search_time)
+    logging.info("Range query io cost: %s" % ((index.io_cost - io_cost) / len(range_query_list)))
+    io_cost = index.io_cost
+    np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    path = '../../data/query/knn_query_nyct.npy'
+    knn_query_list = np.load(path, allow_pickle=True).tolist()
+    start_time = time.time()
+    results = index.knn_query(knn_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(knn_query_list)
+    logging.info("KNN query time: %s" % search_time)
+    logging.info("KNN query io cost: %s" % ((index.io_cost - io_cost) / len(knn_query_list)))
+    np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     update_data_list = load_data(Distribution.NYCT_10W, 1)
     start_time = time.time()
     index.insert(update_data_list)
+    end_time = time.time()
+    logging.info("Insert time: %s" % (end_time - start_time))
+    start_time = time.time()
+    index.update()
     end_time = time.time()
     logging.info("Update time: %s" % (end_time - start_time))
 
