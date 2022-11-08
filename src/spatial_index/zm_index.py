@@ -346,7 +346,6 @@ class ZMIndex(SpatialIndex):
             if delta_index:
                 delta_index_len = len(delta_index)
                 io_index_len += delta_index_len
-                key_right = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
                 right_key = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
                 result.extend([ie[3]
                                for ie in delta_index[:right_key + 1]
@@ -369,8 +368,6 @@ class ZMIndex(SpatialIndex):
         else:
             window_ratio = (k / self.max_key) ** 0.5
         window_radius = window_ratio * self.geohash.region_width / 2
-        tp_list = []
-        old_window = None
         while True:
             window = [y - window_radius, y + window_radius, x - window_radius, x + window_radius]
             # limit window within region
