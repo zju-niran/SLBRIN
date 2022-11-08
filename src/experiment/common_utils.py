@@ -1,5 +1,6 @@
 import os
 import shutil
+import time
 from enum import Enum
 
 import numpy as np
@@ -114,9 +115,9 @@ knn_query_path = {
 
 
 def load_query(distribution, type):
-    if type == "point":
+    if type == 0:
         query_path = point_query_path[distribution]
-    elif type == "range":
+    elif type == 1:
         query_path = range_query_path[distribution]
     else:
         query_path = knn_query_path[distribution]
@@ -134,3 +135,38 @@ def copy_dirs(from_file, to_file, ignore_file=None):
             copy_dirs(from_file + '/' + f, to_file + '/' + f)  # 递归调用本函数
         else:
             shutil.copy(from_file + '/' + f, to_file + '/' + f)  # 拷贝文件
+
+def test_point_query(index, data_distribution):
+    sum_search_time = 0
+    sum_io_cost = 0
+    io_cost = index.io_cost
+    point_query_list = load_query(data_distribution, 0).tolist()
+    for k in range(5):
+        start_time = time.time()
+        index.test_point_query(point_query_list)
+        end_time = time.time()
+        search_time = (end_time - start_time) / len(point_query_list)
+        sum_search_time += search_time
+        sum_io_cost += (index.io_cost - io_cost) / len(point_query_list)
+        io_cost = index.io_cost
+    return sum_search_time / 5, sum_io_cost / 5
+
+
+def test_query(index, data_distribution, type):
+    index_test_querys = [index.test_point_query, index.test_range_query, index.test_knn_query]
+    index_test_query = index_test_querys[type]
+    sum_search_time = 0
+    sum_io_cost = 0
+    io_cost = index.io_cost
+    query_list = load_query(data_distribution, type).tolist()
+    query_list_len = len(query_list)
+    # 查询跑多次，减小算力波动的影响
+    for k in range(5):
+        start_time = time.time()
+        index_test_query(query_list)
+        end_time = time.time()
+        search_time = (end_time - start_time) / query_list_len
+        sum_search_time += search_time
+        sum_io_cost += (index.io_cost - io_cost) / query_list_len
+        io_cost = index.io_cost
+    return sum_search_time / 5, sum_io_cost / 5

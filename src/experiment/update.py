@@ -93,21 +93,21 @@ if __name__ == '__main__':
                     logging.info("Update time: %s" % update_time)
                 # 查询跑多次，避免算力波动的影响
                 for k in range(5):
-                    point_query_list = load_query(data_distribution, "point").tolist()
+                    point_query_list = load_query(data_distribution, 0).tolist()
                     start_time = time.time()
                     index.test_point_query(point_query_list)
                     end_time = time.time()
                     search_time = (end_time - start_time) / len(point_query_list)
                     logging.info("Point query time: %s" % search_time)
                 for k in range(5):
-                    range_query_list = load_query(data_distribution, "range").tolist()
+                    range_query_list = load_query(data_distribution, 1).tolist()
                     start_time = time.time()
                     index.test_range_query(range_query_list)
                     end_time = time.time()
                     search_time = (end_time - start_time) / len(range_query_list)
                     logging.info("Range query time: %s" % search_time)
                 for k in range(5):
-                    knn_query_list = load_query(data_distribution, "knn").tolist()
+                    knn_query_list = load_query(data_distribution, 2).tolist()
                     start_time = time.time()
                     index.test_knn_query(knn_query_list)
                     end_time = time.time()

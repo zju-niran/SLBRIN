@@ -6,6 +6,7 @@ import os
 import sys
 import time
 
+import line_profiler
 import numpy as np
 
 sys.path.append('/home/zju/wlj/st-learned-index')
@@ -15,7 +16,7 @@ from src.spatial_index.common_utils import Region, biased_search, normalize_inpu
     binary_search_less_max, binary_search, relu, normalize_output, normalize_input
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
-from src.experiment.common_utils import load_data, Distribution, data_region, data_precision
+from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
 
 # 预设pagesize=4096, read_ahead_pages=256, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
 RA_PAGES = 256
@@ -67,6 +68,9 @@ class ZMIndex(SpatialIndex):
         model_hdf_dir = os.path.join(self.model_path, "hdf/")
         if os.path.exists(model_hdf_dir) is False:
             os.makedirs(model_hdf_dir)
+        model_png_dir = os.path.join(self.model_path, "png/")
+        if os.path.exists(model_png_dir) is False:
+            os.makedirs(model_png_dir)
         self.geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
         self.stages = stages
         stage_len = len(stages)
@@ -128,9 +132,6 @@ class ZMIndex(SpatialIndex):
                             pre = int(node.model.predict(train_input[j][ind][2]))
                             train_inputs[i + 1][pre].append(train_input[j][ind])
                             train_labels[i + 1][pre].append(train_label[j][ind])
-                        # clear the data already used
-                        train_inputs[i] = None
-                        train_labels[i] = None
             # 2.2 create leaf node
             else:
                 for j in range(task_size):
@@ -145,7 +146,9 @@ class ZMIndex(SpatialIndex):
                 pool.join()
                 nodes = [Node(mp_list[j], train_input[j], []) for j in range(task_size)]
             self.rmi[i] = nodes
-        self.io_cost = math.ceil(self.size()[0] / ITEMS_PER_RA)
+            # clear the data already used
+            train_inputs[i] = None
+            train_labels[i] = None
 
     def insert_single(self, point):
         """
@@ -193,8 +196,9 @@ class ZMIndex(SpatialIndex):
                 model_key = "retrain_%s" % j
                 tmp_index = NN(self.model_path, model_key, inputs, labels, True, self.is_gpu, self.weight,
                                self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
-                tmp_index.train_simple(leaf_node.model.matrices if leaf_node.model else None)
-                leaf_node.model = AbstractNN(tmp_index.get_matrices(), self.cores,
+                tmp_index.train_simple(None)  # update
+                # tmp_index.train_simple(leaf_node.model.matrices if leaf_node.model else None) # retrain with
+                leaf_node.model = AbstractNN(tmp_index.get_matrices(), len(self.cores) - 1,
                                              int(tmp_index.train_x_min), int(tmp_index.train_x_max),
                                              0, inputs_num - 1,  # update the range of output
                                              math.ceil(tmp_index.min_err), math.ceil(tmp_index.max_err))
@@ -257,58 +261,58 @@ class ZMIndex(SpatialIndex):
         # 4. filter in update index
         if leaf_node.delta_index:
             delta_index_len = len(leaf_node.delta_index)
-            result.extend([leaf_node.dalta_index[key][3]
-                           for key in binary_search(leaf_node.dalta_index, 2, gh, 0, len(leaf_node.dalta_index) - 1)])
+            result.extend([leaf_node.delta_index[key][3]
+                           for key in binary_search(leaf_node.delta_index, 2, gh, 0, len(leaf_node.delta_index) - 1)])
             self.io_cost += delta_index_len // ITEMS_PER_RA + 1
         return result
 
     def range_query_single(self, window):
         """
         1. compute geohash from window_left and window_right
-        2. find key_left by point query
-        3. find key_right by point query
-        4. filter all the points of scope[key_left, key_right] by range(x1/y1/x2/y2).contain(point)
+        2. find left_key by point query
+        3. find right_key by point query
+        4. filter all the points of scope[left_key, right_key] by range(x1/y1/x2/y2).contain(point)
         5. filter in update index
         """
         # 1. compute z of window_left and window_right
         gh1 = self.geohash.encode(window[2], window[0])
         gh2 = self.geohash.encode(window[3], window[1])
-        # 2. find key_left by point query
-        # if point not found, key_left = pre - min_err
+        # 2. find left_key by point query
+        # if point not found, left_key = pre - min_err
         leaf_node1, leaf_key1, pre1, min_err1, max_err1 = self.predict(gh1)
         l_bound1 = max(pre1 - max_err1, 0)
         r_bound1 = min(pre1 - min_err1, leaf_node1.model.output_max)
-        key_left = biased_search(leaf_node1.index, 2, gh1, pre1, l_bound1, r_bound1)
-        key_left = l_bound1 if len(key_left) == 0 else min(key_left)
-        # 3. find key_right by point query
-        # if point not found, key_right = pre - max_err
+        left_key = biased_search(leaf_node1.index, 2, gh1, pre1, l_bound1, r_bound1)
+        left_key = l_bound1 if len(left_key) == 0 else min(left_key)
+        # 3. find right_key by point query
+        # if point not found, right_key = pre - max_err
         leaf_node2, leaf_key2, pre2, min_err2, max_err2 = self.predict(gh2)
         l_bound2 = max(pre2 - max_err2, 0)
         r_bound2 = min(pre2 - min_err2, leaf_node2.model.output_max)
-        key_right = biased_search(leaf_node2.index, 2, gh2, pre2, l_bound2, r_bound2)
-        key_right = r_bound2 if len(key_right) == 0 else max(key_right)
+        right_key = biased_search(leaf_node2.index, 2, gh2, pre2, l_bound2, r_bound2)
+        right_key = r_bound2 if len(right_key) == 0 else max(right_key)
         # 4. filter all the point of scope[key1, key2] by range(x1/y1/x2/y2).contain(point)
         # 5. filter in update index
         if leaf_key1 == leaf_key2:
             # filter index
-            result = [ie[3] for ie in leaf_node1.index[key_left:key_right + 1]
+            result = [ie[3] for ie in leaf_node1.index[left_key:right_key + 1]
                       if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
             self.io_cost += math.ceil((r_bound2 - l_bound1) / ITEMS_PER_RA)
             # filter delta index
             delta_index = leaf_node1.delta_index
             if delta_index:
                 delta_index_len = len(delta_index)
-                key_left = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
-                key_right = binary_search_less_max(delta_index, 2, gh2, key_left, delta_index_len - 1)
+                left_key = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
+                right_key = binary_search_less_max(delta_index, 2, gh2, left_key, delta_index_len - 1)
                 result.extend([ie[3]
-                               for ie in delta_index[key_left:key_right + 1]
+                               for ie in delta_index[left_key:right_key + 1]
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
                 self.io_cost += math.ceil(delta_index_len / ITEMS_PER_RA)
         else:
             # filter index
             io_index_len = len(leaf_node1.index) + r_bound2 - l_bound1
             result = [ie[3]
-                      for ie in leaf_node1.index[key_left:]
+                      for ie in leaf_node1.index[left_key:]
                       if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
             if leaf_key2 - leaf_key1 > 1:
                 result.extend([ie[3]
@@ -318,7 +322,7 @@ class ZMIndex(SpatialIndex):
                 for leaf_key in range(leaf_key1 + 1, leaf_key2):
                     io_index_len += len(self.rmi[-1][leaf_key].index)
             result.extend([ie[3]
-                           for ie in leaf_node2.index[:key_right + 1]
+                           for ie in leaf_node2.index[:right_key + 1]
                            if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
             self.io_cost += math.ceil(io_index_len / ITEMS_PER_RA)
             # filter delta index
@@ -327,9 +331,9 @@ class ZMIndex(SpatialIndex):
             if delta_index:
                 delta_index_len = len(delta_index)
                 io_index_len += delta_index_len
-                key_left = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
+                left_key = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
                 result.extend([ie[3]
-                               for ie in delta_index[key_left:]
+                               for ie in delta_index[left_key:]
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
             if leaf_key2 - leaf_key1 > 1:
                 result.extend([ie[3]
@@ -343,8 +347,9 @@ class ZMIndex(SpatialIndex):
                 delta_index_len = len(delta_index)
                 io_index_len += delta_index_len
                 key_right = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
+                right_key = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
                 result.extend([ie[3]
-                               for ie in delta_index[:key_right + 1]
+                               for ie in delta_index[:right_key + 1]
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
             self.io_cost += math.ceil(io_index_len / ITEMS_PER_RA)
         return result
@@ -376,9 +381,9 @@ class ZMIndex(SpatialIndex):
             leaf_node1, leaf_key1, pre1, min_err1, max_err1 = self.predict(gh1)
             l_bound1 = max(pre1 - max_err1, 0)
             r_bound1 = min(pre1 - min_err1, leaf_node1.model.output_max)
-            key_left = biased_search(leaf_node1.index, 2, gh1, pre1, l_bound1, r_bound1)
-            key_left = l_bound1 if len(key_left) == 0 else min(key_left)
-            leaf_node2, leaf_key2, pre2, min_err2, max_err2 = self.predict(gh1)
+            left_key = biased_search(leaf_node1.index, 2, gh1, pre1, l_bound1, r_bound1)
+            left_key = l_bound1 if len(left_key) == 0 else min(left_key)
+            leaf_node2, leaf_key2, pre2, min_err2, max_err2 = self.predict(gh2)
             l_bound2 = max(pre2 - max_err2, 0)
             r_bound2 = min(pre2 - min_err2, leaf_node2.model.output_max)
             key_right = biased_search(leaf_node2.index, 2, gh2, pre2, l_bound2, r_bound2)
@@ -537,7 +542,7 @@ class ZMIndex(SpatialIndex):
                os.path.getsize(os.path.join(self.model_path, "delta_index_lens.npy")) - 128 + \
                os.path.getsize(os.path.join(self.model_path, "delta_indexes.npy")) - 128
 
-    def get_io_cost(self):
+    def avg_io_cost(self):
         """
         假设查询条件和数据分布一致，io=获取meta的io+获取stage1 node的io+获取stage2 node的io+获取data的io+获取update data的io
         一次read_ahead可以拿512个node，因此前面511个stage2 node的io是1，后面统一为2

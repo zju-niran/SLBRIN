@@ -581,19 +581,19 @@ class SBRIN(SpatialIndex):
                     pre1 = hr.model_predict(gh_new1)
                     l_bound1 = max(pre1 - hr.model.max_err, 0)
                     r_bound1 = min(pre1 - hr.model.min_err, hr.max_key)
-                    key_left = min(biased_search_almost(hr_data, 2, gh_new1, pre1, l_bound1, r_bound1))
+                    left_key = min(biased_search_almost(hr_data, 2, gh_new1, pre1, l_bound1, r_bound1))
                 else:
-                    key_left = 0
+                    left_key = 0
                 if gh_new2:
                     pre2 = hr.model_predict(gh_new2)
                     l_bound2 = max(pre2 - hr.model.max_err, 0)
                     r_bound2 = min(pre2 - hr.model.min_err, hr.max_key)
-                    key_right = max(biased_search_almost(hr_data, 2, gh_new2, pre2, l_bound2, r_bound2)) + 1
+                    right_key = max(biased_search_almost(hr_data, 2, gh_new2, pre2, l_bound2, r_bound2)) + 1
                 else:
-                    key_right = hr.number
+                    right_key = hr.number
                 # 5 filter all the point of scope[min_key/max_key] by range.contain(point)
                 # 优化: region.contain->compare_func不同位置的点做不同的判断: 638->474mil
-                result.extend([ie[3] for ie in hr_data[key_left:key_right] if compare_func(ie)])
+                result.extend([ie[3] for ie in hr_data[left_key:right_key] if compare_func(ie)])
         return result
 
     def knn_query_single(self, knn):
@@ -692,19 +692,19 @@ class SBRIN(SpatialIndex):
                     pre1 = hr.model_predict(gh_new1)
                     l_bound1 = max(pre1 - hr.model.max_err, 0)
                     r_bound1 = min(pre1 - hr.model.min_err, hr.max_key)
-                    key_left = min(biased_search_almost(hr_data, 2, gh_new1, pre1, l_bound1, r_bound1))
+                    left_key = min(biased_search_almost(hr_data, 2, gh_new1, pre1, l_bound1, r_bound1))
                 else:
-                    key_left = 0
+                    left_key = 0
                 if gh_new2:
                     pre2 = hr.model_predict(gh_new2)
                     l_bound2 = max(pre2 - hr.model.max_err, 0)
                     r_bound2 = min(pre2 - hr.model.min_err, hr.max_key)
-                    key_right = max(biased_search_almost(hr_data, 2, gh_new2, pre2, l_bound2, r_bound2)) + 1
+                    right_key = max(biased_search_almost(hr_data, 2, gh_new2, pre2, l_bound2, r_bound2)) + 1
                 else:
-                    key_right = hr.number
+                    right_key = hr.number
                 # 3. filter point by distance
                 tmp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                            for ie in hr_data[key_left:key_right] if compare_func(ie)]
+                            for ie in hr_data[left_key:right_key] if compare_func(ie)]
             if len(tmp_list) > 0:
                 tp_list.extend(tmp_list)
                 tp_list = sorted(tp_list)[:k]
