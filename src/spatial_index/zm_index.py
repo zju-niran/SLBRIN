@@ -202,7 +202,7 @@ class ZMIndex(SpatialIndex):
                                              int(tmp_index.train_x_min), int(tmp_index.train_x_max),
                                              0, inputs_num - 1,  # update the range of output
                                              math.ceil(tmp_index.min_err), math.ceil(tmp_index.max_err))
-                self.logging.info("retrain leaf model %s" % model_key)
+                # self.logging.info("retrain leaf model %s" % model_key)
 
     def predict(self, key):
         """
@@ -383,77 +383,65 @@ class ZMIndex(SpatialIndex):
             leaf_node2, leaf_key2, pre2, min_err2, max_err2 = self.predict(gh2)
             l_bound2 = max(pre2 - max_err2, 0)
             r_bound2 = min(pre2 - min_err2, leaf_node2.model.output_max)
-            key_right = biased_search(leaf_node2.index, 2, gh2, pre2, l_bound2, r_bound2)
-            key_right = r_bound2 if len(key_right) == 0 else max(key_right)
-            if old_window:
-                filter_lambda = lambda ie: window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3] and not (
-                        old_window[0] <= ie[1] <= old_window[1] and old_window[2] <= ie[0] <= old_window[3])
-            else:
-                filter_lambda = lambda ie: window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]
+            right_key = biased_search(leaf_node2.index, 2, gh2, pre2, l_bound2, r_bound2)
+            right_key = r_bound2 + 1 if len(right_key) == 0 else max(right_key) + 1
+            io_index_len = 0
+            io_delta_index_len = 0
             if leaf_key1 == leaf_key2:
-                tmp_tp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                               for ie in leaf_node1.index[key_left:key_right + 1] if filter_lambda(ie)]
-                self.io_cost += math.ceil((r_bound2 - l_bound1) / ITEMS_PER_RA)
+                tp_list = [ie for ie in leaf_node1.index[left_key:right_key]
+                           if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
+                io_index_len += right_key - left_key
                 delta_index = leaf_node1.delta_index
                 if delta_index:
-                    delta_index_len = len(delta_index)
-                    key_left = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
-                    key_right = binary_search_less_max(delta_index, 2, gh2, key_left, delta_index_len - 1)
-                    tmp_tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                                        for ie in delta_index[key_left:key_right + 1] if filter_lambda(ie)])
-                    self.io_cost += math.ceil(delta_index_len / ITEMS_PER_RA)
+                    delta_index_max_key = len(delta_index) - 1
+                    delta_left_key = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_max_key)
+                    delta_right_key = binary_search_less_max(delta_index, 2, gh2, delta_left_key, delta_index_max_key)
+                    tp_list.extend([ie for ie in delta_index[delta_left_key:delta_right_key]
+                                    if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                    io_delta_index_len += delta_right_key - delta_left_key
             else:
-                io_index_len = len(leaf_node1.index) + r_bound2 - l_bound1
-                result = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                          for ie in leaf_node1.index[key_left:] if filter_lambda(ie)]
-                if leaf_key2 - leaf_key1 > 1:
-                    result.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                                   for leaf_key in range(leaf_key1 + 1, leaf_key2)
-                                   for ie in self.rmi[-1][leaf_key].index if filter_lambda(ie)])
-                    for leaf_key in range(leaf_key1 + 1, leaf_key2):
-                        io_index_len += len(self.rmi[-1][leaf_key].index)
-                result.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                               for ie in leaf_node2.index[:key_right + 1] if filter_lambda(ie)])
-                self.io_cost += math.ceil(io_index_len / ITEMS_PER_RA)
-                # filter delta index
+                tp_list = [ie for ie in leaf_node1.index[left_key:]
+                           if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
+                io_index_len += len(leaf_node1.index) - left_key
                 delta_index = leaf_node1.delta_index
-                io_index_len = 0
                 if delta_index:
-                    delta_index_len = len(delta_index)
-                    io_index_len += delta_index_len
-                    key_left = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
-                    result.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                                   for ie in delta_index[key_left:] if filter_lambda(ie)])
-                if leaf_key2 - leaf_key1 > 1:
-                    result.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                                   for leaf_key in range(leaf_key1 + 1, leaf_key2)
-                                   for ie in self.rmi[-1][leaf_key].delta_index if filter_lambda(ie)])
-                    for leaf_key in range(leaf_key1 + 1, leaf_key2):
-                        io_index_len += len(self.rmi[-1][leaf_key].delta_index)
+                    delta_index_max_key = len(delta_index) - 1
+                    delta_left_key = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_max_key)
+                    tp_list.extend([ie for ie in delta_index[delta_left_key:]
+                                    if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                    io_delta_index_len += delta_index_max_key - delta_left_key + 1
+                tp_list.extend([ie for ie in leaf_node2.index[:right_key]
+                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                io_index_len += len(leaf_node1.index) + right_key
                 delta_index = leaf_node2.delta_index
                 if delta_index:
-                    delta_index_len = len(delta_index)
-                    io_index_len += delta_index_len
-                    key_right = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
-                    result.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
-                                   for ie in delta_index[:key_right + 1] if filter_lambda(ie)])
-                    self.io_cost += math.ceil(io_index_len / ITEMS_PER_RA)
-            tp_list.extend(tmp_tp_list)
-            old_window = window
+                    delta_index_max_key = len(delta_index) - 1
+                    delta_right_key = binary_search_less_max(delta_index, 2, gh2, 0, delta_index_max_key)
+                    tp_list.extend([ie for ie in delta_index[:delta_right_key]
+                                    if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                    io_delta_index_len += delta_right_key
+                tp_list.extend([ie for leaf_key in range(leaf_key1 + 1, leaf_key2)
+                                for ie in self.rmi[-1][leaf_key].index
+                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                io_index_len += sum([len(self.rmi[-1][leaf_key].index) for leaf_key in range(leaf_key1 + 1, leaf_key2)])
+                tp_list.extend([ie for leaf_key in range(leaf_key1 + 1, leaf_key2)
+                                for ie in self.rmi[-1][leaf_key].delta_index
+                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                io_delta_index_len += sum(
+                    [len(self.rmi[-1][leaf_key].delta_index) for leaf_key in range(leaf_key1 + 1, leaf_key2)])
             # 3. if target points is not enough, set window = 2 * window
             if len(tp_list) < k:
                 window_radius *= 2
             else:
                 # 4. elif target points is enough, but some target points is in the corner, set window = dst
-                if len(tmp_tp_list):
-                    tp_list.sort()
-                    dst = tp_list[k - 1][0] ** 0.5
-                    if dst > window_radius:
-                        window_radius = dst
-                    else:
-                        break
+                tp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]] for ie in tp_list]
+                tp_list.sort()
+                dst = tp_list[k - 1][0] ** 0.5
+                if dst > window_radius:
+                    window_radius = dst
                 else:
                     break
+        self.io_cost += math.ceil(io_index_len / ITEMS_PER_RA) + math.ceil(io_delta_index_len / ITEMS_PER_RA)
         return [tp[1] for tp in tp_list[:k]]
 
     def save(self):
@@ -538,6 +526,11 @@ class ZMIndex(SpatialIndex):
                os.path.getsize(os.path.join(self.model_path, "indexes.npy")) - 128 + \
                os.path.getsize(os.path.join(self.model_path, "delta_index_lens.npy")) - 128 + \
                os.path.getsize(os.path.join(self.model_path, "delta_indexes.npy")) - 128
+
+    def model_err(self):
+        model_precisions = [(node.model.max_err - node.model.min_err) for node in self.rmi[-1] if node]
+        model_precisions_avg = sum(model_precisions) / self.stages[-1]
+        return model_precisions_avg
 
     def avg_io_cost(self):
         """
@@ -666,12 +659,13 @@ class AbstractNN:
         for i in range(self.hl_nums):
             y1 = relu(y1 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
             y2 = relu(y2 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
-        return np.dot((y2 - y1), self.matrices[-2])[0, 0] / delta
+        return (np.dot(y2, self.matrices[-2]) - np.dot(y1, self.matrices[-2]))[0, 0] / delta
 
 
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    model_path = "model/zm_index_10w/"
+    model_path = "model/zm_index_10w_uniform/"
+    data_distribution = Distribution.UNIFORM_10W
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
     index = ZMIndex(model_path=model_path)
@@ -682,13 +676,12 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        data_distribution = Distribution.NYCT_10W_SORTED
         build_data_list = load_data(data_distribution, 0)
         index.build(data_list=build_data_list,
-                    is_sorted=True,
+                    is_sorted=False,
                     data_precision=data_precision[data_distribution],
                     region=data_region[data_distribution],
-                    is_new=False,
+                    is_new=True,
                     is_simple=False,
                     is_gpu=True,
                     weight=1,
@@ -705,14 +698,15 @@ def main():
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
+    profile = line_profiler.LineProfiler(index.knn_query_single)
+    profile.enable()
     structure_size, ie_size = index.size()
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
-    logging.info("IO cost: %s" % index.get_io_cost())
     io_cost = index.io_cost
     logging.info("IO cost: %s" % io_cost)
-    path = '../../data/query/point_query_nyct.npy'
-    point_query_list = np.load(path, allow_pickle=True).tolist()
+    logging.info("Model precision avg: %s" % index.model_err())
+    point_query_list = load_query(data_distribution, 0).tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)
     end_time = time.time()
@@ -721,8 +715,7 @@ def main():
     logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
     io_cost = index.io_cost
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/query/range_query_nyct.npy'
-    range_query_list = np.load(path, allow_pickle=True).tolist()
+    range_query_list = load_query(data_distribution, 1).tolist()
     start_time = time.time()
     results = index.range_query(range_query_list)
     end_time = time.time()
@@ -731,8 +724,7 @@ def main():
     logging.info("Range query io cost: %s" % ((index.io_cost - io_cost) / len(range_query_list)))
     io_cost = index.io_cost
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/query/knn_query_nyct.npy'
-    knn_query_list = np.load(path, allow_pickle=True).tolist()
+    knn_query_list = load_query(data_distribution, 2).tolist()
     start_time = time.time()
     results = index.knn_query(knn_query_list)
     end_time = time.time()
