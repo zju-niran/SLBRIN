@@ -4,7 +4,7 @@ import shutil
 import sys
 import time
 
-sys.path.append('/home/zju/wlj/st-learned-index')
+sys.path.append('/home/zju/wlj/SBRIN')
 from src.spatial_index.r_tree import RTree
 from src.spatial_index.pr_quad_tree import PRQuadTree
 from src.spatial_index.kd_tree import KDTree

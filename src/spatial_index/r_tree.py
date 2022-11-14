@@ -7,7 +7,7 @@ import time
 import numpy as np
 from rtree import index
 
-sys.path.append('/home/zju/wlj/st-learned-index')
+sys.path.append('/home/zju/wlj/SBRIN')
 from src.spatial_index.spatial_index import SpatialIndex
 from src.experiment.common_utils import load_data, Distribution
 

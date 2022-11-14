@@ -9,7 +9,7 @@ import time
 import line_profiler
 import numpy as np
 
-sys.path.append('/home/zju/wlj/st-learned-index')
+sys.path.append('/home/zju/wlj/SBRIN')
 from src.mlp import MLP
 from src.mlp_simple import MLPSimple
 from src.spatial_index.common_utils import Region, binary_search_less_max, sigmoid, biased_search_almost, \

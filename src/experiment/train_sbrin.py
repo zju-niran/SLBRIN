@@ -4,7 +4,7 @@ import shutil
 import sys
 import time
 
-sys.path.append('/home/zju/wlj/st-learned-index')
+sys.path.append('/home/zju/wlj/SBRIN')
 from src.experiment.common_utils import Distribution, load_query, load_data, data_precision, data_region, copy_dirs
 from src.spatial_index.sbrin import SBRIN
 

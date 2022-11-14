@@ -8,7 +8,7 @@ import tensorflow as tf
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.models import Sequential
 
-sys.path.append('/home/zju/wlj/st-learned-index')
+sys.path.append('/home/zju/wlj/SBRIN')
 
 
 def my_score(y_true, y_pred):

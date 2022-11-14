@@ -3,7 +3,7 @@ import os
 import sys
 import time
 
-sys.path.append('/home/zju/wlj/st-learned-index')
+sys.path.append('/home/zju/wlj/SBRIN')
 from src.spatial_index.sbrin import SBRIN
 from src.spatial_index.zm_index import ZMIndex
 from src.experiment.common_utils import Distribution, load_data, data_precision, data_region

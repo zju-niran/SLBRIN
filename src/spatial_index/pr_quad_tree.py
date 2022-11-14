@@ -8,7 +8,7 @@ import time
 
 import numpy as np
 
-sys.path.append('/home/zju/wlj/st-learned-index')
+sys.path.append('/home/zju/wlj/SBRIN')
 from src.spatial_index.spatial_index import SpatialIndex
 from src.spatial_index.common_utils import Region, Point
 from src.experiment.common_utils import Distribution, load_data
