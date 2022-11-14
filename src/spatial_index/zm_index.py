@@ -6,7 +6,6 @@ import os
 import sys
 import time
 
-import line_profiler
 import numpy as np
 
 sys.path.append('/home/zju/wlj/SBRIN')
@@ -16,7 +15,7 @@ from src.spatial_index.common_utils import Region, biased_search, normalize_inpu
     binary_search_less_max, binary_search, relu, normalize_output, normalize_input
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
-from src.experiment.common_utils import load_data, Distribution, data_region, data_precision
+from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
 
 # 预设pagesize=4096, read_ahead_pages=256, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
 RA_PAGES = 256
@@ -209,7 +208,6 @@ class ZMIndex(SpatialIndex):
                 retrain_model_epoch += tmp_index.get_epochs()
         self.logging.info("Retrain model num: %s" % retrain_model_num)
         self.logging.info("Retrain model epoch: %s" % retrain_model_epoch)
-
 
     def predict(self, key):
         """
@@ -705,8 +703,6 @@ def main():
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
-    profile = line_profiler.LineProfiler(index.knn_query_single)
-    profile.enable()
     structure_size, ie_size = index.size()
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
