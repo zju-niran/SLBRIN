@@ -16,7 +16,7 @@ from src.spatial_index.common_utils import Region, biased_search, normalize_inpu
     binary_search_less_max, binary_search, relu, normalize_output, normalize_input
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
-from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
+from src.experiment.common_utils import load_data, Distribution, data_region, data_precision
 
 # 预设pagesize=4096, read_ahead_pages=256, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
 RA_PAGES = 256
@@ -177,6 +177,8 @@ class ZMIndex(SpatialIndex):
 
     def update(self):
         leaf_nodes = self.rmi[-1]
+        retrain_model_num = 0
+        retrain_model_epoch = 0
         for j in range(0, self.stages[-1]):
             leaf_node = leaf_nodes[j]
             if leaf_node.delta_index:
@@ -196,13 +198,18 @@ class ZMIndex(SpatialIndex):
                 model_key = "retrain_%s" % j
                 tmp_index = NN(self.model_path, model_key, inputs, labels, True, self.is_gpu, self.weight,
                                self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
-                tmp_index.train_simple(None)  # update
-                # tmp_index.train_simple(leaf_node.model.matrices if leaf_node.model else None) # retrain with
+                # tmp_index.train_simple(None)  # update
+                tmp_index.train_simple(leaf_node.model.matrices if leaf_node.model else None)  # retrain with
                 leaf_node.model = AbstractNN(tmp_index.get_matrices(), len(self.cores) - 1,
                                              int(tmp_index.train_x_min), int(tmp_index.train_x_max),
                                              0, inputs_num - 1,  # update the range of output
                                              math.ceil(tmp_index.min_err), math.ceil(tmp_index.max_err))
-                # self.logging.info("retrain leaf model %s" % model_key)
+
+                retrain_model_num += 1
+                retrain_model_epoch += tmp_index.get_epochs()
+        self.logging.info("Retrain model num: %s" % retrain_model_num)
+        self.logging.info("Retrain model epoch: %s" % retrain_model_epoch)
+
 
     def predict(self, key):
         """
@@ -689,8 +696,8 @@ def main():
                     cores=[[1, 32], [1, 32]],
                     train_steps=[5000, 5000],
                     batch_nums=[64, 64],
-                    learning_rates=[0.1, 0.1],
                     use_thresholds=[False, False],
+                    learning_rates=[0.001, 0.001],
                     thresholds=[5, 20],
                     retrain_time_limits=[4, 2],
                     thread_pool_size=6)

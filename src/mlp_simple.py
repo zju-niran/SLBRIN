@@ -66,7 +66,7 @@ class MLPSimple:
 
     def train_model_simple(self):
         early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss',
-                                                          patience=self.train_step // 100,
+                                                          patience=self.train_step // 500,
                                                           mode='min',
                                                           verbose=0)
         self.model.fit(self.train_x, self.train_y,
@@ -78,6 +78,9 @@ class MLPSimple:
         self.matrices = self.get_matrices()
         self.min_err, self.max_err = self.get_err()
 
+    def get_epochs(self):
+        return len(self.model.history.epoch) if self.model.history else 0
+    
     def get_matrices(self):
         return self.model.get_weights()
 

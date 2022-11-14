@@ -8,8 +8,6 @@ import numpy as np
 import tensorflow as tf
 from matplotlib import pyplot as plt
 
-from src.spatial_index.common_utils import normalize_output, normalize_input
-
 
 class MLP:
     def __init__(self, model_path, model_key, train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
@@ -115,8 +113,6 @@ class MLP:
                            batch_size=self.batch_size,
                            verbose=0,
                            callbacks=[checkpoint, early_stopping])
-            # 加载loss最小的模型
-            self.model = tf.keras.models.load_model(self.model_hdf_file, custom_objects={'score': self.mse})
             min_err, max_err = self.get_err()
             err_length = max_err - min_err
             self.rename_model_file_by_err(err_length)
@@ -166,14 +162,8 @@ class MLP:
         self.train_model_simple()
 
     def train_model_simple(self):
-        checkpoint = tf.keras.callbacks.ModelCheckpoint(self.model_hdf_file,
-                                                        monitor='loss',
-                                                        verbose=0,
-                                                        save_best_only=True,
-                                                        mode='min',
-                                                        save_freq='epoch')
         early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss',
-                                                          patience=self.train_step // 100,
+                                                          patience=self.train_step // 500,
                                                           mode='min',
                                                           verbose=0,
                                                           restore_best_weights=True)
@@ -182,12 +172,13 @@ class MLP:
                        initial_epoch=0,
                        batch_size=self.batch_size,
                        verbose=0,
-                       callbacks=[checkpoint, early_stopping])
-        # 加载loss最小的模型
-        self.model = tf.keras.models.load_model(self.model_hdf_file, custom_objects={'score': self.mse})
+                       callbacks=[early_stopping])
         self.matrices = self.get_matrices()
         self.min_err, self.max_err = self.get_err()
         self.plot()
+
+    def get_epochs(self):
+        return len(self.model.history.epoch) if self.model.history else 0
 
     def get_matrices(self):
         return self.model.get_weights()
