@@ -533,7 +533,7 @@ class ZMIndex(SpatialIndex):
                os.path.getsize(os.path.join(self.model_path, "delta_indexes.npy")) - 128
 
     def model_err(self):
-        model_precisions = [(node.model.max_err - node.model.min_err) for node in self.rmi[-1] if node]
+        model_precisions = [(node.model.max_err - node.model.min_err) for node in self.rmi[-1] if node.model]
         model_precisions_avg = sum(model_precisions) / self.stages[-1]
         return model_precisions_avg
 
