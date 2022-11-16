@@ -42,6 +42,10 @@ update_data_path = {
     Distribution.UNIFORM_10W: "../../data/table/uniform_2_10w.npy",
     Distribution.NORMAL_10W: "../../data/table/normal_2_10w.npy",
     Distribution.NYCT_10W: "../../data/table/nyct_2_10w.npy",
+    Distribution.UNIFORM_SORTED: "../../data/table/uniform_2.npy",
+    Distribution.NORMAL_SORTED: "../../data/table/normal_2.npy",
+    Distribution.NYCT_SORTED: "../../data/table/nyct_2.npy",
+    Distribution.NYCT_10W_SORTED: "../../data/table/nyct_2_10w.npy",
 }
 data_precision = {
     Distribution.UNIFORM: 8,
@@ -135,6 +139,7 @@ def copy_dirs(from_file, to_file, ignore_file=None):
             copy_dirs(from_file + '/' + f, to_file + '/' + f)  # 递归调用本函数
         else:
             shutil.copy(from_file + '/' + f, to_file + '/' + f)  # 拷贝文件
+
 
 def test_point_query(index, data_distribution):
     sum_search_time = 0

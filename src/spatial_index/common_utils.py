@@ -442,7 +442,7 @@ def normalize_input(na):
     min_v = na.min(axis=0)
     max_v = na.max(axis=0)
     if max_v == min_v:
-        return na, min_v, max_v
+        return na - min_v, min_v, max_v
     else:
         return (na - min_v) / (max_v - min_v) - 0.5, min_v, max_v
 
@@ -458,7 +458,7 @@ def normalize_output(na):
 
 def normalize_input_minmax(value, min_v, max_v):
     if max_v == min_v:
-        return value
+        return value - min_v
     else:
         return (value - min_v) / (max_v - min_v) - 0.5
 
