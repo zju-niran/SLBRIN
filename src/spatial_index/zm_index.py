@@ -187,6 +187,7 @@ class ZMIndex(SpatialIndex):
                     leaf_node.index.sort(key=lambda x: x[2])  # 优化：有序数组合并->sorted:2.5->1
                 else:
                     leaf_node.index = leaf_node.delta_index
+                leaf_node.delta_index = []
                 # 2. retrain model
                 inputs = [data[2] for data in leaf_node.index]
                 inputs_num = len(inputs)
