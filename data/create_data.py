@@ -14,7 +14,14 @@ class MyError(Exception):
 
 
 def csv_to_npy(input_path, output_path):
-    np.save(output_path, pandas.read_csv(input_path).values[:, [10, 11]])
+    data_list = pandas.read_csv(input_path).values[:, [10, 11]]
+    # 时间字符串转时间戳
+    t_list = pandas.read_csv(input_path).values[:, [5]].astype(np.datetime64).astype(np.int32).reshape(
+        data_list.shape[0])
+    data_list = np.insert(data_list, 2, t_list, axis=1)
+    # 根据时间戳排序
+    data_list = data_list[t_list.argsort()]
+    np.save(output_path, data_list)
 
 
 def count_csv(path):
@@ -26,15 +33,30 @@ def count_csv(path):
         return count
 
 
+def plot_data(data_list):
+    from matplotlib import pyplot as plt
+    sample_key = np.random.randint(0, len(data_list), size=100000)
+    data_list = data_list[sample_key]
+    x = data_list[:, 0]
+    y = data_list[:, 1]
+    plt.scatter(x, y)
+    plt.show()
+
+
 def filter_row_in_region(input_path, output_path, range_limit):
     data_list = np.load(input_path, allow_pickle=True)
     contain_filter = np.apply_along_axis(lambda x: range_limit.contain(Point(x[0], x[1])), axis=1, arr=data_list)
     contain_data_list = data_list[contain_filter]
     np.save(output_path, contain_data_list)
+    print("Data num in region: %d" % contain_data_list.shape[0])
+    mins = np.min(contain_data_list, axis=0)
+    maxs = np.max(contain_data_list, axis=0)
+    print("Space scope: %f, %f, %f, %f" % (mins[1], maxs[1], mins[0], maxs[0]))
+    print("Time scope: %d, %d" % (mins[2], maxs[2]))
 
 
 def add_key_field(input_path, output_path, first_key):
-    data_list = np.load(input_path, allow_pickle=True).astype(np.object)
+    data_list = np.load(input_path, allow_pickle=True).astype(object)
     data_len = len(data_list)
     key_list = np.arange(first_key, first_key + data_len)
     key_list.resize((data_len, 1))
@@ -42,17 +64,11 @@ def add_key_field(input_path, output_path, first_key):
     np.save(output_path, data_list)
 
 
-def get_region(input_path):
-    data_list = np.load(input_path, allow_pickle=True)
-    mins = np.min(data_list, axis=0)
-    maxs = np.max(data_list, axis=0)
-    print("Region: %f, %f, %f, %f" % (mins[1], maxs[1], mins[0], maxs[0]))
-
-
 def sample(input_path, output_path, lines_limit):
     data_list = np.load(input_path, allow_pickle=True)
     np.random.seed(1)
     sample_key = np.random.randint(0, len(data_list) - 1, size=lines_limit)
+    sample_key = sample_key[sample_key.argsort()]
     np.save(output_path, data_list[sample_key])
 
 
@@ -105,7 +121,7 @@ def create_knn_query(input_path, output_path, query_number_limit, n_list):
 def geohash_and_sort(input_path, output_path, data_precision, region):
     geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)
     data_list = np.load(input_path, allow_pickle=True)
-    data_list = [(data[0], data[1], geohash.encode(data[0], data[1]), data[2]) for data in data_list]
+    data_list = [(data[0], data[1], geohash.encode(data[0], data[1]), data[2], data[3]) for data in data_list]
     data_list.sort(key=lambda x: x[2])
     np.save(output_path, data_list)
 
@@ -113,21 +129,23 @@ def geohash_and_sort(input_path, output_path, data_precision, region):
 def npy_to_table(input_path, output_path, is_sorted):
     data_list = np.load(input_path, allow_pickle=True)
     if is_sorted:
-        dtype = [("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')]
+        dtype = [("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4'), ("4", 'i4')]
     else:
-        dtype = [("0", 'f8'), ("1", 'f8'), ("3", 'i4')]
+        dtype = [("0", 'f8'), ("1", 'f8'), ("2", 'i4'), ("3", 'i4')]
     np.save(output_path, np.array([tuple(data) for data in data_list.tolist()], dtype=dtype))
 
 
-def create_data(output_path, data_size, scope, data_precision, type):
+def synthetic_data(output_path, data_size, spatial_scope, time_scope, data_precision, type):
+    # time is sorted and uniform
+    t = np.arange(time_scope[0], time_scope[1] + 1, (time_scope[1] + 1 - time_scope[0]) / data_size).astype(np.int32)
     if type == 'uniform':
-        x = np.around(np.random.uniform(scope[2], scope[3], size=data_size), decimals=data_precision)
-        y = np.around(np.random.uniform(scope[0], scope[1], size=data_size), decimals=data_precision)
+        x = np.around(np.random.uniform(spatial_scope[2], spatial_scope[3], size=data_size), decimals=data_precision)
+        y = np.around(np.random.uniform(spatial_scope[0], spatial_scope[1], size=data_size), decimals=data_precision)
     elif type == 'normal':
-        x_redius = (scope[3] - scope[2]) / 2
-        y_redius = (scope[1] - scope[0]) / 2
-        x_center = (scope[3] + scope[2]) / 2
-        y_center = (scope[1] + scope[0]) / 2
+        x_redius = (spatial_scope[3] - spatial_scope[2]) / 2
+        y_redius = (spatial_scope[1] - spatial_scope[0]) / 2
+        x_center = (spatial_scope[3] + spatial_scope[2]) / 2
+        y_center = (spatial_scope[1] + spatial_scope[0]) / 2
         x = np.random.normal(0, 1, size=data_size)
         y = np.random.normal(0, 1, size=data_size)
         x = np.around(x * x_redius / max(-x.min(), x.max()) + x_center, decimals=data_precision)
@@ -137,15 +155,7 @@ def create_data(output_path, data_size, scope, data_precision, type):
         y[y == 1] = 1 - pow(10, -data_precision)
     else:
         return
-    np.save(output_path, np.stack((x, y), axis=1))
-
-
-def plot_npy(input_path):
-    from matplotlib import pyplot as plt
-    data = np.load(input_path, allow_pickle=True)
-    plt.scatter(data[:, 0], data[:, 1])
-    plt.legend()
-    plt.show()
+    np.save(output_path, np.stack((x, y, t), axis=1))
 
 
 def create_distinct_data(input_path, output_path):
@@ -180,51 +190,44 @@ if __name__ == '__main__':
     # output_path = "./table/nyct_2.npy"
     # csv_to_npy(input_path, output_path)
     # 2. 数据清洗，只选取region内
-    # 数据总记录数：14776615+13990176，region内14507253+13729724=28236977
-    # 文件size：1.50GB+1.39GB，region内1.47GB+1.37GB=2.84GB
+    # 数据总记录数：14776615+13990176，1.50GB+1.39GB
+    # Region(40, 42, -75, -73)内14507253+13729724=28236977，1.47GB+1.37GB=2.84GB
+    # Region(40.61, 40.87, -74.05, -73.76)内：14494739+13716799，时间范围1356998400-1359676799-1362095999
     # input_path = "./table/nyct_1.npy"
     # output_path = "./table/nyct_1.npy"
-    # filter_row_in_region(input_path, output_path, Region(40, 42, -75, -73))
+    # filter_row_in_region(input_path, output_path, Region(40.61, 40.87, -74.05, -73.76))
     # input_path = "./table/nyct_2.npy"
     # output_path = "./table/nyct_2.npy"
-    # filter_row_in_region(input_path, output_path, Region(40, 42, -75, -73))
-    # 输出数据spatial scope
-    # 40.016666, 41.933331, -74.990433, -73.000938
-    # input_path = "./table/nyct_1.npy"
-    # get_region(input_path)
+    # filter_row_in_region(input_path, output_path, Region(40.61, 40.87, -74.05, -73.76))
     # 3. 生成uniform和normal的数据
     # 精度8，范围0-1-0-1，geohash长度为60，精度9的话长度就66了，超过了int64的范围
     # output_path = "./table/uniform_1.npy"
-    # create_data(output_path, 14507253, [0, 1, 0, 1], 8, 'uniform')
+    # synthetic_data(output_path, 14494739, [0, 1, 0, 1], [1356998400, 1359676799], 8, 'uniform')
     # output_path = "./table/uniform_2.npy"
-    # create_data(output_path, 13729724, [0, 1, 0, 1], 8, 'uniform')
+    # synthetic_data(output_path, 13716799, [0, 1, 0, 1], [1359676800, 1362095999], 8, 'uniform')
     # output_path = "./table/normal_1.npy"
-    # create_data(output_path, 14507253, [0, 1, 0, 1], 8, 'normal')
+    # synthetic_data(output_path, 14494739, [0, 1, 0, 1], [1356998400, 1359676799], 8, 'normal')
     # output_path = "./table/normal_2.npy"
-    # create_data(output_path, 13729724, [0, 1, 0, 1], 8, 'normal')
-    # output_path = "./table/uniform_1.npy"
-    # output_path = "./table/normal_1.npy"
-    # output_path = "./table/nyct_1.npy"
-    # plot_npy(output_path)
+    # synthetic_data(output_path, 13716799, [0, 1, 0, 1], [1359676800, 1362095999], 8, 'normal')
     # 4. 生成10w的数据
     # input_path = "./table/uniform_1.npy"
-    # output_path_10w_sample = './table/uniform_1_10w.npy'
-    # sample(input_path, output_path_10w_sample, 100000)
+    # output_path = './table/uniform_1_10w.npy'
+    # sample(input_path, output_path, 100000)
     # input_path = "./table/uniform_2.npy"
-    # output_path_10w_sample = './table/uniform_2_10w.npy'
-    # sample(input_path, output_path_10w_sample, 100000)
+    # output_path = './table/uniform_2_10w.npy'
+    # sample(input_path, output_path, 100000)
     # input_path = "./table/normal_1.npy"
-    # output_path_10w_sample = './table/normal_1_10w.npy'
-    # sample(input_path, output_path_10w_sample, 100000)
+    # output_path = './table/normal_1_10w.npy'
+    # sample(input_path, output_path, 100000)
     # input_path = "./table/normal_2.npy"
-    # output_path_10w_sample = './table/normal_2_10w.npy'
-    # sample(input_path, output_path_10w_sample, 100000)
+    # output_path = './table/normal_2_10w.npy'
+    # sample(input_path, output_path, 100000)
     # input_path = "./table/nyct_1.npy"
-    # output_path_10w_sample = './table/nyct_1_10w.npy'
-    # sample(input_path, output_path_10w_sample, 100000)
+    # output_path = './table/nyct_1_10w.npy'
+    # sample(input_path, output_path, 100000)
     # input_path = "./table/nyct_2.npy"
-    # output_path_10w_sample = './table/nyct_2_10w.npy'
-    # sample(input_path, output_path_10w_sample, 100000)
+    # output_path = './table/nyct_2_10w.npy'
+    # sample(input_path, output_path, 100000)
     # [Optional] 5. 生成不重复的数据
     # input_path = "./table/nyct_1_10w.npy"
     # output_path = "./table/nyct_1_10w_distinct.npy"
@@ -240,7 +243,7 @@ if __name__ == '__main__':
     # output_path = "./table/uniform_2.npy"
     # output_path = "./table/normal_2.npy"
     # output_path = "./table/nyct_2.npy"
-    # first_key = 14507253
+    # first_key = 14494739
     # output_path = "./table/uniform_2_10w.npy"
     # output_path = "./table/normal_2_10w.npy"
     # output_path = "./table/nyct_2_10w.npy"
@@ -258,23 +261,33 @@ if __name__ == '__main__':
     # input_path = "./table/nyct_1_10w.npy"
     # output_path = "./index/nyct_1_10w_sorted.npy"
     # data_precision = 6
-    # region = Region(40, 42, -75, -73)
+    # region = Region(40.61, 40.87, -74.05, -73.76)
     # geohash_and_sort(input_path, output_path, data_precision, region)
-    # 8 npy转标准table表格存储：xyzi为'f8, f8, i8, i4'
+    # 8 npy转标准table表格存储：xyzti为'f8, f8, i8, i4, i4'
     # output_path = "./table/uniform_1.npy"
+    # npy_to_table(output_path, output_path, False)
     # output_path = "./table/uniform_1_10w.npy"
+    # npy_to_table(output_path, output_path, False)
     # output_path = "./table/normal_1.npy"
+    # npy_to_table(output_path, output_path, False)
     # output_path = "./table/normal_1_10w.npy"
+    # npy_to_table(output_path, output_path, False)
     # output_path = "./table/nyct_1.npy"
+    # npy_to_table(output_path, output_path, False)
     # output_path = "./table/nyct_1_10w.npy"
+    # npy_to_table(output_path, output_path, False)
     # output_path = "./table/nyct_2.npy"
+    # npy_to_table(output_path, output_path, False)
     # output_path = "./table/nyct_2_10w.npy"
     # npy_to_table(output_path, output_path, False)
     # output_path = "./index/uniform_1_sorted.npy"
+    # npy_to_table(output_path, output_path, True)
     # output_path = "./index/normal_1_sorted.npy"
+    # npy_to_table(output_path, output_path, True)
     # output_path = "./index/nyct_1_sorted.npy"
-    output_path = "./index/nyct_1_10w_sorted.npy"
-    npy_to_table(output_path, output_path, True)
+    # npy_to_table(output_path, output_path, True)
+    # output_path = "./index/nyct_1_10w_sorted.npy"
+    # npy_to_table(output_path, output_path, True)
     # 1. 生成point检索范围
     # input_path = './table/uniform_1.npy'
     # output_path = './query/point_query_uniform.npy'
@@ -290,7 +303,7 @@ if __name__ == '__main__':
     # output_path = './query/range_query_normal.npy'
     # data_range = [0, 1, 0, 1]
     # output_path = './query/range_query_nyct.npy'
-    # data_range = [40, 42, -75, -73]
+    # data_range = [40.61, 40.87, -74.05, -73.76]
     # query_number_limit = 1000
     # create_range_query(output_path, data_range, query_number_limit, range_ratio_list)
     # 3.生成knn检索范围

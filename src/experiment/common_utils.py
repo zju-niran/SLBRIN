@@ -62,14 +62,14 @@ data_precision = {
 data_region = {
     Distribution.UNIFORM: Region(0, 1, 0, 1),
     Distribution.NORMAL: Region(0, 1, 0, 1),
-    Distribution.NYCT: Region(40, 42, -75, -73),
+    Distribution.NYCT: Region(40.61, 40.87, -74.05, -73.76),
     Distribution.UNIFORM_10W: Region(0, 1, 0, 1),
     Distribution.NORMAL_10W: Region(0, 1, 0, 1),
-    Distribution.NYCT_10W: Region(40, 42, -75, -73),
+    Distribution.NYCT_10W: Region(40.61, 40.87, -74.05, -73.76),
     Distribution.UNIFORM_SORTED: Region(0, 1, 0, 1),
     Distribution.NORMAL_SORTED: Region(0, 1, 0, 1),
-    Distribution.NYCT_SORTED: Region(40, 42, -75, -73),
-    Distribution.NYCT_10W_SORTED: Region(40, 42, -75, -73),
+    Distribution.NYCT_SORTED: Region(40.61, 40.87, -74.05, -73.76),
+    Distribution.NYCT_10W_SORTED: Region(40.61, 40.87, -74.05, -73.76),
 }
 
 
