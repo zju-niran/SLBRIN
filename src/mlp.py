@@ -44,7 +44,7 @@ class MLP:
         self.max_err = None
         self.logging = None
 
-    def train(self):
+    def build(self):
         if self.is_gpu:
             os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
             os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -57,7 +57,7 @@ class MLP:
         else:
             os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
         if self.is_new:
-            self.init_model()
+            self.init()
             self.model_hdf_file = os.path.join(self.model_hdf_dir, '.'.join([self.model_key, "best", "hdf5"]))
         else:
             self.get_best_model_file()
@@ -69,15 +69,16 @@ class MLP:
                 # delete model when model file is not in hdf5 format but exists, maybe destroyed by interrupt
                 if os.path.exists(self.model_hdf_file):
                     os.remove(self.model_hdf_file)
-                self.init_model()
+                self.init()
         logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
                             level=logging.INFO,
                             format="%(asctime)s - %(levelname)s - %(message)s",
                             datefmt="%Y/%m/%d %H:%M:%S %p")
         self.logging = logging.getLogger(self.name)
-        self.train_model(self.is_new)
+        self.train(self.is_new)
+        self.plot()
 
-    def init_model(self):
+    def init(self):
         self.model = tf.keras.Sequential()
         for i in range(len(self.core) - 1):
             self.model.add(tf.keras.layers.Dense(units=self.core[i + 1],
@@ -87,7 +88,7 @@ class MLP:
         optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
         self.model.compile(optimizer=optimizer, loss=self.mse)
 
-    def train_model(self, is_new):
+    def train(self, is_new):
         start_time = time.time()
         if is_new:
             checkpoint = tf.keras.callbacks.ModelCheckpoint(self.model_hdf_file,
@@ -116,7 +117,6 @@ class MLP:
             min_err, max_err = self.get_err()
             err_length = max_err - min_err
             self.rename_model_file_by_err(err_length)
-            self.plot()
         else:
             min_err, max_err = self.get_err()
             err_length = max_err - min_err
@@ -131,7 +131,7 @@ class MLP:
                     self.retrain_times += 1
                     self.logging.info("Retrain %d when score not perfect: Model %s, Err %f" % (
                         self.retrain_times, self.model_hdf_file, err_length))
-                    self.train_model(True)
+                    self.train(True)
                 else:
                     self.logging.info("Retrain time limit: Model %s, Err %f" % (self.model_hdf_file, err_length))
             else:
@@ -143,7 +143,7 @@ class MLP:
         self.logging.info("Model key: %s, Train time: %s" % (self.model_key, end_time - start_time))
 
     # 区别：simple结尾的函数用于模型的重训练
-    def train_simple(self, matrices):
+    def build_simple(self, matrices):
         if self.is_gpu:
             os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
             os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -155,13 +155,12 @@ class MLP:
                 tf.config.experimental.set_memory_growth(gpu, True)
         else:
             os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-        self.init_model()
-        self.model_hdf_file = os.path.join(self.model_hdf_dir, self.model_key + ".best.hdf5")
+        self.init()
         if matrices:
             self.set_matrices(matrices)
-        self.train_model_simple()
+        self.train_simple()
 
-    def train_model_simple(self):
+    def train_simple(self):
         early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss',
                                                           patience=self.train_step // 500,
                                                           mode='min',
@@ -175,7 +174,6 @@ class MLP:
                        callbacks=[early_stopping])
         self.matrices = self.get_matrices()
         self.min_err, self.max_err = self.get_err()
-        self.plot()
 
     def get_epochs(self):
         return len(self.model.history.epoch) if self.model.history else 0

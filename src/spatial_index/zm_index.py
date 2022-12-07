@@ -15,7 +15,7 @@ from src.spatial_index.common_utils import Region, biased_search, normalize_inpu
     binary_search_less_max, binary_search, relu, normalize_output, normalize_input
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
-from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
+from src.experiment.common_utils import load_data, Distribution, data_region, data_precision
 
 # 预设pagesize=4096, read_ahead_pages=256, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
 RA_PAGES = 256
@@ -81,11 +81,10 @@ class ZMIndex(SpatialIndex):
         data_len = len(data_list)
         self.max_key = data_len
         if not is_sorted:
-            data_list = [(data_list[i][0], data_list[i][1], self.geohash.encode(data_list[i][0], data_list[i][1]), i)
-                         for i in range(0, data_len)]
+            data_list = [(data[0], data[1], self.geohash.encode(data[0], data[1]), data[-1]) for data in data_list]
             data_list = sorted(data_list, key=lambda x: x[2])
         else:
-            data_list = data_list.tolist()
+            data_list = [(data[0], data[1], data[2], data[-1]) for data in data_list]
         train_inputs[0][0] = data_list
         train_labels[0][0] = list(range(0, data_len))
         # 2. create rmi to train geohash->key data
@@ -167,7 +166,7 @@ class ZMIndex(SpatialIndex):
         # 4. insert ie into update index
         leaf_node = self.rmi[-1][node_key]
         leaf_node.delta_index.insert(
-            binary_search_less_max(leaf_node.index, 2, gh, 0, len(leaf_node.index) - 1) + 1, point)
+            binary_search_less_max(leaf_node.delta_index, 2, gh, 0, len(leaf_node.delta_index) - 1) + 1, point)
 
     def insert(self, points):
         points = points.tolist()
@@ -204,7 +203,6 @@ class ZMIndex(SpatialIndex):
                                              int(tmp_index.train_x_min), int(tmp_index.train_x_max),
                                              0, inputs_num - 1,  # update the range of output
                                              math.ceil(tmp_index.min_err), math.ceil(tmp_index.max_err))
-
                 retrain_model_num += 1
                 retrain_model_epoch += tmp_index.get_epochs()
         self.logging.info("Retrain model num: %s" % retrain_model_num)
@@ -594,7 +592,7 @@ def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new,
         tmp_index = NN(model_path, model_key, inputs, labels, is_new, is_gpu,
                        weight, core, train_step, batch_size, learning_rate,
                        use_threshold, threshold, retrain_time_limit)
-    tmp_index.train()
+    tmp_index.build()
     abstract_index = AbstractNN(tmp_index.get_matrices(), len(core) - 1,
                                 int(tmp_index.train_x_min), int(tmp_index.train_x_max),
                                 int(tmp_index.train_y_min), int(tmp_index.train_y_max),
@@ -671,12 +669,12 @@ class AbstractNN:
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     model_path = "model/zm_index_10w_uniform/"
-    data_distribution = Distribution.UNIFORM_10W
+    data_distribution = Distribution.NYCT_10W_SORTED
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
     index = ZMIndex(model_path=model_path)
     index_name = index.name
-    load_index_from_json = True
+    load_index_from_json = False
     if load_index_from_json:
         index.load()
     else:

@@ -1,12 +1,10 @@
-import copy
 import math
-import os
 from collections import deque
 from itertools import chain
 from reprlib import repr
 from sys import getsizeof, stderr
 
-import line_profiler
+import matplotlib.pyplot as plt
 import numpy as np
 
 
@@ -308,25 +306,9 @@ def total_size(o, handlers={}, verbose=False):
     return sizeof(o)
 
 
-def binary_search_less_max(nums, field, x, left, right):
-    """
-    二分查找比x小的最大值
-    优化: 循环->二分:15->1
-    """
-    while left <= right:
-        mid = (left + right) // 2
-        if nums[mid][field] == x:
-            return mid
-        elif nums[mid][field] < x:
-            left = mid + 1
-        else:
-            right = mid - 1
-    return right
-
-
 def binary_search(nums, field, x, left, right):
     """
-    binary search x in nums[left, right]
+    二分查找 + 对象
     """
     result = []
     while left <= right:
@@ -349,9 +331,69 @@ def binary_search(nums, field, x, left, right):
     return result
 
 
+def binary_search_less_max(nums, field, x, left, right):
+    """
+    二分查找 + 对象 + 找比x小的最大值
+    优化: 循环->二分:15->1
+    """
+    while left <= right:
+        mid = (left + right) // 2
+        if nums[mid][field] == x:
+            return mid
+        elif nums[mid][field] < x:
+            left = mid + 1
+        else:
+            right = mid - 1
+    return right
+
+
+def binary_search_less_max_duplicate(nums, x, left, right):
+    """
+    二分查找 + 对象 + 查找不超过x的数量 + 允许重复
+    """
+    while left <= right:
+        mid = (left + right) // 2
+        if nums[mid] == x:
+            mid += 1
+            while mid <= right and nums[mid] == x:
+                mid += 1
+            return mid
+        elif nums[mid] < x:
+            left = mid + 1
+        else:
+            right = mid - 1
+    return right + 1
+
+
+def biased_search(nums, field, x, mid, left, right):
+    """
+    二分查找 + 对象 + biased
+    如果pre不在[left, right]里，会变慢
+    """
+    result = []
+    while left <= right:
+        if nums[mid][field] == x:
+            result.append(mid)
+            mid_left = mid - 1
+            while mid_left >= left and nums[mid_left][field] == x:
+                result.append(mid_left)
+                mid_left -= 1
+            mid_right = mid + 1
+            while mid_right <= right and nums[mid_right][field] == x:
+                result.append(mid_right)
+                mid_right += 1
+            return result
+        elif nums[mid][field] < x:
+            left = mid + 1
+        else:
+            right = mid - 1
+        mid = (left + right) // 2
+    return result
+
+
 def biased_search_almost(nums, field, x, mid, left, right):
     """
-    二分查找，找不到则返回最接近的，值不超过[left, right]
+    二分查找 + 对象 + biase + 查找最接近的，值不超过[left, right]
     """
     result = []
     left_store = left
@@ -378,32 +420,6 @@ def biased_search_almost(nums, field, x, mid, left, right):
     if left > right_store:
         return [right_store]
     return [right] if nums[left][field] - x > x - nums[right][field] else [left]
-
-
-def biased_search(nums, field, x, mid, left, right):
-    """
-    binary search x in nums[left, right], but the first mid is pre
-    如果pre不在[left, right]里，会变慢
-    """
-    result = []
-    while left <= right:
-        if nums[mid][field] == x:
-            result.append(mid)
-            mid_left = mid - 1
-            while mid_left >= left and nums[mid_left][field] == x:
-                result.append(mid_left)
-                mid_left -= 1
-            mid_right = mid + 1
-            while mid_right <= right and nums[mid_right][field] == x:
-                result.append(mid_right)
-                mid_right += 1
-            return result
-        elif nums[mid][field] < x:
-            left = mid + 1
-        else:
-            right = mid - 1
-        mid = (left + right) // 2
-    return result
 
 
 def partition(nums, field, left, right):
@@ -487,6 +503,7 @@ def elu(x, alpha=1):
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
+
 def get_mbr_by_points(points):
     x_max = x_min = points[0][0]
     y_max = y_min = points[0][1]
@@ -502,30 +519,19 @@ def get_mbr_by_points(points):
     return [y_min, y_max, x_min, x_max]
 
 
-def fun100(data):
-    a = data.tolist()
-    k = 100
-    b = copy.deepcopy(a)
-    quick_sort(b, 0, 0, len(data) - 1)
-    b = b[:k]
-    d = copy.deepcopy(a)
-    quick_sort_n(d, 0, k, 0, len(data) - 1)
-    d = d[:k]
-    c = sorted(a)[:k]
-    print(b)
-    print(d)
-    print(c)
-    for i in d:
-        if i not in c:
-            print(i)
+def plot_ts(ts):
+    ts_len = len(ts)
+    col = 5
+    row = math.ceil(ts_len / col)
+    width = 3
+    height = 3
+    plt.figure(figsize=(width * col, height * row), dpi=80)
+    for i in range(ts_len):
+        plt.subplot(row, col, i + 1)
+        plt.plot(ts[i])
+    plt.show()
 
 
 if __name__ == '__main__':
-    os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    data = np.load("../data/table/nyct_1_10w.npy", allow_pickle=True)
-    profile = line_profiler.LineProfiler(fun100)
-    profile.enable()
-    # quick_sort:quick_sort_n:sorted=>14:2:1
-    fun100(data)
-    profile.disable()
-    profile.print_stats()
+    ts = [[1, 1, 1]] * 11
+    plot_ts(ts)

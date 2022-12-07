@@ -37,7 +37,7 @@ class MLPSimple:
         self.min_err = None
         self.max_err = None
 
-    def init_model(self):
+    def init(self):
         self.model = tf.keras.Sequential()
         for i in range(len(self.core) - 1):
             self.model.add(tf.keras.layers.Dense(units=self.core[i + 1],
@@ -59,12 +59,12 @@ class MLPSimple:
                 tf.config.experimental.set_memory_growth(gpu, True)
         else:
             os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-        self.init_model()
+        self.init()
         if matrices:
             self.set_matrices(matrices)
-        self.train_model_simple()
+        self.train_simple()
 
-    def train_model_simple(self):
+    def train_simple(self):
         early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss',
                                                           patience=self.train_step // 500,
                                                           mode='min',

@@ -10,7 +10,7 @@ sys.path.append('/home/zju/wlj/SBRIN')
 from src.spatial_index.common_utils import get_mbr_by_points, intersect, Region, binary_search
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
-from src.experiment.common_utils import load_data, Distribution
+from src.experiment.common_utils import load_data, Distribution, data_region, data_precision
 
 """
 前提条件:
@@ -365,6 +365,7 @@ class BlockRange:
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     model_path = "model/brinspatial_10w/"
+    data_distribution = Distribution.UNIFORM_10W
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
     index = BRINSpatial(model_path=model_path)
@@ -376,7 +377,7 @@ def main():
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
         # build_data_list = load_data(Distribution.NYCT_10W, 0)
-        build_data_list = load_data(Distribution.NYCT_10W_SORTED, 0)
+        build_data_list = load_data(data_distribution, 0)
         # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y)=8, brin整体连续存, meta一个page, blk分页存
         # blk体积=blknum/value=4+4*8=36，一个page存113个blk
         # revmap体积=blkid+blk指针=2+4=6，一个page存682个blk
@@ -388,8 +389,8 @@ def main():
         index.build(data_list=build_data_list,
                     pages_per_range=5,
                     is_sorted=True,
-                    region=Region(40, 42, -75, -73),
-                    data_precision=6)
+                    data_precision=data_precision[data_distribution],
+                    region=data_region[data_distribution])
         index.save()
         end_time = time.time()
         build_time = end_time - start_time

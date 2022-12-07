@@ -16,7 +16,7 @@ from src.spatial_index.common_utils import Region, binary_search_less_max, sigmo
     biased_search, get_mbr_by_points
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
-from src.experiment.common_utils import load_data, Distribution
+from src.experiment.common_utils import load_data, Distribution, data_precision, data_region
 
 RA_PAGES = 256
 PAGE_SIZE = 4096
@@ -304,7 +304,7 @@ class SBRIN(SpatialIndex):
             batch_size = 1
         tmp_index = NN(self.model_path, str(hr_key), inputs, labels, True, self.is_gpu, self.weight,
                        self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
-        tmp_index.train_simple(hr.model.matrices)
+        tmp_index.build_simple(hr.model.matrices)
         hr.model = AbstractNN(tmp_index.matrices, hr.model.hl_nums,
                               math.ceil(tmp_index.min_err),
                               math.ceil(tmp_index.max_err))
@@ -957,7 +957,7 @@ def build_nn(model_path, model_key, inputs, labels, is_new, is_simple, is_gpu, w
     else:
         tmp_index = NN(model_path, str(model_key), inputs, labels, is_new, is_gpu, weight, core,
                        train_step, batch_size, learning_rate, use_threshold, threshold, retrain_time_limit)
-    tmp_index.train()
+    tmp_index.build()
     abstract_index = AbstractNN(tmp_index.matrices, len(core) - 1,
                                 math.ceil(tmp_index.min_err),
                                 math.ceil(tmp_index.max_err))
@@ -1160,6 +1160,7 @@ class AbstractNN:
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     model_path = "model/sbrin_10w/"
+    data_distribution = Distribution.NYCT_10W_SORTED
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
     index = SBRIN(model_path=model_path)
@@ -1170,7 +1171,7 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        build_data_list = load_data(Distribution.NYCT_10W_SORTED, 0)
+        build_data_list = load_data(data_distribution, 0)
         # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y/g)=8, sbrin整体连续存, meta一个page, br分页存，model(2009大小)单独存
         # hr体积=value/length/number=16，一个page存256个hr
         # cr体积=value/number=35，一个page存117个cr
@@ -1183,8 +1184,8 @@ def main():
         index.build(data_list=build_data_list,
                     is_sorted=True,
                     threshold_number=1000,
-                    data_precision=6,
-                    region=Region(40, 42, -75, -73),
+                    data_precision=data_precision[data_distribution],
+                    region=data_region[data_distribution],
                     threshold_err=1,
                     threshold_summary=1000,
                     threshold_merge=5,

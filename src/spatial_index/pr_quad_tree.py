@@ -11,7 +11,7 @@ import numpy as np
 sys.path.append('/home/zju/wlj/SBRIN')
 from src.spatial_index.spatial_index import SpatialIndex
 from src.spatial_index.common_utils import Region, Point
-from src.experiment.common_utils import Distribution, load_data
+from src.experiment.common_utils import Distribution, load_data, data_precision, data_region
 
 RA_PAGES = 256
 PAGE_SIZE = 4096
@@ -437,6 +437,7 @@ def get_leaf_and_path(node_list, result, cur_path, key):
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     model_path = "model/prquadtree_10w/"
+    data_distribution = Distribution.NYCT_10W
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
     index = PRQuadTree(model_path=model_path)
@@ -447,7 +448,7 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        build_data_list = load_data(Distribution.NYCT_10W, 0)
+        build_data_list = load_data(data_distribution, 0)
         # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y)=8, node和data按照DFS的顺序密集存储在page中
         # tree存放所有node的深度、是否叶节点、region、四节点指针和data的始末指针:
         # node size=1+1+8*4+4*4+4*2=58，单page存放4096/58=70node，单read_ahead读取256*70=17920node
@@ -462,9 +463,9 @@ def main():
         # 单次扫描IO=读取node+读取node对应数据=5w/17920+500/52224=4~5
         # 索引体积=5w/64*4096+20*1451w
         index.build(data_list=build_data_list,
-                    region=Region(40, 42, -75, -73),
                     threshold_number=1000,
-                    data_precision=6)
+                    data_precision=data_precision[data_distribution],
+                    region=data_region[data_distribution])
         index.save()
         end_time = time.time()
         build_time = end_time - start_time
