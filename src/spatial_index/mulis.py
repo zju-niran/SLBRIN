@@ -46,7 +46,7 @@ class Mulis(SpatialIndex):
         self.update_interval = None
         self.cdf_width = None
         self.start_time = None
-        self.cur_time = None
+        self.cur_time_interval = None
         self.time_interval = None
         # 训练所需：
         self.is_gpu = None
@@ -75,7 +75,7 @@ class Mulis(SpatialIndex):
         self.learning_rate = learning_rates[-1]
         self.cdf_width = cdf_width
         self.start_time = start_time
-        self.cur_time = end_time
+        self.cur_time_interval = math.ceil((end_time - start_time) / time_interval)
         self.time_interval = time_interval
         model_hdf_dir = os.path.join(self.model_path, "hdf/")
         if os.path.exists(model_hdf_dir) is False:
@@ -93,7 +93,6 @@ class Mulis(SpatialIndex):
         # 1. ordering x/y point by geohash
         data_len = len(data_list)
         self.max_key = data_len
-        cdf_len = math.ceil((end_time - start_time) / time_interval)
         if not is_sorted:
             data_list = [(data[0], data[1], self.geohash.encode(data[0], data[1]), data[2], data[3])
                          for data in data_list]
@@ -180,12 +179,12 @@ class Mulis(SpatialIndex):
                     min_key = node.model.input_min
                     max_key = node.model.input_max
                     key_interval = (max_key - min_key) / cdf_width
-                    key_list = [int(min_key + l * key_interval) for l in range(cdf_width)]
-                    old_cdfs = [[] for k in range(cdf_len)]
+                    key_list = [int(min_key + k * key_interval) for k in range(cdf_width)]
+                    old_cdfs = [[] for k in range(self.cur_time_interval)]
                     for data in train_input[j]:
                         old_cdfs[(data[3] - start_time) // time_interval].append(data[2])
                     old_nums = [len(cdf) for cdf in old_cdfs]
-                    for k in range(cdf_len):
+                    for k in range(self.cur_time_interval):
                         cdf = old_cdfs[k]
                         if cdf:
                             x_len = len(cdf)
@@ -202,7 +201,7 @@ class Mulis(SpatialIndex):
                     delta_model.build()
                     node.delta_model = delta_model
                     # build delta_index
-                    delta_index = []
+                    delta_index = [None]
                     cur_keys = [int(k * delta_model.cur_num) for k in delta_model.cur_cdf]
                     for k in range(0, cdf_width - 1):
                         delta_index.append([None] * (cur_keys[k + 1] - cur_keys[k]))
@@ -230,20 +229,29 @@ class Mulis(SpatialIndex):
             node_key = int(self.rmi[i][node_key].model.predict(gh))
         # 4. insert ie into update index
         leaf_node = self.rmi[-1][node_key]
+        pos = (gh - leaf_node.model.input_min) / (
+                leaf_node.model.input_max - leaf_node.model.input_min) * leaf_node.delta_model.cdf_width
+        key = int(pos)
+        delta_index_list = leaf_node.delta_index[key]
+        if len(delta_index_list) == 0:  # the list is None
+            delta_index_list.append(point)
+        else:
+            offset = int((pos - key) * len(delta_index_list))
+            if delta_index_list[offset] is None:  # the target key is empty
+                delta_index_list[offset] = point
+            else:  # the target key has already been taken up
+                delta_index_list.insert(0, )
         insert_key = binary_search_less_max(leaf_node.build_simple, 2, gh, 0, len(leaf_node.build_simple) - 1) + 1
-        leaf_node.delta_index.insert(
-            binary_search_less_max(leaf_node.build_simple, 2, gh, 0, len(leaf_node.build_simple) - 1) + 1, point)
 
     def insert(self, points):
         points = points.tolist()
         for point in points:
             cur_time = point[2]
-            if cur_time > self.cur_time:
-                # update once the time of new point cross the time interval
-                if (self.cur_time - self.start_time) // self.time_interval < (
-                        cur_time - self.start_time) // self.time_interval:
-                    self.update()
-                self.cur_time = cur_time
+            # update once the time of new point cross the time interval
+            cur_time_interval = (cur_time - self.start_time) // self.time_interval
+            if self.cur_time_interval < cur_time_interval:
+                self.update()
+                self.cur_time_interval = cur_time_interval
             self.insert_single(point)
 
     def update(self):
