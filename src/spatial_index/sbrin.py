@@ -1059,14 +1059,14 @@ class CurrentRange:
 class NN(MLP):
     def __init__(self, model_path, model_key, train_x, train_y, is_new, is_gpu, weight, core, train_step, batch_size,
                  learning_rate, use_threshold, threshold, retrain_time_limit):
-        self.name = "ZM Index NN"
+        self.name = "SBRIN NN"
         # train_x的是有序的，归一化不需要计算最大最小值
         train_x_min = train_x[0]
         train_x_max = train_x[-1]
         train_x = (np.array(train_x) - train_x_min) / (train_x_max - train_x_min) - 0.5
         train_y_min = train_y[0]
         train_y_max = train_y[-1]
-        train_y = (np.array(train_y) - train_y_min) / (train_y_max - self.train_y_min)
+        train_y = (np.array(train_y) - train_y_min) / (train_y_max - train_y_min)
         super().__init__(model_path, model_key, train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
                          is_new, is_gpu, weight, core, train_step, batch_size, learning_rate, use_threshold, threshold,
                          retrain_time_limit)
@@ -1087,14 +1087,14 @@ class NN(MLP):
 
 class NNSimple(MLPSimple):
     def __init__(self, train_x, train_y, is_gpu, weight, core, train_step, batch_size, learning_rate):
-        self.name = "ZM Index NN"
+        self.name = "SBRIN NN"
         # train_x的是有序的，归一化不需要计算最大最小值
         train_x_min = train_x[0]
         train_x_max = train_x[-1]
         train_x = (np.array(train_x) - train_x_min) / (train_x_max - train_x_min) - 0.5
         train_y_min = train_y[0]
         train_y_max = train_y[-1]
-        train_y = (np.array(train_y) - train_y_min) / (train_y_max - self.train_y_min)
+        train_y = (np.array(train_y) - train_y_min) / (train_y_max - train_y_min)
         super().__init__(train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
                          is_gpu, weight, core, train_step, batch_size, learning_rate)
 

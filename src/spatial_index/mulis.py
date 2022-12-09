@@ -8,15 +8,14 @@ import time
 
 import numpy as np
 
-from src.ts_model import TimeSeriesModel
-
 sys.path.append('/home/zju/wlj/SBRIN')
 from src.mlp import MLP
 from src.mlp_simple import MLPSimple
 from src.spatial_index.common_utils import Region, biased_search, normalize_input_minmax, denormalize_output_minmax, \
-    binary_search_less_max, binary_search, relu, normalize_output, normalize_input, binary_search_less_max_duplicate
+    binary_search_less_max, binary_search, relu
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
+from src.ts_model import TimeSeriesModel, build_cdf
 from src.experiment.common_utils import load_data, Distribution, data_region, data_precision
 
 # 预设pagesize=4096, read_ahead_pages=256, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
@@ -45,6 +44,7 @@ class Mulis(SpatialIndex):
         # 更新所需：
         self.update_interval = None
         self.cdf_width = None
+        self.cdf_lag = None
         self.start_time = None
         self.cur_time_interval = None
         self.time_interval = None
@@ -74,6 +74,7 @@ class Mulis(SpatialIndex):
         self.batch_num = batch_nums[-1]
         self.learning_rate = learning_rates[-1]
         self.cdf_width = cdf_width
+        self.cdf_lag = cdf_lag
         self.start_time = start_time
         self.cur_time_interval = math.ceil((end_time - start_time) / time_interval)
         self.time_interval = time_interval
@@ -151,29 +152,25 @@ class Mulis(SpatialIndex):
                 key_left_bounds = self.get_leaf_bound()
                 for j in range(task_size):
                     inputs = [data[2] for data in train_input[j]]
-                    if inputs:
-                        # add the key bound into inputs
-                        left_bound = key_left_bounds[j]
-                        right_bound = (key_left_bounds[j + 1] if j + 1 < task_size else 1 << self.geohash.sum_bits)
-                        if not (left_bound < inputs[0] and right_bound > inputs[-1]):
-                            raise RuntimeError("the inputs [%f, %f] of leaf node %d exceed the limits [%f, %f]" % (
-                                inputs[0], inputs[-1], j, left_bound, right_bound))
-                        inputs.insert(0, key_left_bounds[j])
-                        inputs.append(key_left_bounds[j + 1] if j + 1 < task_size else 1 << self.geohash.sum_bits)
-                        labels = list(range(0, len(inputs)))
-                        # build model
-                        pool.apply_async(build_nn, (self.model_path, i, j, inputs, labels, is_new, is_simple, is_gpu,
-                                                    weight, core, train_step, batch_num, learning_rate,
-                                                    use_threshold, threshold, retrain_time_limit, mp_list))
+                    # add the key bound into inputs
+                    left_bound = key_left_bounds[j]
+                    right_bound = (key_left_bounds[j + 1] if j + 1 < task_size else 1 << self.geohash.sum_bits)
+                    if inputs and not (left_bound < inputs[0] and right_bound > inputs[-1]):
+                        raise RuntimeError("the inputs [%f, %f] of leaf node %d exceed the limits [%f, %f]" % (
+                            inputs[0], inputs[-1], j, left_bound, right_bound))
+                    inputs.insert(0, key_left_bounds[j])
+                    inputs.append(key_left_bounds[j + 1] if j + 1 < task_size else 1 << self.geohash.sum_bits)
+                    labels = list(range(0, len(inputs)))
+                    # build model
+                    pool.apply_async(build_nn, (self.model_path, i, j, inputs, labels, is_new, is_simple, is_gpu,
+                                                weight, core, train_step, batch_num, learning_rate,
+                                                use_threshold, threshold, retrain_time_limit, mp_list))
                 pool.close()
                 pool.join()
                 nodes = [Node(train_input[j], mp_list[j], None, None) for j in range(task_size)]
                 # 2.2.1 create delta_index and delta_model
                 for j in range(task_size):
-                    # do not create delta_model for sparse delta_index
-                    if len(train_input[j]) < cdf_width * cdf_lag:
-                        continue
-                    # get the old_cdfs and old_nums for delta_model
+                    # create the old_cdfs and old_max_keys for delta_model
                     node = nodes[j]
                     node.model.output_max -= 2  # remove the key bound
                     min_key = node.model.input_min
@@ -183,29 +180,22 @@ class Mulis(SpatialIndex):
                     old_cdfs = [[] for k in range(self.cur_time_interval)]
                     for data in train_input[j]:
                         old_cdfs[(data[3] - start_time) // time_interval].append(data[2])
-                    old_nums = [len(cdf) for cdf in old_cdfs]
-                    for k in range(self.cur_time_interval):
+                    old_max_keys = [max(len(cdf) - 1, 0) for cdf in old_cdfs]
+                    # for empty and head old_cdfs, remove them
+                    l = 0
+                    while l < self.cur_time_interval and len(old_cdfs[l]) == 0:
+                        l += 1
+                    old_cdfs = old_cdfs[l:]
+                    for k in range(len(old_cdfs)):
                         cdf = old_cdfs[k]
-                        if cdf:
-                            x_len = len(cdf)
-                            x_max_key = x_len - 1
-                            tmp = []
-                            p = 0
-                            for l in range(cdf_width):
-                                p = binary_search_less_max_duplicate(cdf, key_list[l], p, x_max_key)
-                                tmp.append(p / x_len)
-                            old_cdfs[k] = tmp
+                        if cdf:  # for non-empty old_cdfs, create by data
+                            old_cdfs[k] = build_cdf(cdf, cdf_width, key_list)
+                        else:  # for empty and non-head old_cdfs, copy from their previous
+                            old_cdfs[k] = old_cdfs[k - 1]
                     # plot_ts(cdfs)
-                    # build delta_model
-                    delta_model = TimeSeriesModel(None, old_cdfs, None, cdf_width, None, old_nums, None, cdf_lag)
-                    delta_model.build()
-                    node.delta_model = delta_model
-                    # build delta_index
-                    delta_index = [None]
-                    cur_keys = [int(k * delta_model.cur_num) for k in delta_model.cur_cdf]
-                    for k in range(0, cdf_width - 1):
-                        delta_index.append([None] * (cur_keys[k + 1] - cur_keys[k]))
-                    node.delta_index = delta_index
+                    node.delta_model = TimeSeriesModel(old_cdfs, None, old_max_keys, None, key_list)
+                    node.delta_model.build(cdf_width, cdf_lag)
+                    node.delta_index = [[] for i in range(node.delta_model.cur_max_key + 1)]
             self.rmi[i] = nodes
             # clear the data already used
             train_inputs[i] = None
@@ -217,7 +207,6 @@ class Mulis(SpatialIndex):
         2. encode p to geohash and create index entry(x, y, geohash, pointer)
         3. predict the leaf_node by rmi
         4. insert ie into update index
-        TODO: 使用cur_cdf来插入，对比二分查找插入
         """
         # 1. compute geohash from x/y of point
         gh = self.geohash.encode(point[0], point[1])
@@ -229,19 +218,21 @@ class Mulis(SpatialIndex):
             node_key = int(self.rmi[i][node_key].model.predict(gh))
         # 4. insert ie into update index
         leaf_node = self.rmi[-1][node_key]
+        delta_model = leaf_node.delta_model
+        delta_index = leaf_node.delta_index
+        if delta_model is None:
+            print("None delta model")
         pos = (gh - leaf_node.model.input_min) / (
-                leaf_node.model.input_max - leaf_node.model.input_min) * leaf_node.delta_model.cdf_width
-        key = int(pos)
-        delta_index_list = leaf_node.delta_index[key]
-        if len(delta_index_list) == 0:  # the list is None
-            delta_index_list.append(point)
+                leaf_node.model.input_max - leaf_node.model.input_min) * self.cdf_width
+        pos_int = int(pos)
+        left_p = delta_model.cur_cdf[pos_int]
+        if pos >= self.cdf_width - 1:  # if point is at the top of cdf(1.0), insert into the tail of delta_index
+            key = delta_model.cur_max_key
         else:
-            offset = int((pos - key) * len(delta_index_list))
-            if delta_index_list[offset] is None:  # the target key is empty
-                delta_index_list[offset] = point
-            else:  # the target key has already been taken up
-                delta_index_list.insert(0, )
-        insert_key = binary_search_less_max(leaf_node.build_simple, 2, gh, 0, len(leaf_node.build_simple) - 1) + 1
+            right_p = delta_model.cur_cdf[pos_int + 1]
+            key = int((left_p + (right_p - left_p) * (pos - pos_int)) * delta_model.cur_max_key)
+        tg_list = delta_index[key]
+        tg_list.insert(binary_search_less_max(tg_list, 2, gh, 0, len(tg_list) - 1) + 1, point)
 
     def insert(self, points):
         points = points.tolist()
@@ -266,15 +257,20 @@ class Mulis(SpatialIndex):
         retrain_model_epoch = 0
         for j in range(0, self.stages[-1]):
             leaf_node = leaf_nodes[j]
-            if leaf_node.delta_index:
+            delta_index = []
+            for tmp in leaf_node.delta_index:
+                delta_index.extend(tmp)
+            if delta_index:
                 # 1. merge delta index into index
                 if leaf_node.index:
-                    leaf_node.index.extend(leaf_node.delta_index)
+                    leaf_node.index.extend(delta_index)
                     leaf_node.index.sort(key=lambda x: x[2])  # 优化：有序数组合并->sorted:2.5->1
                 else:
-                    leaf_node.index = leaf_node.delta_index
+                    leaf_node.index = delta_index
                 # 2. update model
                 inputs = [data[2] for data in leaf_node.index]
+                inputs.insert(0, leaf_node.model.input_min)
+                inputs.append(leaf_node.model.input_max)
                 inputs_num = len(inputs)
                 labels = list(range(0, inputs_num))
                 batch_size = 2 ** math.ceil(math.log(inputs_num / self.batch_num, 2))
@@ -285,15 +281,16 @@ class Mulis(SpatialIndex):
                                self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
                 # tmp_index.train_simple(None)  # retrain with initial model
                 tmp_index.build_simple(leaf_node.model.matrices if leaf_node.model else None)  # retrain with old model
-                leaf_node.model = AbstractNN(tmp_index.get_matrices(), len(self.cores) - 1,
-                                             int(tmp_index.train_x_min), int(tmp_index.train_x_max),
-                                             0, inputs_num - 1,  # update the range of output
+                leaf_node.model = AbstractNN(tmp_index.get_matrices(), leaf_node.model.hl_nums,
+                                             leaf_node.model.input_min, leaf_node.model.input_max,
+                                             0, inputs_num - 3,
                                              math.ceil(tmp_index.min_err), math.ceil(tmp_index.max_err))
                 retrain_model_num += 1
                 retrain_model_epoch += tmp_index.get_epochs()
+                self.logging.info("Retrain model: %s" % model_key)
                 # 3. update delta model
-                leaf_node.delta_model.update()
-                leaf_node.delta_index = []
+                leaf_node.delta_model.update([data[2] for data in delta_index], self.cdf_width, self.cdf_lag)
+                leaf_node.delta_index = [[] for i in range(leaf_node.delta_model.cur_max_key + 1)]
         self.logging.info("Retrain model num: %s" % retrain_model_num)
         self.logging.info("Retrain model epoch: %s" % retrain_model_epoch)
 
@@ -736,11 +733,14 @@ class Node:
 class NN(MLP):
     def __init__(self, model_path, model_key, train_x, train_y, is_new, is_gpu, weight, core, train_step, batch_size,
                  learning_rate, use_threshold, threshold, retrain_time_limit):
-        self.name = "ZM Index NN"
-        # 当只有一个输入输出时，整数的key作为y_true会导致loss中y_true-y_pred出现类型错误：
-        # TypeError: Input 'y' of 'Sub' Op has type float32 that does not match type int32 of argument 'x'.
-        train_x, train_x_min, train_x_max = normalize_input(np.array(train_x).astype("float"))
-        train_y, train_y_min, train_y_max = normalize_output(np.array(train_y).astype("float"))
+        self.name = "MULIS NN"
+        # train_x的是有序的，归一化不需要计算最大最小值
+        train_x_min = train_x[0]
+        train_x_max = train_x[-1]
+        train_x = (np.array(train_x) - train_x_min) / (train_x_max - train_x_min) - 0.5
+        train_y_min = train_y[0]
+        train_y_max = train_y[-1]
+        train_y = (np.array(train_y) - train_y_min) / (train_y_max - train_y_min)
         super().__init__(model_path, model_key, train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
                          is_new, is_gpu, weight, core, train_step, batch_size, learning_rate, use_threshold, threshold,
                          retrain_time_limit)
@@ -748,11 +748,14 @@ class NN(MLP):
 
 class NNSimple(MLPSimple):
     def __init__(self, train_x, train_y, is_gpu, weight, core, train_step, batch_size, learning_rate):
-        self.name = "ZM Index NN"
-        # 当只有一个输入输出时，整数的key作为y_true会导致loss中y_true-y_pred出现类型错误：
-        # TypeError: Input 'y' of 'Sub' Op has type float32 that does not match type int32 of argument 'x'.
-        train_x, train_x_min, train_x_max = normalize_input(np.array(train_x).astype("float"))
-        train_y, train_y_min, train_y_max = normalize_output(np.array(train_y).astype("float"))
+        self.name = "MULIS NN"
+        # train_x的是有序的，归一化不需要计算最大最小值
+        train_x_min = train_x[0]
+        train_x_max = train_x[-1]
+        train_x = (np.array(train_x) - train_x_min) / (train_x_max - train_x_min) - 0.5
+        train_y_min = train_y[0]
+        train_y_max = train_y[-1]
+        train_y = (np.array(train_y) - train_y_min) / (train_y_max - train_y_min)
         super().__init__(train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
                          is_gpu, weight, core, train_step, batch_size, learning_rate)
 

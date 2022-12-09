@@ -393,7 +393,7 @@ def biased_search(nums, field, x, mid, left, right):
 
 def biased_search_almost(nums, field, x, mid, left, right):
     """
-    二分查找 + 对象 + biase + 查找最接近的，值不超过[left, right]
+    二分查找 + 对象 + biased + 查找最接近的，值不超过[left, right]
     """
     result = []
     left_store = left
@@ -420,6 +420,19 @@ def biased_search_almost(nums, field, x, mid, left, right):
     if left > right_store:
         return [right_store]
     return [right] if nums[left][field] - x > x - nums[right][field] else [left]
+
+
+def interpolation_search_less_max(nums, field, x, left, right):
+    """
+    插入查找 + 对象
+    """
+    while left < right:
+        mid = left + (right - left) * (x - nums[left]) / (nums[right] - nums[left])
+        if nums[mid][field] <= x:
+            left = mid
+        elif nums[mid][field] > x:
+            right = mid - 1
+    return right
 
 
 def partition(nums, field, left, right):
