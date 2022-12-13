@@ -540,7 +540,7 @@ class SBRIN(SpatialIndex):
             pre = hr.model_predict(gh)
             target_ies = self.index_entries[hr_key]
             # 4. biased search in scope [pre - max_err, pre + min_err]
-            return [target_ies[key][3] for key in biased_search(target_ies, 2, gh, pre,
+            return [target_ies[key][4] for key in biased_search(target_ies, 2, gh, pre,
                                                                 max(pre - hr.model.max_err, 0),
                                                                 min(pre - hr.model.min_err, hr.max_key))]
 
@@ -567,7 +567,7 @@ class SBRIN(SpatialIndex):
             position = hr_list[hr_key]
             hr_data = self.index_entries[hr_key]
             if position == 0:  # window contain hr
-                result.extend([ie[3] for ie in hr_data])
+                result.extend([ie[4] for ie in hr_data])
             else:
                 # wrong child hr from range_by_int
                 is_valid = valid_position_funcs[position](hr.scope, window)
@@ -593,7 +593,7 @@ class SBRIN(SpatialIndex):
                     right_key = hr.number
                 # 5 filter all the point of scope[min_key/max_key] by range.contain(point)
                 # 优化: region.contain->compare_func不同位置的点做不同的判断: 638->474mil
-                result.extend([ie[3] for ie in hr_data[left_key:right_key] if compare_func(ie)])
+                result.extend([ie[4] for ie in hr_data[left_key:right_key] if compare_func(ie)])
         return result
 
     def knn_query_single(self, knn):
@@ -658,7 +658,7 @@ class SBRIN(SpatialIndex):
                 cur_hr_key -= 1
                 cur_hr_data = self.index_entries[cur_hr_key]
                 cur_ie_key = self.history_ranges[cur_hr_key].number
-        tp_list = sorted([[(tp_ie[0] - x) ** 2 + (tp_ie[1] - y) ** 2, tp_ie[3]] for tp_ie in tp_ie_list])[:k]
+        tp_list = sorted([[(tp_ie[0] - x) ** 2 + (tp_ie[1] - y) ** 2, tp_ie[4]] for tp_ie in tp_ie_list])[:k]
         max_dist = tp_list[-1][0]
         if max_dist == 0:
             return [tp[1] for tp in tp_list]
@@ -680,7 +680,7 @@ class SBRIN(SpatialIndex):
             position = tp_window_hr[1]
             hr_data = self.index_entries[hr_key]
             if position == 0:  # window contain hr
-                tmp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]] for ie in hr_data]
+                tmp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[4]] for ie in hr_data]
             else:
                 # wrong child hr from range_by_int
                 is_valid = valid_position_funcs[position](hr.scope, window)
@@ -703,7 +703,7 @@ class SBRIN(SpatialIndex):
                 else:
                     right_key = hr.number
                 # 3. filter point by distance
-                tmp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]]
+                tmp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[4]]
                             for ie in hr_data[left_key:right_key] if compare_func(ie)]
             if len(tmp_list) > 0:
                 tp_list.extend(tmp_list)

@@ -16,7 +16,7 @@ from src.spatial_index.common_utils import Region, biased_search, normalize_inpu
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 from src.ts_model import TimeSeriesModel, build_cdf
-from src.experiment.common_utils import load_data, Distribution, data_region, data_precision
+from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
 
 # 预设pagesize=4096, read_ahead_pages=256, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
 RA_PAGES = 256
@@ -42,7 +42,6 @@ class Mulis(SpatialIndex):
                             datefmt="%Y/%m/%d %H:%M:%S %p")
         self.logging = logging.getLogger(self.name)
         # 更新所需：
-        self.update_interval = None
         self.cdf_width = None
         self.cdf_lag = None
         self.start_time = None
@@ -55,8 +54,6 @@ class Mulis(SpatialIndex):
         self.train_step = None
         self.batch_num = None
         self.learning_rate = None
-        # 统计所需：
-        self.io_cost = 0
 
     def build(self, data_list, is_sorted, data_precision, region, is_new, is_simple, is_gpu, weight, stages, cores,
               train_steps, batch_nums, learning_rates, use_thresholds, thresholds, retrain_time_limits,
@@ -213,25 +210,9 @@ class Mulis(SpatialIndex):
         # 2. encode p to geohash and create index entry(x, y, geohash, pointer)
         point = (point[0], point[1], gh, point[2], point[3])
         # 3. predict the leaf_node by rmi
-        node_key = 0
-        for i in range(0, self.non_leaf_stage_len):
-            node_key = int(self.rmi[i][node_key].model.predict(gh))
+        node_key = self.get_leaf_node(gh)
         # 4. insert ie into update index
-        leaf_node = self.rmi[-1][node_key]
-        delta_model = leaf_node.delta_model
-        delta_index = leaf_node.delta_index
-        if delta_model is None:
-            print("None delta model")
-        pos = (gh - leaf_node.model.input_min) / (
-                leaf_node.model.input_max - leaf_node.model.input_min) * self.cdf_width
-        pos_int = int(pos)
-        left_p = delta_model.cur_cdf[pos_int]
-        if pos >= self.cdf_width - 1:  # if point is at the top of cdf(1.0), insert into the tail of delta_index
-            key = delta_model.cur_max_key
-        else:
-            right_p = delta_model.cur_cdf[pos_int + 1]
-            key = int((left_p + (right_p - left_p) * (pos - pos_int)) * delta_model.cur_max_key)
-        tg_list = delta_index[key]
+        tg_list = self.get_delta_index_list(gh, self.rmi[-1][node_key])
         tg_list.insert(binary_search_less_max(tg_list, 2, gh, 0, len(tg_list) - 1) + 1, point)
 
     def insert(self, points):
@@ -287,7 +268,6 @@ class Mulis(SpatialIndex):
                                              math.ceil(tmp_index.min_err), math.ceil(tmp_index.max_err))
                 retrain_model_num += 1
                 retrain_model_epoch += tmp_index.get_epochs()
-                self.logging.info("Retrain model: %s" % model_key)
                 # 3. update delta model
                 leaf_node.delta_model.update([data[2] for data in delta_index], self.cdf_width, self.cdf_lag)
                 leaf_node.delta_index = [[] for i in range(leaf_node.delta_model.cur_max_key + 1)]
@@ -304,6 +284,24 @@ class Mulis(SpatialIndex):
         for i in range(0, self.non_leaf_stage_len):
             node_key = int(self.rmi[i][node_key].model.predict(key))
         return node_key
+
+    def get_delta_index_list(self, key, leaf_node):
+        """
+        get the delta_index list which contains the key
+        :param key: float
+        :param leaf_node: node
+        :return: the list of delta_index
+        """
+        pos = (key - leaf_node.model.input_min) / (
+                leaf_node.model.input_max - leaf_node.model.input_min) * self.cdf_width
+        pos_int = int(pos)
+        left_p = leaf_node.delta_model.cur_cdf[pos_int]
+        if pos >= self.cdf_width - 1:  # if point is at the top of cdf(1.0), insert into the tail of delta_index
+            key = leaf_node.delta_model.cur_max_key
+        else:
+            right_p = leaf_node.delta_model.cur_cdf[pos_int + 1]
+            key = int((left_p + (right_p - left_p) * (pos - pos_int)) * leaf_node.delta_model.cur_max_key)
+        return leaf_node.delta_index[key]
 
     def predict(self, key):
         """
@@ -353,19 +351,6 @@ class Mulis(SpatialIndex):
                     left = mid + 1
         return key_left_bounds
 
-    def get_weight(self, key):
-        """
-        calculate weight from key
-        uniform分布的斜率理论上为1，密集分布则大于1，稀疏分布则小于1
-        """
-        node_key = 0
-        for i in range(0, self.non_leaf_stage_len):
-            node_key = int(self.rmi[i][node_key].model.predict(key))
-        leaf_model = self.rmi[-1][node_key].model
-        if leaf_model is None:
-            return 1
-        return leaf_model.get_weight(key)
-
     def point_query_single(self, point):
         """
         1. compute geohash from x/y of point
@@ -380,203 +365,26 @@ class Mulis(SpatialIndex):
         l_bound = max(pre - max_err, 0)
         r_bound = min(pre - min_err, leaf_node.model.output_max)
         # 3. binary search in scope
-        result = [leaf_node.index[key][3] for key in biased_search(leaf_node.index, 2, gh, pre, l_bound, r_bound)]
-        self.io_cost += math.ceil((r_bound - l_bound) / ITEMS_PER_RA)
+        result = [leaf_node.index[key][4] for key in biased_search(leaf_node.index, 2, gh, pre, l_bound, r_bound)]
         # 4. filter in update index
         if leaf_node.delta_index:
-            delta_index_len = len(leaf_node.delta_index)
-            result.extend([leaf_node.delta_index[key][3]
-                           for key in binary_search(leaf_node.delta_index, 2, gh, 0, len(leaf_node.delta_index) - 1)])
-            self.io_cost += delta_index_len // ITEMS_PER_RA + 1
+            tg_list = self.get_delta_index_list(gh, leaf_node)
+            result.extend([tg_list[key][4] for key in binary_search(tg_list, 2, gh, 0, len(tg_list) - 1)])
         return result
-
-    def range_query_single(self, window):
-        """
-        1. compute geohash from window_left and window_right
-        2. find left_key by point query
-        3. find right_key by point query
-        4. filter all the points of scope[left_key, right_key] by range(x1/y1/x2/y2).contain(point)
-        5. filter in update index
-        """
-        # 1. compute z of window_left and window_right
-        gh1 = self.geohash.encode(window[2], window[0])
-        gh2 = self.geohash.encode(window[3], window[1])
-        # 2. find left_key by point query
-        # if point not found, left_key = pre - min_err
-        leaf_node1, leaf_key1, pre1, min_err1, max_err1 = self.predict(gh1)
-        l_bound1 = max(pre1 - max_err1, 0)
-        r_bound1 = min(pre1 - min_err1, leaf_node1.model.output_max)
-        left_key = biased_search(leaf_node1.index, 2, gh1, pre1, l_bound1, r_bound1)
-        left_key = l_bound1 if len(left_key) == 0 else min(left_key)
-        # 3. find right_key by point query
-        # if point not found, right_key = pre - max_err
-        leaf_node2, leaf_key2, pre2, min_err2, max_err2 = self.predict(gh2)
-        l_bound2 = max(pre2 - max_err2, 0)
-        r_bound2 = min(pre2 - min_err2, leaf_node2.model.output_max)
-        right_key = biased_search(leaf_node2.index, 2, gh2, pre2, l_bound2, r_bound2)
-        right_key = r_bound2 if len(right_key) == 0 else max(right_key)
-        # 4. filter all the point of scope[key1, key2] by range(x1/y1/x2/y2).contain(point)
-        # 5. filter in update index
-        if leaf_key1 == leaf_key2:
-            # filter index
-            result = [ie[3] for ie in leaf_node1.index[left_key:right_key + 1]
-                      if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
-            self.io_cost += math.ceil((r_bound2 - l_bound1) / ITEMS_PER_RA)
-            # filter delta index
-            delta_index = leaf_node1.delta_index
-            if delta_index:
-                delta_index_len = len(delta_index)
-                left_key = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
-                right_key = binary_search_less_max(delta_index, 2, gh2, left_key, delta_index_len - 1)
-                result.extend([ie[3]
-                               for ie in delta_index[left_key:right_key + 1]
-                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-                self.io_cost += math.ceil(delta_index_len / ITEMS_PER_RA)
-        else:
-            # filter index
-            io_index_len = len(leaf_node1.index) + r_bound2 - l_bound1
-            result = [ie[3]
-                      for ie in leaf_node1.index[left_key:]
-                      if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
-            if leaf_key2 - leaf_key1 > 1:
-                result.extend([ie[3]
-                               for leaf_key in range(leaf_key1 + 1, leaf_key2)
-                               for ie in self.rmi[-1][leaf_key].index
-                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-                for leaf_key in range(leaf_key1 + 1, leaf_key2):
-                    io_index_len += len(self.rmi[-1][leaf_key].index)
-            result.extend([ie[3]
-                           for ie in leaf_node2.index[:right_key + 1]
-                           if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-            self.io_cost += math.ceil(io_index_len / ITEMS_PER_RA)
-            # filter delta index
-            delta_index = leaf_node1.delta_index
-            io_index_len = 0
-            if delta_index:
-                delta_index_len = len(delta_index)
-                io_index_len += delta_index_len
-                left_key = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
-                result.extend([ie[3]
-                               for ie in delta_index[left_key:]
-                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-            if leaf_key2 - leaf_key1 > 1:
-                result.extend([ie[3]
-                               for leaf_key in range(leaf_key1 + 1, leaf_key2)
-                               for ie in self.rmi[-1][leaf_key].delta_index
-                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-                for leaf_key in range(leaf_key1 + 1, leaf_key2):
-                    io_index_len += len(self.rmi[-1][leaf_key].delta_index)
-            delta_index = leaf_node2.delta_index
-            if delta_index:
-                delta_index_len = len(delta_index)
-                io_index_len += delta_index_len
-                right_key = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
-                result.extend([ie[3]
-                               for ie in delta_index[:right_key + 1]
-                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-            self.io_cost += math.ceil(io_index_len / ITEMS_PER_RA)
-        return result
-
-    def knn_query_single(self, knn):
-        """
-        1. init window by weight on CDF(key)
-        2. iter: query target points by range query
-        3. if target points is not enough, set window = 2 * window
-        4. elif target points is enough, but some target points is in the corner, set window = dst
-        """
-        # 1. init window by weight on CDF(key)
-        x, y, k = knn
-        w = self.get_weight(self.geohash.encode(x, y))
-        if w > 0:
-            window_ratio = (k / self.max_key) ** 0.5 / w
-        else:
-            window_ratio = (k / self.max_key) ** 0.5
-        window_radius = window_ratio * self.geohash.region_width / 2
-        while True:
-            window = [y - window_radius, y + window_radius, x - window_radius, x + window_radius]
-            # limit window within region
-            self.geohash.region.clip_region(window, self.geohash.data_precision)
-            # 2. iter: query target points by range query
-            gh1 = self.geohash.encode(window[2], window[0])
-            gh2 = self.geohash.encode(window[3], window[1])
-            leaf_node1, leaf_key1, pre1, min_err1, max_err1 = self.predict(gh1)
-            l_bound1 = max(pre1 - max_err1, 0)
-            r_bound1 = min(pre1 - min_err1, leaf_node1.model.output_max)
-            left_key = biased_search(leaf_node1.index, 2, gh1, pre1, l_bound1, r_bound1)
-            left_key = l_bound1 if len(left_key) == 0 else min(left_key)
-            leaf_node2, leaf_key2, pre2, min_err2, max_err2 = self.predict(gh2)
-            l_bound2 = max(pre2 - max_err2, 0)
-            r_bound2 = min(pre2 - min_err2, leaf_node2.model.output_max)
-            right_key = biased_search(leaf_node2.index, 2, gh2, pre2, l_bound2, r_bound2)
-            right_key = r_bound2 + 1 if len(right_key) == 0 else max(right_key) + 1
-            io_index_len = 0
-            io_delta_index_len = 0
-            if leaf_key1 == leaf_key2:
-                tp_list = [ie for ie in leaf_node1.index[left_key:right_key]
-                           if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
-                io_index_len += right_key - left_key
-                delta_index = leaf_node1.delta_index
-                if delta_index:
-                    delta_index_max_key = len(delta_index) - 1
-                    delta_left_key = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_max_key)
-                    delta_right_key = binary_search_less_max(delta_index, 2, gh2, delta_left_key, delta_index_max_key)
-                    tp_list.extend([ie for ie in delta_index[delta_left_key:delta_right_key]
-                                    if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-                    io_delta_index_len += delta_right_key - delta_left_key
-            else:
-                tp_list = [ie for ie in leaf_node1.index[left_key:]
-                           if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
-                io_index_len += len(leaf_node1.index) - left_key
-                delta_index = leaf_node1.delta_index
-                if delta_index:
-                    delta_index_max_key = len(delta_index) - 1
-                    delta_left_key = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_max_key)
-                    tp_list.extend([ie for ie in delta_index[delta_left_key:]
-                                    if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-                    io_delta_index_len += delta_index_max_key - delta_left_key + 1
-                tp_list.extend([ie for ie in leaf_node2.index[:right_key]
-                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-                io_index_len += len(leaf_node1.index) + right_key
-                delta_index = leaf_node2.delta_index
-                if delta_index:
-                    delta_index_max_key = len(delta_index) - 1
-                    delta_right_key = binary_search_less_max(delta_index, 2, gh2, 0, delta_index_max_key)
-                    tp_list.extend([ie for ie in delta_index[:delta_right_key]
-                                    if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-                    io_delta_index_len += delta_right_key
-                tp_list.extend([ie for leaf_key in range(leaf_key1 + 1, leaf_key2)
-                                for ie in self.rmi[-1][leaf_key].index
-                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-                io_index_len += sum([len(self.rmi[-1][leaf_key].index) for leaf_key in range(leaf_key1 + 1, leaf_key2)])
-                tp_list.extend([ie for leaf_key in range(leaf_key1 + 1, leaf_key2)
-                                for ie in self.rmi[-1][leaf_key].delta_index
-                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-                io_delta_index_len += sum(
-                    [len(self.rmi[-1][leaf_key].delta_index) for leaf_key in range(leaf_key1 + 1, leaf_key2)])
-            # 3. if target points is not enough, set window = 2 * window
-            if len(tp_list) < k:
-                window_radius *= 2
-            else:
-                # 4. elif target points is enough, but some target points is in the corner, set window = dst
-                tp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]] for ie in tp_list]
-                tp_list.sort()
-                dst = tp_list[k - 1][0] ** 0.5
-                if dst > window_radius:
-                    window_radius = dst
-                else:
-                    break
-        self.io_cost += math.ceil(io_index_len / ITEMS_PER_RA) + math.ceil(io_delta_index_len / ITEMS_PER_RA)
-        return [tp[1] for tp in tp_list[:k]]
 
     def save(self):
-        zmin_meta = np.array((self.geohash.data_precision,
-                              self.geohash.region.bottom, self.geohash.region.up,
-                              self.geohash.region.left, self.geohash.region.right,
-                              self.is_gpu, self.weight, self.train_step, self.batch_num, self.learning_rate),
-                             dtype=[("0", 'i4'),
-                                    ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8'),
-                                    ("5", 'i1'), ("6", 'f4'), ("7", 'i2'), ("8", 'i2'), ("9", 'f4')])
-        np.save(os.path.join(self.model_path, 'meta.npy'), zmin_meta)
+        meta = np.array((self.geohash.data_precision,
+                         self.geohash.region.bottom, self.geohash.region.up,
+                         self.geohash.region.left, self.geohash.region.right,
+                         self.is_gpu, self.weight, self.train_step, self.batch_num, self.learning_rate,
+                         self.start_time, self.cur_time_interval, self.time_interval,
+                         self.cdf_lag, self.cdf_width),
+                        dtype=[("0", 'i4'),
+                               ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8'),
+                               ("5", 'i1'), ("6", 'f4'), ("7", 'i2'), ("8", 'i2'), ("9", 'f4'),
+                               ("10", 'i4'), ("11", 'i4'), ("12", 'i4'),
+                               ("13", 'i1'), ("14", 'i1')])
+        np.save(os.path.join(self.model_path, 'meta.npy'), meta)
         np.save(os.path.join(self.model_path, 'stages.npy'), self.stages)
         np.save(os.path.join(self.model_path, 'cores.npy'), self.cores)
         models = []
@@ -587,17 +395,23 @@ class Mulis(SpatialIndex):
         index_lens = []
         delta_indexes = []
         delta_index_lens = []
+        delta_models = []
         for node in self.rmi[-1]:
             indexes.extend(node.index)
             index_lens.append(len(node.index))
-            delta_indexes.extend(node.delta_index)
-            delta_index_lens.append(len(node.delta_index))
+            delta_index = []
+            for tmp in node.delta_index:
+                delta_index.extend(tmp)
+            delta_indexes.extend(delta_index)
+            delta_index_lens.append(len(delta_index))
+            delta_models.append(node.delta_model)
         np.save(os.path.join(self.model_path, 'indexes.npy'),
-                np.array(indexes, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')]))
+                np.array(indexes, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4'), ("4", 'i4')]))
         np.save(os.path.join(self.model_path, 'index_lens.npy'), index_lens)
         np.save(os.path.join(self.model_path, 'delta_indexes.npy'),
-                np.array(delta_indexes, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')]))
+                np.array(delta_indexes, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4'), ("4", 'i4')]))
         np.save(os.path.join(self.model_path, 'delta_index_lens.npy'), delta_index_lens)
+        np.save(os.path.join(self.model_path, 'delta_models.npy'), delta_models)
 
     def load(self):
         meta = np.load(os.path.join(self.model_path, 'meta.npy'), allow_pickle=True).item()
@@ -611,38 +425,59 @@ class Mulis(SpatialIndex):
         self.train_step = meta[7]
         self.batch_num = meta[8]
         self.learning_rate = meta[9]
+        self.start_time = meta[10]
+        self.cur_time_interval = meta[11]
+        self.time_interval = meta[12]
+        self.cdf_lag = meta[13]
+        self.cdf_width = meta[14]
         models = np.load(os.path.join(self.model_path, 'models.npy'), allow_pickle=True)
         indexes = np.load(os.path.join(self.model_path, 'indexes.npy'), allow_pickle=True).tolist()
         index_lens = np.load(os.path.join(self.model_path, 'index_lens.npy'), allow_pickle=True).tolist()
         delta_indexes = np.load(os.path.join(self.model_path, 'delta_indexes.npy'), allow_pickle=True).tolist()
         delta_index_lens = np.load(os.path.join(self.model_path, 'delta_index_lens.npy'), allow_pickle=True).tolist()
+        delta_models = np.load(os.path.join(self.model_path, 'delta_models.npy'), allow_pickle=True)
         self.max_key = len(indexes)
         model_cur = 0
         self.rmi = []
         for i in range(len(self.stages)):
             if i < self.non_leaf_stage_len:
-                self.rmi.append([Node(None, model, None) for model in models[model_cur:model_cur + self.stages[i]]])
+                self.rmi.append(
+                    [Node(None, model, None, None) for model in models[model_cur:model_cur + self.stages[i]]])
                 model_cur += self.stages[i]
             else:
                 index_cur = 0
                 delta_index_cur = 0
                 leaf_nodes = []
                 for j in range(self.stages[i]):
+                    model = models[model_cur]
+                    delta_index = delta_indexes[delta_index_cur:delta_index_cur + delta_index_lens[j]]
+                    delta_model = delta_models[j]
+                    delta_index_lists = [[] for i in range(delta_model.cur_max_key + 1)]
+                    for tmp in delta_index:
+                        pos = (tmp[2] - model.input_min) / (model.input_max - model.input_min) * self.cdf_width
+                        pos_int = int(pos)
+                        left_p = delta_model.cur_cdf[pos_int]
+                        if pos >= self.cdf_width - 1:  # if point is at the top of cdf(1.0), insert into the tail of delta_index
+                            key = delta_model.cur_max_key
+                        else:
+                            right_p = delta_model.cur_cdf[pos_int + 1]
+                            key = int((left_p + (right_p - left_p) * (pos - pos_int)) * delta_model.cur_max_key)
+                        delta_index_lists[key].append(tmp)
                     leaf_nodes.append(Node(indexes[index_cur:index_cur + index_lens[j]],
                                            models[model_cur],
-                                           delta_indexes[delta_index_cur:delta_index_cur + delta_index_lens[j]]))
+                                           delta_index_lists,
+                                           delta_model))
                     model_cur += 1
                     index_cur += index_lens[j]
                     delta_index_cur += delta_index_lens[j]
                 self.rmi.append(leaf_nodes)
-        self.io_cost = math.ceil(self.size()[0] / ITEMS_PER_RA)
 
     def size(self):
         """
         structure_size = meta.npy + stages.npy + cores.npy + models.npy
         ie_size = index_lens.npy + indexes.npy + delta_index_lens.npy + delta_indexes.npy
         """
-        return os.path.getsize(os.path.join(self.model_path, "meta.npy")) - 128 - 64 * 2 + \
+        return os.path.getsize(os.path.join(self.model_path, "meta.npy")) - 128 - 64 * 3 + \
                os.path.getsize(os.path.join(self.model_path, "stages.npy")) - 128 + \
                os.path.getsize(os.path.join(self.model_path, "cores.npy")) - 128 + \
                os.path.getsize(os.path.join(self.model_path, "models.npy")) - 128, \
@@ -779,19 +614,6 @@ class AbstractNN:
         y = np.dot(y, self.matrices[-2]) + self.matrices[-1]
         return denormalize_output_minmax(y[0, 0], self.output_min, self.output_max)
 
-    def get_weight(self, input_key):
-        """
-        calculate weight
-        """
-        # delta当前选8位有效数字，是matrix的最高精度
-        delta = 0.00000001
-        y1 = normalize_input_minmax(input_key, self.input_min, self.input_max)
-        y2 = y1 + delta
-        for i in range(self.hl_nums):
-            y1 = relu(y1 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
-            y2 = relu(y2 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
-        return (np.dot(y2, self.matrices[-2]) - np.dot(y1, self.matrices[-2]))[0, 0] / delta
-
 
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
@@ -801,7 +623,7 @@ def main():
         os.makedirs(model_path)
     index = Mulis(model_path=model_path)
     index_name = index.name
-    load_index_from_json = False
+    load_index_from_json = True
     if load_index_from_json:
         index.load()
     else:
@@ -830,51 +652,28 @@ def main():
                     end_time=1359676799,
                     cdf_width=100,
                     cdf_lag=3)
-        # index.save()
+        index.save()
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
-    # structure_size, ie_size = index.size()
-    # logging.info("Structure size: %s" % structure_size)
-    # logging.info("Index entry size: %s" % ie_size)
-    # io_cost = index.io_cost
-    # logging.info("IO cost: %s" % io_cost)
-    # logging.info("Model precision avg: %s" % index.model_err())
-    # point_query_list = load_query(data_distribution, 0).tolist()
-    # start_time = time.time()
-    # results = index.point_query(point_query_list)
-    # end_time = time.time()
-    # search_time = (end_time - start_time) / len(point_query_list)
-    # logging.info("Point query time: %s" % search_time)
-    # logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
-    # io_cost = index.io_cost
-    # np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    # range_query_list = load_query(data_distribution, 1).tolist()
-    # start_time = time.time()
-    # results = index.range_query(range_query_list)
-    # end_time = time.time()
-    # search_time = (end_time - start_time) / len(range_query_list)
-    # logging.info("Range query time: %s" % search_time)
-    # logging.info("Range query io cost: %s" % ((index.io_cost - io_cost) / len(range_query_list)))
-    # io_cost = index.io_cost
-    # np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    # knn_query_list = load_query(data_distribution, 2).tolist()
-    # start_time = time.time()
-    # results = index.knn_query(knn_query_list)
-    # end_time = time.time()
-    # search_time = (end_time - start_time) / len(knn_query_list)
-    # logging.info("KNN query time: %s" % search_time)
-    # logging.info("KNN query io cost: %s" % ((index.io_cost - io_cost) / len(knn_query_list)))
-    # np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    update_data_list = load_data(Distribution.NYCT_10W, 1)
+    structure_size, ie_size = index.size()
+    logging.info("Structure size: %s" % structure_size)
+    logging.info("Index entry size: %s" % ie_size)
+    logging.info("Model precision avg: %s" % index.model_err())
+    point_query_list = load_query(data_distribution, 0).tolist()
+    start_time = time.time()
+    results = index.point_query(point_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(point_query_list)
+    logging.info("Point query time: %s" % search_time)
+    np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    update_data_list = load_data(Distribution.NYCT_10W, 1)[:1000]
     start_time = time.time()
     index.insert(update_data_list)
     end_time = time.time()
     logging.info("Insert time: %s" % (end_time - start_time))
-    start_time = time.time()
-    index.update()
-    end_time = time.time()
-    logging.info("Update time: %s" % (end_time - start_time))
+    index.save()
+    index.load()
 
 
 if __name__ == '__main__':

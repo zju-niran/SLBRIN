@@ -40,6 +40,10 @@ class ZMIndex(SpatialIndex):
                             format="%(asctime)s - %(levelname)s - %(message)s",
                             datefmt="%Y/%m/%d %H:%M:%S %p")
         self.logging = logging.getLogger(self.name)
+        # 更新所需：
+        self.start_time = None
+        self.cur_time_interval = None
+        self.time_interval = None
         # 训练所需：
         self.is_gpu = None
         self.weight = None
@@ -52,7 +56,8 @@ class ZMIndex(SpatialIndex):
 
     def build(self, data_list, is_sorted, data_precision, region, is_new, is_simple, is_gpu, weight,
               stages, cores, train_steps, batch_nums, learning_rates, use_thresholds, thresholds, retrain_time_limits,
-              thread_pool_size):
+              thread_pool_size,
+              time_interval, start_time, end_time):
         """
         build index
         1. ordering x/y point by geohash
@@ -64,6 +69,9 @@ class ZMIndex(SpatialIndex):
         self.train_step = train_steps[-1]
         self.batch_num = batch_nums[-1]
         self.learning_rate = learning_rates[-1]
+        self.start_time = start_time
+        self.cur_time_interval = math.ceil((end_time - start_time) / time_interval)
+        self.time_interval = time_interval
         model_hdf_dir = os.path.join(self.model_path, "hdf/")
         if os.path.exists(model_hdf_dir) is False:
             os.makedirs(model_hdf_dir)
@@ -171,6 +179,12 @@ class ZMIndex(SpatialIndex):
     def insert(self, points):
         points = points.tolist()
         for point in points:
+            cur_time = point[2]
+            # update once the time of new point cross the time interval
+            cur_time_interval = (cur_time - self.start_time) // self.time_interval
+            if self.cur_time_interval < cur_time_interval:
+                self.update()
+                self.cur_time_interval = cur_time_interval
             self.insert_single(point)
 
     def update(self):
@@ -197,8 +211,8 @@ class ZMIndex(SpatialIndex):
                 model_key = "retrain_%s" % j
                 tmp_index = NN(self.model_path, model_key, inputs, labels, True, self.is_gpu, self.weight,
                                self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
-                # tmp_index.train_simple(None)  # update
-                tmp_index.train_simple(leaf_node.model.matrices if leaf_node.model else None)  # retrain with
+                # tmp_index.build_simple(None)  # update
+                tmp_index.build_simple(leaf_node.model.matrices if leaf_node.model else None)  # retrain with
                 leaf_node.model = AbstractNN(tmp_index.get_matrices(), len(self.cores) - 1,
                                              int(tmp_index.train_x_min), int(tmp_index.train_x_max),
                                              0, inputs_num - 1,  # update the range of output
@@ -260,12 +274,12 @@ class ZMIndex(SpatialIndex):
         l_bound = max(pre - max_err, 0)
         r_bound = min(pre - min_err, leaf_node.model.output_max)
         # 3. binary search in scope
-        result = [leaf_node.index[key][3] for key in biased_search(leaf_node.index, 2, gh, pre, l_bound, r_bound)]
+        result = [leaf_node.index[key][4] for key in biased_search(leaf_node.index, 2, gh, pre, l_bound, r_bound)]
         self.io_cost += math.ceil((r_bound - l_bound) / ITEMS_PER_RA)
         # 4. filter in update index
         if leaf_node.delta_index:
             delta_index_len = len(leaf_node.delta_index)
-            result.extend([leaf_node.delta_index[key][3]
+            result.extend([leaf_node.delta_index[key][4]
                            for key in binary_search(leaf_node.delta_index, 2, gh, 0, len(leaf_node.delta_index) - 1)])
             self.io_cost += delta_index_len // ITEMS_PER_RA + 1
         return result
@@ -299,7 +313,7 @@ class ZMIndex(SpatialIndex):
         # 5. filter in update index
         if leaf_key1 == leaf_key2:
             # filter index
-            result = [ie[3] for ie in leaf_node1.index[left_key:right_key + 1]
+            result = [ie[4] for ie in leaf_node1.index[left_key:right_key + 1]
                       if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
             self.io_cost += math.ceil((r_bound2 - l_bound1) / ITEMS_PER_RA)
             # filter delta index
@@ -308,24 +322,24 @@ class ZMIndex(SpatialIndex):
                 delta_index_len = len(delta_index)
                 left_key = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
                 right_key = binary_search_less_max(delta_index, 2, gh2, left_key, delta_index_len - 1)
-                result.extend([ie[3]
+                result.extend([ie[4]
                                for ie in delta_index[left_key:right_key + 1]
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
                 self.io_cost += math.ceil(delta_index_len / ITEMS_PER_RA)
         else:
             # filter index
             io_index_len = len(leaf_node1.index) + r_bound2 - l_bound1
-            result = [ie[3]
+            result = [ie[4]
                       for ie in leaf_node1.index[left_key:]
                       if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
             if leaf_key2 - leaf_key1 > 1:
-                result.extend([ie[3]
+                result.extend([ie[4]
                                for leaf_key in range(leaf_key1 + 1, leaf_key2)
                                for ie in self.rmi[-1][leaf_key].index
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
                 for leaf_key in range(leaf_key1 + 1, leaf_key2):
                     io_index_len += len(self.rmi[-1][leaf_key].index)
-            result.extend([ie[3]
+            result.extend([ie[4]
                            for ie in leaf_node2.index[:right_key + 1]
                            if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
             self.io_cost += math.ceil(io_index_len / ITEMS_PER_RA)
@@ -336,11 +350,11 @@ class ZMIndex(SpatialIndex):
                 delta_index_len = len(delta_index)
                 io_index_len += delta_index_len
                 left_key = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
-                result.extend([ie[3]
+                result.extend([ie[4]
                                for ie in delta_index[left_key:]
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
             if leaf_key2 - leaf_key1 > 1:
-                result.extend([ie[3]
+                result.extend([ie[4]
                                for leaf_key in range(leaf_key1 + 1, leaf_key2)
                                for ie in self.rmi[-1][leaf_key].delta_index
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
@@ -351,7 +365,7 @@ class ZMIndex(SpatialIndex):
                 delta_index_len = len(delta_index)
                 io_index_len += delta_index_len
                 right_key = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
-                result.extend([ie[3]
+                result.extend([ie[4]
                                for ie in delta_index[:right_key + 1]
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
             self.io_cost += math.ceil(io_index_len / ITEMS_PER_RA)
@@ -438,7 +452,7 @@ class ZMIndex(SpatialIndex):
                 window_radius *= 2
             else:
                 # 4. elif target points is enough, but some target points is in the corner, set window = dst
-                tp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[3]] for ie in tp_list]
+                tp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[4]] for ie in tp_list]
                 tp_list.sort()
                 dst = tp_list[k - 1][0] ** 0.5
                 if dst > window_radius:
@@ -449,14 +463,16 @@ class ZMIndex(SpatialIndex):
         return [tp[1] for tp in tp_list[:k]]
 
     def save(self):
-        zmin_meta = np.array((self.geohash.data_precision,
-                              self.geohash.region.bottom, self.geohash.region.up,
-                              self.geohash.region.left, self.geohash.region.right,
-                              self.is_gpu, self.weight, self.train_step, self.batch_num, self.learning_rate),
-                             dtype=[("0", 'i4'),
-                                    ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8'),
-                                    ("5", 'i1'), ("6", 'f4'), ("7", 'i2'), ("8", 'i2'), ("9", 'f4')])
-        np.save(os.path.join(self.model_path, 'meta.npy'), zmin_meta)
+        meta = np.array((self.geohash.data_precision,
+                         self.geohash.region.bottom, self.geohash.region.up,
+                         self.geohash.region.left, self.geohash.region.right,
+                         self.is_gpu, self.weight, self.train_step, self.batch_num, self.learning_rate,
+                         self.start_time, self.cur_time_interval, self.time_interval),
+                        dtype=[("0", 'i4'),
+                               ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8'),
+                               ("5", 'i1'), ("6", 'f4'), ("7", 'i2'), ("8", 'i2'), ("9", 'f4'),
+                               ("10", 'i4'), ("11", 'i4'), ("12", 'i4')])
+        np.save(os.path.join(self.model_path, 'meta.npy'), meta)
         np.save(os.path.join(self.model_path, 'stages.npy'), self.stages)
         np.save(os.path.join(self.model_path, 'cores.npy'), self.cores)
         models = []
@@ -473,10 +489,10 @@ class ZMIndex(SpatialIndex):
             delta_indexes.extend(node.delta_index)
             delta_index_lens.append(len(node.delta_index))
         np.save(os.path.join(self.model_path, 'indexes.npy'),
-                np.array(indexes, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')]))
+                np.array(indexes, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4'), ("4", 'i4')]))
         np.save(os.path.join(self.model_path, 'index_lens.npy'), index_lens)
         np.save(os.path.join(self.model_path, 'delta_indexes.npy'),
-                np.array(delta_indexes, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')]))
+                np.array(delta_indexes, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4'), ("4", 'i4')]))
         np.save(os.path.join(self.model_path, 'delta_index_lens.npy'), delta_index_lens)
 
     def load(self):
@@ -491,6 +507,9 @@ class ZMIndex(SpatialIndex):
         self.train_step = meta[7]
         self.batch_num = meta[8]
         self.learning_rate = meta[9]
+        self.start_time = meta[10]
+        self.cur_time_interval = meta[11]
+        self.time_interval = meta[12]
         models = np.load(os.path.join(self.model_path, 'models.npy'), allow_pickle=True)
         indexes = np.load(os.path.join(self.model_path, 'indexes.npy'), allow_pickle=True).tolist()
         index_lens = np.load(os.path.join(self.model_path, 'index_lens.npy'), allow_pickle=True).tolist()
@@ -668,7 +687,7 @@ class AbstractNN:
 
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    model_path = "model/zm_index_10w_uniform/"
+    model_path = "model/zm_index_10w/"
     data_distribution = Distribution.NYCT_10W_SORTED
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
@@ -682,10 +701,10 @@ def main():
         start_time = time.time()
         build_data_list = load_data(data_distribution, 0)
         index.build(data_list=build_data_list,
-                    is_sorted=False,
+                    is_sorted=True,
                     data_precision=data_precision[data_distribution],
                     region=data_region[data_distribution],
-                    is_new=True,
+                    is_new=False,
                     is_simple=False,
                     is_gpu=True,
                     weight=1,
@@ -697,7 +716,10 @@ def main():
                     learning_rates=[0.001, 0.001],
                     thresholds=[5, 20],
                     retrain_time_limits=[4, 2],
-                    thread_pool_size=6)
+                    thread_pool_size=6,
+                    time_interval=60 * 60 * 24,
+                    start_time=1356998400,
+                    end_time=1359676799)
         index.save()
         end_time = time.time()
         build_time = end_time - start_time
@@ -708,41 +730,37 @@ def main():
     io_cost = index.io_cost
     logging.info("IO cost: %s" % io_cost)
     logging.info("Model precision avg: %s" % index.model_err())
-    point_query_list = load_query(data_distribution, 0).tolist()
-    start_time = time.time()
-    results = index.point_query(point_query_list)
-    end_time = time.time()
-    search_time = (end_time - start_time) / len(point_query_list)
-    logging.info("Point query time: %s" % search_time)
-    logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
-    io_cost = index.io_cost
-    np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    range_query_list = load_query(data_distribution, 1).tolist()
-    start_time = time.time()
-    results = index.range_query(range_query_list)
-    end_time = time.time()
-    search_time = (end_time - start_time) / len(range_query_list)
-    logging.info("Range query time: %s" % search_time)
-    logging.info("Range query io cost: %s" % ((index.io_cost - io_cost) / len(range_query_list)))
-    io_cost = index.io_cost
-    np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    knn_query_list = load_query(data_distribution, 2).tolist()
-    start_time = time.time()
-    results = index.knn_query(knn_query_list)
-    end_time = time.time()
-    search_time = (end_time - start_time) / len(knn_query_list)
-    logging.info("KNN query time: %s" % search_time)
-    logging.info("KNN query io cost: %s" % ((index.io_cost - io_cost) / len(knn_query_list)))
-    np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    # point_query_list = load_query(data_distribution, 0).tolist()
+    # start_time = time.time()
+    # results = index.point_query(point_query_list)
+    # end_time = time.time()
+    # search_time = (end_time - start_time) / len(point_query_list)
+    # logging.info("Point query time: %s" % search_time)
+    # logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
+    # io_cost = index.io_cost
+    # np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    # range_query_list = load_query(data_distribution, 1).tolist()
+    # start_time = time.time()
+    # results = index.range_query(range_query_list)
+    # end_time = time.time()
+    # search_time = (end_time - start_time) / len(range_query_list)
+    # logging.info("Range query time: %s" % search_time)
+    # logging.info("Range query io cost: %s" % ((index.io_cost - io_cost) / len(range_query_list)))
+    # io_cost = index.io_cost
+    # np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    # knn_query_list = load_query(data_distribution, 2).tolist()
+    # start_time = time.time()
+    # results = index.knn_query(knn_query_list)
+    # end_time = time.time()
+    # search_time = (end_time - start_time) / len(knn_query_list)
+    # logging.info("KNN query time: %s" % search_time)
+    # logging.info("KNN query io cost: %s" % ((index.io_cost - io_cost) / len(knn_query_list)))
+    # np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     update_data_list = load_data(Distribution.NYCT_10W, 1)
     start_time = time.time()
     index.insert(update_data_list)
     end_time = time.time()
     logging.info("Insert time: %s" % (end_time - start_time))
-    start_time = time.time()
-    index.update()
-    end_time = time.time()
-    logging.info("Update time: %s" % (end_time - start_time))
 
 
 if __name__ == '__main__':
