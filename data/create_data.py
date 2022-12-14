@@ -73,10 +73,12 @@ def sample(input_path, output_path, lines_limit):
 
 
 def create_point_query(input_path, output_path, query_number_limit):
-    data_list = np.load(input_path, allow_pickle=True)[:, [0, 1]]
+    data_list = np.load(input_path, allow_pickle=True)
     np.random.seed(1)
     sample_key = np.random.randint(0, len(data_list) - 1, size=query_number_limit)
-    np.save(output_path, data_list[sample_key])
+    sample_data_list = data_list[sample_key]
+    sample_data_list = np.array([[data[0], data[1]] for data in sample_data_list])
+    np.save(output_path, sample_data_list)
 
 
 def create_range_query(output_path, data_range, query_number_limit, range_ratio_list):
@@ -105,13 +107,14 @@ def create_range_query(output_path, data_range, query_number_limit, range_ratio_
 
 
 def create_knn_query(input_path, output_path, query_number_limit, n_list):
-    data_list = np.load(input_path, allow_pickle=True)[:, [0, 1]]
+    data_list = np.load(input_path, allow_pickle=True)
     data_len = len(data_list)
     result = np.empty(shape=(0, 3))
     for n in n_list:
         np.random.seed(n)
         sample_key = np.random.randint(0, data_len - 1, size=query_number_limit)
         n_data_list = data_list[sample_key]
+        n_data_list = np.array([[data[0], data[1]] for data in n_data_list])
         n_list = np.array([[n]] * query_number_limit)
         n_data_list = np.hstack((n_data_list, n_list))
         result = np.vstack((result, n_data_list))
@@ -293,15 +296,16 @@ if __name__ == '__main__':
     # output_path = './query/point_query_uniform.npy'
     # input_path = './table/normal_1.npy'
     # output_path = './query/point_query_normal.npy'
-    # input_path = './table/trip_data_1_filter.npy'
+    # input_path = './table/nyct_1.npy'
     # output_path = './query/point_query_nyct.npy'
     # query_number_limit = 1000
     # create_point_query(input_path, output_path, query_number_limit)
     # 2. 生成range检索范围
-    # range_ratio_list = [0.000006, 0.000025, 0.0001, 0.0004, 0.0016]
     # output_path = './query/range_query_uniform.npy'
+    # data_range = [0, 1, 0, 1]
     # output_path = './query/range_query_normal.npy'
     # data_range = [0, 1, 0, 1]
+    # range_ratio_list = [0.000006, 0.000025, 0.0001, 0.0004, 0.0016]
     # output_path = './query/range_query_nyct.npy'
     # data_range = [40.61, 40.87, -74.05, -73.76]
     # query_number_limit = 1000
@@ -311,7 +315,7 @@ if __name__ == '__main__':
     # output_path = './query/knn_query_uniform.npy'
     # input_path = './table/normal_1.npy'
     # output_path = './query/knn_query_normal.npy'
-    # input_path = './table/trip_data_1_filter.npy'
+    # input_path = './table/nyct_1.npy'
     # output_path = './query/knn_query_nyct.npy'
     # query_number_limit = 1000
     # n_list = [4, 8, 16, 32, 64]
