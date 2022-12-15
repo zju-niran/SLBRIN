@@ -26,7 +26,7 @@ class TimeSeriesModel:
         if old_cdfs_num == 0:  # if old_cdfs is []
             self.cur_cdf = [0.0] * cdf_width
             self.cur_max_key = 0
-        elif old_cdfs_num < cdf_lag:  # if old_cdfs are not enough in quantity
+        elif old_cdfs_num <= cdf_lag:  # if old_cdfs are not enough in quantity
             self.cur_cdf = self.old_cdfs[-1]
             self.cur_max_key = self.old_max_keys[-1]
         else:
