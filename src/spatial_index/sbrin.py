@@ -13,7 +13,7 @@ sys.path.append('/home/zju/wlj/SBRIN')
 from src.mlp import MLP
 from src.mlp_simple import MLPSimple
 from src.spatial_index.common_utils import Region, binary_search_less_max, sigmoid, biased_search_almost, \
-    biased_search, get_mbr_by_points
+    biased_search_duplicate, get_mbr_by_points
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 from src.experiment.common_utils import load_data, Distribution, data_precision, data_region
@@ -540,9 +540,9 @@ class SBRIN(SpatialIndex):
             pre = hr.model_predict(gh)
             target_ies = self.index_entries[hr_key]
             # 4. biased search in scope [pre - max_err, pre + min_err]
-            return [target_ies[key][4] for key in biased_search(target_ies, 2, gh, pre,
-                                                                max(pre - hr.model.max_err, 0),
-                                                                min(pre - hr.model.min_err, hr.max_key))]
+            return [target_ies[key][4] for key in biased_search_duplicate(target_ies, 2, gh, pre,
+                                                                          max(pre - hr.model.max_err, 0),
+                                                                          min(pre - hr.model.min_err, hr.max_key))]
 
     def range_query_single(self, window):
         """

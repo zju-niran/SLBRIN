@@ -8,7 +8,8 @@ import numpy as np
 
 sys.path.append('/home/zju/wlj/SBRIN')
 from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
-from src.spatial_index.common_utils import biased_search, binary_search_less_max, binary_search, Region
+from src.spatial_index.common_utils import biased_search_duplicate, binary_search_less_max, binary_search_duplicate, \
+    Region
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.zm_index import Node, AbstractNN
 from src.spatial_index.zm_index_optimised import ZMIndexOptimised, NN
@@ -35,17 +36,18 @@ class Mulis(ZMIndexOptimised):
 
     def build_append(self, time_interval, start_time, end_time, cdf_width, cdf_lag):
         """
-        1. create delta_index and delta_model
+        1. create delta_model with ts_model
+        2. change delta_index from list into list of list
         """
         self.start_time = start_time
         self.cur_time_interval = math.ceil((end_time - start_time) / time_interval)
         self.time_interval = time_interval
         self.cdf_width = cdf_width
         self.cdf_lag = cdf_lag
-        # 2. create delta_index and delta_model
+        # 1. create delta_model with ts_model
         for j in range(self.stages[-1]):
-            # create the old_cdfs and old_max_keys for delta_model
             node = self.rmi[-1][j]
+            # create the old_cdfs and old_max_keys for delta_model
             min_key = node.model.input_min
             max_key = node.model.input_max
             key_interval = (max_key - min_key) / self.cdf_width
@@ -68,6 +70,7 @@ class Mulis(ZMIndexOptimised):
             # plot_ts(cdfs)
             node.delta_model = TimeSeriesModel(old_cdfs, None, old_max_keys, None, key_list)
             node.delta_model.build(self.cdf_width, self.cdf_lag)
+            # 2. change delta_index from list into list of list
             node.delta_index = [[] for i in range(node.delta_model.cur_max_key + 1)]
 
     def insert_single(self, point):
@@ -170,13 +173,14 @@ class Mulis(ZMIndexOptimised):
         """
         gh = self.geohash.encode(point[0], point[1])
         leaf_node, _, pre, min_err, max_err = self.predict(gh)
-        l_bound = max(pre - max_err, 0)
+        l_bound = max(pre - max_err, leaf_node.model.output_min)
         r_bound = min(pre - min_err, leaf_node.model.output_max)
-        result = [leaf_node.index[key][4] for key in biased_search(leaf_node.index, 2, gh, pre, l_bound, r_bound)]
+        result = [leaf_node.index[key][4] for key in
+                  biased_search_duplicate(leaf_node.index, 2, gh, pre, l_bound, r_bound)]
         # 1. find the target list of delta_index which contains the target ie
         if leaf_node.delta_index:
             tg_list = self.get_delta_index_list(gh, leaf_node)
-            result.extend([tg_list[key][4] for key in binary_search(tg_list, 2, gh, 0, len(tg_list) - 1)])
+            result.extend([tg_list[key][4] for key in binary_search_duplicate(tg_list, 2, gh, 0, len(tg_list) - 1)])
         return result
 
     def save(self):

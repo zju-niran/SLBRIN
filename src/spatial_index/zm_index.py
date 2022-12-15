@@ -11,8 +11,8 @@ import numpy as np
 sys.path.append('/home/zju/wlj/SBRIN')
 from src.mlp import MLP
 from src.mlp_simple import MLPSimple
-from src.spatial_index.common_utils import Region, biased_search, normalize_input_minmax, denormalize_output_minmax, \
-    binary_search_less_max, binary_search, relu, normalize_output, normalize_input
+from src.spatial_index.common_utils import Region, biased_search_duplicate, normalize_input_minmax, \
+    denormalize_output_minmax, binary_search_less_max, binary_search_duplicate, relu, normalize_output, normalize_input
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 from src.experiment.common_utils import load_data, Distribution, data_region, data_precision
@@ -226,20 +226,20 @@ class ZMIndex(SpatialIndex):
         """
         # 1. compute geohash from x/y of point
         gh = self.geohash.encode(point[0], point[1])
-        if 9247603395312 == gh:
-            print(gh)
         # 2. predict by geohash and create key scope [pre - min_err, pre + max_err]
         leaf_node, _, pre, min_err, max_err = self.predict(gh)
-        l_bound = max(pre - max_err, 0)
+        l_bound = max(pre - max_err, leaf_node.model.output_min)
         r_bound = min(pre - min_err, leaf_node.model.output_max)
         # 3. binary search in scope
-        result = [leaf_node.index[key][4] for key in biased_search(leaf_node.index, 2, gh, pre, l_bound, r_bound)]
+        result = [leaf_node.index[key][4] for key in
+                  biased_search_duplicate(leaf_node.index, 2, gh, pre, l_bound, r_bound)]
         self.io_cost += math.ceil((r_bound - l_bound) / ITEMS_PER_RA)
         # 4. filter in update index
         if leaf_node.delta_index:
             delta_index_len = len(leaf_node.delta_index)
             result.extend([leaf_node.delta_index[key][4]
-                           for key in binary_search(leaf_node.delta_index, 2, gh, 0, len(leaf_node.delta_index) - 1)])
+                           for key in
+                           binary_search_duplicate(leaf_node.delta_index, 2, gh, 0, len(leaf_node.delta_index) - 1)])
             self.io_cost += delta_index_len // ITEMS_PER_RA + 1
         return result
 
@@ -259,14 +259,14 @@ class ZMIndex(SpatialIndex):
         leaf_node1, leaf_key1, pre1, min_err1, max_err1 = self.predict(gh1)
         l_bound1 = max(pre1 - max_err1, 0)
         r_bound1 = min(pre1 - min_err1, leaf_node1.model.output_max)
-        left_key = biased_search(leaf_node1.index, 2, gh1, pre1, l_bound1, r_bound1)
+        left_key = biased_search_duplicate(leaf_node1.index, 2, gh1, pre1, l_bound1, r_bound1)
         left_key = l_bound1 if len(left_key) == 0 else min(left_key)
         # 3. find right_key by point query
         # if point not found, right_key = pre - max_err
         leaf_node2, leaf_key2, pre2, min_err2, max_err2 = self.predict(gh2)
         l_bound2 = max(pre2 - max_err2, 0)
         r_bound2 = min(pre2 - min_err2, leaf_node2.model.output_max)
-        right_key = biased_search(leaf_node2.index, 2, gh2, pre2, l_bound2, r_bound2)
+        right_key = biased_search_duplicate(leaf_node2.index, 2, gh2, pre2, l_bound2, r_bound2)
         right_key = r_bound2 if len(right_key) == 0 else max(right_key)
         # 4. filter all the point of scope[key1, key2] by range(x1/y1/x2/y2).contain(point)
         # 5. filter in update index
@@ -355,12 +355,12 @@ class ZMIndex(SpatialIndex):
             leaf_node1, leaf_key1, pre1, min_err1, max_err1 = self.predict(gh1)
             l_bound1 = max(pre1 - max_err1, 0)
             r_bound1 = min(pre1 - min_err1, leaf_node1.model.output_max)
-            left_key = biased_search(leaf_node1.index, 2, gh1, pre1, l_bound1, r_bound1)
+            left_key = biased_search_duplicate(leaf_node1.index, 2, gh1, pre1, l_bound1, r_bound1)
             left_key = l_bound1 if len(left_key) == 0 else min(left_key)
             leaf_node2, leaf_key2, pre2, min_err2, max_err2 = self.predict(gh2)
             l_bound2 = max(pre2 - max_err2, 0)
             r_bound2 = min(pre2 - min_err2, leaf_node2.model.output_max)
-            right_key = biased_search(leaf_node2.index, 2, gh2, pre2, l_bound2, r_bound2)
+            right_key = biased_search_duplicate(leaf_node2.index, 2, gh2, pre2, l_bound2, r_bound2)
             right_key = r_bound2 + 1 if len(right_key) == 0 else max(right_key) + 1
             io_index_len = 0
             io_delta_index_len = 0

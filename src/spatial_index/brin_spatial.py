@@ -7,7 +7,7 @@ import time
 import numpy as np
 
 sys.path.append('/home/zju/wlj/SBRIN')
-from src.spatial_index.common_utils import get_mbr_by_points, intersect, Region, binary_search
+from src.spatial_index.common_utils import get_mbr_by_points, intersect, Region, binary_search_duplicate
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 from src.experiment.common_utils import load_data, Distribution, data_region, data_precision
@@ -130,7 +130,7 @@ class BRINSpatial(SpatialIndex):
         return [[blk, intersect(window, blk.value)]
                 for blk in self.block_ranges]
 
-    def binary_search(self, x, left, right):
+    def binary_search_duplicate(self, x, left, right):
         """
         binary search geohash in ies[left, right]
         """
@@ -169,7 +169,7 @@ class BRINSpatial(SpatialIndex):
             gh = self.meta.geohash.encode(point[0], point[1])
             result = []
             for blk in blks:
-                result.extend(self.binary_search(gh, blk.blknum, blk.blknum + self.meta.datas_per_range - 1))
+                result.extend(self.binary_search_duplicate(gh, blk.blknum, blk.blknum + self.meta.datas_per_range - 1))
             return result
         else:
             return [ie[-1]

@@ -306,9 +306,9 @@ def total_size(o, handlers={}, verbose=False):
     return sizeof(o)
 
 
-def binary_search(nums, field, x, left, right):
+def binary_search_duplicate(nums, field, x, left, right):
     """
-    二分查找 + 对象
+    二分查找 + 对象 + 允许重复
     """
     result = []
     while left <= right:
@@ -333,7 +333,7 @@ def binary_search(nums, field, x, left, right):
 
 def binary_search_less_max(nums, field, x, left, right):
     """
-    二分查找 + 对象 + 找比x小的最大值
+    二分查找 + 找比x小的最大值
     优化: 循环->二分:15->1
     """
     while left <= right:
@@ -349,7 +349,7 @@ def binary_search_less_max(nums, field, x, left, right):
 
 def binary_search_less_max_duplicate(nums, x, left, right):
     """
-    二分查找 + 对象 + 查找不超过x的数量 + 允许重复
+    二分查找 + 不超过x的最大值 + 允许重复
     """
     while left <= right:
         mid = (left + right) // 2
@@ -365,7 +365,7 @@ def binary_search_less_max_duplicate(nums, x, left, right):
     return right + 1
 
 
-def biased_search(nums, field, x, mid, left, right):
+def biased_search_duplicate(nums, field, x, mid, left, right):
     """
     二分查找 + 对象 + biased
     如果pre不在[left, right]里，会变慢
@@ -391,9 +391,26 @@ def biased_search(nums, field, x, mid, left, right):
     return result
 
 
+def biased_search_less_max_duplicate(nums, field, x, mid, left, right):
+    """
+    二分查找 + 对象 + biased + 不超过x的最大值 + 允许重复
+    """
+    while left <= right:
+        if nums[mid][field] == x:
+            mid += 1
+            while mid <= right and nums[mid][field] == x:
+                mid += 1
+            return mid
+        elif nums[mid][field] < x:
+            left = mid + 1
+        else:
+            right = mid - 1
+        mid = (left + right) // 2
+    return right + 1
+
 def biased_search_almost(nums, field, x, mid, left, right):
     """
-    二分查找 + 对象 + biased + 查找最接近的，值不超过[left, right]
+    二分查找 + 对象 + biased + 查找不超过x的数量 + 允许重复
     """
     result = []
     left_store = left
