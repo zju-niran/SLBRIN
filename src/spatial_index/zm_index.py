@@ -40,10 +40,6 @@ class ZMIndex(SpatialIndex):
                             format="%(asctime)s - %(levelname)s - %(message)s",
                             datefmt="%Y/%m/%d %H:%M:%S %p")
         self.logging = logging.getLogger(self.name)
-        # 更新所需：
-        self.start_time = None
-        self.cur_time_interval = None
-        self.time_interval = None
         # 训练所需：
         self.is_gpu = None
         self.weight = None
@@ -56,8 +52,7 @@ class ZMIndex(SpatialIndex):
 
     def build(self, data_list, is_sorted, data_precision, region, is_new, is_simple, is_gpu, weight,
               stages, cores, train_steps, batch_nums, learning_rates, use_thresholds, thresholds, retrain_time_limits,
-              thread_pool_size,
-              time_interval, start_time, end_time):
+              thread_pool_size):
         """
         build index
         1. ordering x/y point by geohash
@@ -69,9 +64,6 @@ class ZMIndex(SpatialIndex):
         self.train_step = train_steps[-1]
         self.batch_num = batch_nums[-1]
         self.learning_rate = learning_rates[-1]
-        self.start_time = start_time
-        self.cur_time_interval = math.ceil((end_time - start_time) / time_interval)
-        self.time_interval = time_interval
         model_hdf_dir = os.path.join(self.model_path, "hdf/")
         if os.path.exists(model_hdf_dir) is False:
             os.makedirs(model_hdf_dir)
@@ -89,10 +81,11 @@ class ZMIndex(SpatialIndex):
         data_len = len(data_list)
         self.max_key = data_len
         if not is_sorted:
-            data_list = [(data[0], data[1], self.geohash.encode(data[0], data[1]), data[-1]) for data in data_list]
+            data_list = [(data[0], data[1], self.geohash.encode(data[0], data[1]), data[2], data[3])
+                         for data in data_list]
             data_list = sorted(data_list, key=lambda x: x[2])
         else:
-            data_list = [(data[0], data[1], data[2], data[-1]) for data in data_list]
+            data_list = data_list.tolist()
         train_inputs[0][0] = data_list
         train_labels[0][0] = list(range(0, data_len))
         # 2. create rmi to train geohash->key data
@@ -126,7 +119,7 @@ class ZMIndex(SpatialIndex):
                                                     use_threshold, threshold, retrain_time_limit, mp_list))
                 pool.close()
                 pool.join()
-                nodes = [Node(model, None, None) for model in mp_list]
+                nodes = [Node(None, model, None) for model in mp_list]
                 for j in range(task_size):
                     node = nodes[j]
                     if node is None:
@@ -150,11 +143,22 @@ class ZMIndex(SpatialIndex):
                                                 use_threshold, threshold, retrain_time_limit, mp_list))
                 pool.close()
                 pool.join()
-                nodes = [Node(mp_list[j], train_input[j], []) for j in range(task_size)]
+                nodes = [Node(train_input[j], mp_list[j], []) for j in range(task_size)]
             self.rmi[i] = nodes
             # clear the data already used
             train_inputs[i] = None
             train_labels[i] = None
+
+    def get_leaf_node(self, key):
+        """
+        get the leaf node which contains the key
+        :param key: float
+        :return: the key of leaf node
+        """
+        node_key = 0
+        for i in range(0, self.non_leaf_stage_len):
+            node_key = int(self.rmi[i][node_key].model.predict(key))
+        return node_key
 
     def insert_single(self, point):
         """
@@ -166,11 +170,9 @@ class ZMIndex(SpatialIndex):
         # 1. compute geohash from x/y of point
         gh = self.geohash.encode(point[0], point[1])
         # 2. encode p to geohash and create index entry(x, y, geohash, pointer)
-        point = (point[0], point[1], gh, point[2])
+        point = (point[0], point[1], gh, point[2], point[3])
         # 3. predict the leaf_node by rmi
-        node_key = 0
-        for i in range(0, self.non_leaf_stage_len):
-            node_key = int(self.rmi[i][node_key].model.predict(gh))
+        node_key = self.get_leaf_node(gh)
         # 4. insert ie into update index
         leaf_node = self.rmi[-1][node_key]
         leaf_node.delta_index.insert(
@@ -179,48 +181,7 @@ class ZMIndex(SpatialIndex):
     def insert(self, points):
         points = points.tolist()
         for point in points:
-            cur_time = point[2]
-            # update once the time of new point cross the time interval
-            cur_time_interval = (cur_time - self.start_time) // self.time_interval
-            if self.cur_time_interval < cur_time_interval:
-                self.update()
-                self.cur_time_interval = cur_time_interval
             self.insert_single(point)
-
-    def update(self):
-        leaf_nodes = self.rmi[-1]
-        retrain_model_num = 0
-        retrain_model_epoch = 0
-        for j in range(0, self.stages[-1]):
-            leaf_node = leaf_nodes[j]
-            if leaf_node.delta_index:
-                # 1. merge delta index into index
-                if leaf_node.index:
-                    leaf_node.index.extend(leaf_node.delta_index)
-                    leaf_node.index.sort(key=lambda x: x[2])  # 优化：有序数组合并->sorted:2.5->1
-                else:
-                    leaf_node.index = leaf_node.delta_index
-                leaf_node.delta_index = []
-                # 2. retrain model
-                inputs = [data[2] for data in leaf_node.index]
-                inputs_num = len(inputs)
-                labels = list(range(0, inputs_num))
-                batch_size = 2 ** math.ceil(math.log(inputs_num / self.batch_num, 2))
-                if batch_size < 1:
-                    batch_size = 1
-                model_key = "retrain_%s" % j
-                tmp_index = NN(self.model_path, model_key, inputs, labels, True, self.is_gpu, self.weight,
-                               self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
-                # tmp_index.build_simple(None)  # update
-                tmp_index.build_simple(leaf_node.model.matrices if leaf_node.model else None)  # retrain with
-                leaf_node.model = AbstractNN(tmp_index.get_matrices(), len(self.cores) - 1,
-                                             int(tmp_index.train_x_min), int(tmp_index.train_x_max),
-                                             0, inputs_num - 1,  # update the range of output
-                                             math.ceil(tmp_index.min_err), math.ceil(tmp_index.max_err))
-                retrain_model_num += 1
-                retrain_model_epoch += tmp_index.get_epochs()
-        self.logging.info("Retrain model num: %s" % retrain_model_num)
-        self.logging.info("Retrain model epoch: %s" % retrain_model_epoch)
 
     def predict(self, key):
         """
@@ -232,9 +193,7 @@ class ZMIndex(SpatialIndex):
         :return: leaf node, the key predicted by rmi, left and right err bounds
         """
         # 1. predict the leaf_node by rmi
-        node_key = 0
-        for i in range(0, self.non_leaf_stage_len):
-            node_key = int(self.rmi[i][node_key].model.predict(key))
+        node_key = self.get_leaf_node(key)
         # 2. return the less max key when leaf model is None
         leaf_node = self.rmi[-1][node_key]
         if leaf_node.model is None:
@@ -252,9 +211,7 @@ class ZMIndex(SpatialIndex):
         calculate weight from key
         uniform分布的斜率理论上为1，密集分布则大于1，稀疏分布则小于1
         """
-        node_key = 0
-        for i in range(0, self.non_leaf_stage_len):
-            node_key = int(self.rmi[i][node_key].model.predict(key))
+        node_key = self.get_leaf_node(key)
         leaf_model = self.rmi[-1][node_key].model
         if leaf_model is None:
             return 1
@@ -269,6 +226,8 @@ class ZMIndex(SpatialIndex):
         """
         # 1. compute geohash from x/y of point
         gh = self.geohash.encode(point[0], point[1])
+        if 9247603395312 == gh:
+            print(gh)
         # 2. predict by geohash and create key scope [pre - min_err, pre + max_err]
         leaf_node, _, pre, min_err, max_err = self.predict(gh)
         l_bound = max(pre - max_err, 0)
@@ -466,12 +425,10 @@ class ZMIndex(SpatialIndex):
         meta = np.array((self.geohash.data_precision,
                          self.geohash.region.bottom, self.geohash.region.up,
                          self.geohash.region.left, self.geohash.region.right,
-                         self.is_gpu, self.weight, self.train_step, self.batch_num, self.learning_rate,
-                         self.start_time, self.cur_time_interval, self.time_interval),
+                         self.is_gpu, self.weight, self.train_step, self.batch_num, self.learning_rate),
                         dtype=[("0", 'i4'),
                                ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8'),
-                               ("5", 'i1'), ("6", 'f4'), ("7", 'i2'), ("8", 'i2'), ("9", 'f4'),
-                               ("10", 'i4'), ("11", 'i4'), ("12", 'i4')])
+                               ("5", 'i1'), ("6", 'f4'), ("7", 'i2'), ("8", 'i2'), ("9", 'f4')])
         np.save(os.path.join(self.model_path, 'meta.npy'), meta)
         np.save(os.path.join(self.model_path, 'stages.npy'), self.stages)
         np.save(os.path.join(self.model_path, 'cores.npy'), self.cores)
@@ -507,9 +464,6 @@ class ZMIndex(SpatialIndex):
         self.train_step = meta[7]
         self.batch_num = meta[8]
         self.learning_rate = meta[9]
-        self.start_time = meta[10]
-        self.cur_time_interval = meta[11]
-        self.time_interval = meta[12]
         models = np.load(os.path.join(self.model_path, 'models.npy'), allow_pickle=True)
         indexes = np.load(os.path.join(self.model_path, 'indexes.npy'), allow_pickle=True).tolist()
         index_lens = np.load(os.path.join(self.model_path, 'index_lens.npy'), allow_pickle=True).tolist()
@@ -520,15 +474,15 @@ class ZMIndex(SpatialIndex):
         self.rmi = []
         for i in range(len(self.stages)):
             if i < self.non_leaf_stage_len:
-                self.rmi.append([Node(model, None, None) for model in models[model_cur:model_cur + self.stages[i]]])
+                self.rmi.append([Node(None, model, None) for model in models[model_cur:model_cur + self.stages[i]]])
                 model_cur += self.stages[i]
             else:
                 index_cur = 0
                 delta_index_cur = 0
                 leaf_nodes = []
                 for j in range(self.stages[i]):
-                    leaf_nodes.append(Node(models[model_cur],
-                                           indexes[index_cur:index_cur + index_lens[j]],
+                    leaf_nodes.append(Node(indexes[index_cur:index_cur + index_lens[j]],
+                                           models[model_cur],
                                            delta_indexes[delta_index_cur:delta_index_cur + delta_index_lens[j]]))
                     model_cur += 1
                     index_cur += index_lens[j]
@@ -622,10 +576,11 @@ def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new,
 
 
 class Node:
-    def __init__(self, model, index, delta_index):
-        self.model = model
+    def __init__(self, index, model, delta_index, delta_model=None):
         self.index = index
+        self.model = model
         self.delta_index = delta_index
+        self.delta_model = delta_model
 
 
 class NN(MLP):
@@ -712,14 +667,11 @@ def main():
                     cores=[[1, 32], [1, 32]],
                     train_steps=[5000, 5000],
                     batch_nums=[64, 64],
-                    use_thresholds=[False, False],
                     learning_rates=[0.001, 0.001],
+                    use_thresholds=[False, False],
                     thresholds=[5, 20],
                     retrain_time_limits=[4, 2],
-                    thread_pool_size=6,
-                    time_interval=60 * 60 * 24,
-                    start_time=1356998400,
-                    end_time=1359676799)
+                    thread_pool_size=6)
         index.save()
         end_time = time.time()
         build_time = end_time - start_time
