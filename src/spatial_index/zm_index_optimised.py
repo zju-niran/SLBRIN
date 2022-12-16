@@ -110,7 +110,7 @@ class ZMIndexOptimised(ZMIndex):
                 for j in range(task_size):
                     inputs = [data[2] for data in train_input[j]]
                     left_bound = key_left_bounds[j]
-                    right_bound = (key_left_bounds[j + 1] if j + 1 < task_size else 1 << self.geohash.sum_bits)
+                    right_bound = key_left_bounds[j + 1] if j + 1 < task_size else 1 << self.geohash.sum_bits
                     if inputs and not (left_bound < inputs[0] and right_bound > inputs[-1]):
                         raise RuntimeError("the inputs [%f, %f] of leaf node %d exceed the limits [%f, %f]" % (
                             inputs[0], inputs[-1], j, left_bound, right_bound))

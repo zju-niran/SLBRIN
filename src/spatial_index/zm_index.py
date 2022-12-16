@@ -15,7 +15,7 @@ from src.spatial_index.common_utils import Region, biased_search_duplicate, norm
     denormalize_output_minmax, binary_search_less_max, binary_search_duplicate, relu, normalize_output, normalize_input
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
-from src.experiment.common_utils import load_data, Distribution, data_region, data_precision
+from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
 
 # 预设pagesize=4096, read_ahead_pages=256, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
 RA_PAGES = 256
@@ -569,7 +569,7 @@ def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new,
     abstract_index = AbstractNN(tmp_index.get_matrices(), len(core) - 1,
                                 int(tmp_index.train_x_min), int(tmp_index.train_x_max),
                                 int(tmp_index.train_y_min), int(tmp_index.train_y_max),
-                                math.ceil(tmp_index.min_err), math.ceil(tmp_index.max_err))
+                                math.floor(tmp_index.min_err), math.ceil(tmp_index.max_err))
     del tmp_index
     gc.collect(generation=0)
     mp_list[current_stage_step] = abstract_index
@@ -713,7 +713,15 @@ def main():
     index.insert(update_data_list)
     end_time = time.time()
     logging.info("Insert time: %s" % (end_time - start_time))
-
+    point_query_list = load_query(data_distribution, 0).tolist()
+    start_time = time.time()
+    results = index.point_query(point_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(point_query_list)
+    logging.info("Point query time: %s" % search_time)
+    logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
+    io_cost = index.io_cost
+    np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
 
 if __name__ == '__main__':
     main()

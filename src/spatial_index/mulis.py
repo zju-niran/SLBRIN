@@ -139,7 +139,7 @@ class Mulis(ZMIndexOptimised):
                 leaf_node.model = AbstractNN(tmp_index.get_matrices(), leaf_node.model.hl_nums,
                                              leaf_node.model.input_min, leaf_node.model.input_max,
                                              0, inputs_num - 3,
-                                             math.ceil(tmp_index.min_err), math.ceil(tmp_index.max_err))
+                                             math.floor(tmp_index.min_err), math.ceil(tmp_index.max_err))
                 retrain_model_num += 1
                 retrain_model_epoch += tmp_index.get_epochs()
                 # 3. update delta model
@@ -307,7 +307,7 @@ def main():
         os.makedirs(model_path)
     index = Mulis(model_path=model_path)
     index_name = index.name
-    load_index_from_json = True
+    load_index_from_json = False
     if load_index_from_json:
         index.load()
     else:
@@ -356,8 +356,6 @@ def main():
     index.insert(update_data_list)
     end_time = time.time()
     logging.info("Insert time: %s" % (end_time - start_time))
-    index.save()
-    index.load()
 
 
 if __name__ == '__main__':

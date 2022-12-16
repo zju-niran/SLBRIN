@@ -84,7 +84,7 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
                 leaf_node.model = AbstractNN(tmp_index.get_matrices(), leaf_node.model.hl_nums,
                                              leaf_node.model.input_min, leaf_node.model.input_max,
                                              0, inputs_num - 3,
-                                             math.ceil(tmp_index.min_err), math.ceil(tmp_index.max_err))
+                                             math.floor(tmp_index.min_err), math.ceil(tmp_index.max_err))
                 retrain_model_num += 1
                 retrain_model_epoch += tmp_index.get_epochs()
         self.logging.info("Retrain model num: %s" % retrain_model_num)
@@ -118,7 +118,7 @@ def main():
         os.makedirs(model_path)
     index = ZMIndexDeltaInsert(model_path=model_path)
     index_name = index.name
-    load_index_from_json = True
+    load_index_from_json = False
     if load_index_from_json:
         index.load()
     else:
@@ -153,6 +153,18 @@ def main():
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
     logging.info("Model precision avg: %s" % index.model_err())
+    # point_query_list = load_query(data_distribution, 0).tolist()
+    # start_time = time.time()
+    # results = index.point_query(point_query_list)
+    # end_time = time.time()
+    # search_time = (end_time - start_time) / len(point_query_list)
+    # logging.info("Point query time: %s" % search_time)
+    # np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    update_data_list = load_data(Distribution.NYCT_10W, 1)
+    start_time = time.time()
+    index.insert(update_data_list)
+    end_time = time.time()
+    logging.info("Insert time: %s" % (end_time - start_time))
     point_query_list = load_query(data_distribution, 0).tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)
@@ -160,13 +172,6 @@ def main():
     search_time = (end_time - start_time) / len(point_query_list)
     logging.info("Point query time: %s" % search_time)
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    update_data_list = load_data(Distribution.NYCT_10W, 1)[:1000]
-    start_time = time.time()
-    index.insert(update_data_list)
-    end_time = time.time()
-    logging.info("Insert time: %s" % (end_time - start_time))
-    index.save()
-    index.load()
 
 
 if __name__ == '__main__':

@@ -306,7 +306,7 @@ class SBRIN(SpatialIndex):
                        self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
         tmp_index.build_simple(hr.model.matrices)
         hr.model = AbstractNN(tmp_index.matrices, hr.model.hl_nums,
-                              math.ceil(tmp_index.min_err),
+                              math.floor(tmp_index.min_err),
                               math.ceil(tmp_index.max_err))
         hr.state = 0
         end_time = time.time()
@@ -959,7 +959,7 @@ def build_nn(model_path, model_key, inputs, labels, is_new, is_simple, is_gpu, w
                        train_step, batch_size, learning_rate, use_threshold, threshold, retrain_time_limit)
     tmp_index.build()
     abstract_index = AbstractNN(tmp_index.matrices, len(core) - 1,
-                                math.ceil(tmp_index.min_err),
+                                math.floor(tmp_index.min_err),
                                 math.ceil(tmp_index.max_err))
     del tmp_index
     gc.collect(generation=0)
@@ -1039,7 +1039,7 @@ class HistoryRange:
             pres[pres < 0] = 0
             pres[pres > 1] = 1
             errs = pres * self.max_key - ys
-            self.model.min_err = math.ceil(errs.min())
+            self.model.min_err = math.floor(errs.min())
             self.model.max_err = math.ceil(errs.max())
         else:
             self.model.min_err = 0
