@@ -21,27 +21,28 @@ def train_tn():
             logging.info("*************start %s************" % model_path)
             start_time = time.time()
             build_data_list = load_data(data_distribution, 0)
-            index.build(data_list=build_data_list,
-                        is_sorted=True,
-                        threshold_number=tn,
-                        data_precision=data_precision[data_distribution],
-                        region=data_region[data_distribution],
-                        threshold_err=1,
-                        threshold_summary=1000,
-                        threshold_merge=5,
-                        is_new=False,
-                        is_simple=False,
-                        is_gpu=True,
-                        weight=1,
-                        core=[1, 128],
-                        train_step=5000,
-                        batch_num=64,
-                        learning_rate=0.1,
-                        use_threshold=False,
-                        threshold=0,
-                        retrain_time_limit=0,
-                        thread_pool_size=12)
-            index.save()
+            # index.build(data_list=build_data_list,
+            #             is_sorted=True,
+            #             threshold_number=tn,
+            #             data_precision=data_precision[data_distribution],
+            #             region=data_region[data_distribution],
+            #             threshold_err=1,
+            #             threshold_summary=1000,
+            #             threshold_merge=5,
+            #             is_new=True,
+            #             is_simple=False,
+            #             is_gpu=True,
+            #             weight=1,
+            #             core=[1, 128],
+            #             train_step=5000,
+            #             batch_num=64,
+            #             learning_rate=0.1,
+            #             use_threshold=False,
+            #             threshold=0,
+            #             retrain_time_limit=0,
+            #             thread_pool_size=12)
+            # index.save()
+            index.load()
             end_time = time.time()
             build_time = end_time - start_time
             logging.info("Build time: %s" % build_time)
@@ -49,7 +50,7 @@ def train_tn():
             structure_size, ie_size = index.size()
             logging.info("Structure size: %s" % structure_size)
             logging.info("Index entry size: %s" % ie_size)
-            logging.info("IO cost: %s" % index.io())
+            io_cost = index.io_cost
             model_num = index.meta.last_hr + 1
             logging.info("Model num: %s" % model_num)
             model_precisions = [(hr.model.max_err - hr.model.min_err) for hr in index.history_ranges]
@@ -61,22 +62,28 @@ def train_tn():
             end_time = time.time()
             search_time = (end_time - start_time) / len(point_query_list)
             logging.info("Point query time: %s" % search_time)
+            logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
+            io_cost = index.io_cost
             range_query_list = load_query(data_distribution, 1).tolist()
             for i in range(len(range_query_list) // 1000):
                 tmp_range_query_list = range_query_list[i * 1000:(i + 1) * 1000]
                 start_time = time.time()
                 index.test_range_query(tmp_range_query_list)
                 end_time = time.time()
-                search_time = (end_time - start_time) / 1000
+                search_time = (end_time - start_time) / len(tmp_range_query_list)
                 logging.info("Range query time: %s" % search_time)
+                logging.info("Range query io cost: %s" % ((index.io_cost - io_cost) / len(tmp_range_query_list)))
+                io_cost = index.io_cost
             knn_query_list = load_query(data_distribution, 2).tolist()
             for i in range(len(knn_query_list) // 1000):
                 tmp_knn_query_list = knn_query_list[i * 1000:(i + 1) * 1000]
                 start_time = time.time()
                 index.test_knn_query(tmp_knn_query_list)
                 end_time = time.time()
-                search_time = (end_time - start_time) / 1000
+                search_time = (end_time - start_time) / len(tmp_knn_query_list)
                 logging.info("KNN query time: %s" % search_time)
+                logging.info("KNN query io cost: %s" % ((index.io_cost - io_cost) / len(tmp_knn_query_list)))
+                io_cost = index.io_cost
 
 
 def train_ts_tm():
@@ -166,6 +173,6 @@ if __name__ == '__main__':
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
                         level=logging.INFO,
                         format="%(message)s")
-    # train_tn()
-    train_ts_tm()
+    train_tn()
+    # train_ts_tm()
     # train_te()
