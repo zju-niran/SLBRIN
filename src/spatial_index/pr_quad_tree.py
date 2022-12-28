@@ -13,12 +13,11 @@ from src.spatial_index.spatial_index import SpatialIndex
 from src.spatial_index.common_utils import Region, Point
 from src.experiment.common_utils import Distribution, load_data, data_precision, data_region
 
-RA_PAGES = 256
 PAGE_SIZE = 4096
 NODE_SIZE = 1 + 1 + 8 * 4 + 4 * 4 + 4 * 2  # 58
 ITEM_SIZE = 8 * 2 + 4  # 20
-NODES_PER_RA = RA_PAGES * int(PAGE_SIZE / NODE_SIZE)
-ITEMS_PER_RA = RA_PAGES * int(PAGE_SIZE / ITEM_SIZE)
+NODES_PER_PAGE = int(PAGE_SIZE / NODE_SIZE)
+ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 
 
 class QuadTreeNode:
@@ -371,11 +370,11 @@ class PRQuadTree(SpatialIndex):
         item_len = np.load(os.path.join(self.model_path, 'prquadtree_item.npy'), allow_pickle=True).size
         leaf_path_list = []
         get_leaf_and_path(prqt_tree, leaf_path_list, [], 0)
-        node_io_list = [len(set([int(node_path / NODES_PER_RA) for node_path in leaf_path[0]])) * leaf_path[1]
+        node_io_list = [len(set([int(node_path / NODES_PER_PAGE) for node_path in leaf_path[0]])) * leaf_path[1]
                         for leaf_path in leaf_path_list]
         node_io = sum(node_io_list) / item_len
         # io when load item
-        item_io_list = [math.ceil(leaf_path[1] / ITEMS_PER_RA) * leaf_path[1] for leaf_path in leaf_path_list]
+        item_io_list = [math.ceil(leaf_path[1] / ITEMS_PER_PAGE) * leaf_path[1] for leaf_path in leaf_path_list]
         item_io = sum(item_io_list) / item_len
         return node_io + item_io
 

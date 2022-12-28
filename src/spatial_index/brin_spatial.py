@@ -17,7 +17,6 @@ from src.experiment.common_utils import load_data, Distribution, data_region, da
 1. tmp blk永远有一个，新数据插入只会插入tmp blk，tmp blk满了就转为blk同时创建新的tmp blk
 """
 
-RA_PAGES = 256
 PAGE_SIZE = 4096
 RANGE_SIZE = 8 * 4 + 4  # 36
 REVMAP_SIZE = 4 + 2  # 6
@@ -278,10 +277,12 @@ class BRINSpatial(SpatialIndex):
             brins_meta.extend([1, self.meta.geohash.data_precision,
                                self.meta.geohash.region.bottom, self.meta.geohash.region.up,
                                self.meta.geohash.region.left, self.meta.geohash.region.right])
-            index_entries = np.array(self.index_entries, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')])
+            index_entries = np.array(self.index_entries,
+                                     dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4'), ("4", 'i4')])
         else:
             brins_meta.extend([0, 0, 0, 0, 0, 0])
-            index_entries = np.array(self.index_entries, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i4')])
+            index_entries = np.array(self.index_entries,
+                                     dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i4'), ("3", 'i4')])
         brins_meta = np.array(tuple(brins_meta))
         brins_blk = [(blk.blknum, blk.value[0], blk.value[1], blk.value[2], blk.value[3]) for blk in self.block_ranges]
         brins_blk = np.array(brins_blk, dtype=[("0", 'i4'), ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8')])
@@ -328,8 +329,8 @@ class BRINSpatial(SpatialIndex):
         """
         range_len = len(self.block_ranges)
         meta_page_len = 1
-        regular_page_len = math.ceil(range_len * RANGE_SIZE / PAGE_SIZE)
-        revmap_page_len = math.ceil(range_len * REVMAP_SIZE / PAGE_SIZE)
+        regular_page_len = math.ceil(range_len * RANGE_SIZE / ITEMS_PER_PAGE)
+        revmap_page_len = math.ceil(range_len * REVMAP_SIZE / ITEMS_PER_PAGE)
         # io when load brin
         brin_io = math.ceil((meta_page_len + regular_page_len + revmap_page_len) / RA_PAGES)
         # io when load data

@@ -15,13 +15,12 @@ from src.spatial_index.zm_index import Node, AbstractNN
 from src.spatial_index.zm_index_optimised import ZMIndexOptimised, NN
 from src.ts_model import TimeSeriesModel, build_cdf
 
-# 预设pagesize=4096, read_ahead_pages=256, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
-RA_PAGES = 256
+# 预设pagesize=4096, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
 PAGE_SIZE = 4096
 MODEL_SIZE = 2000
 ITEM_SIZE = 8 * 3 + 4  # 28
-MODELS_PER_RA = RA_PAGES * int(PAGE_SIZE / MODEL_SIZE)
-ITEMS_PER_RA = RA_PAGES * int(PAGE_SIZE / ITEM_SIZE)
+MODELS_PER_PAGE = int(PAGE_SIZE / MODEL_SIZE)
+ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 
 
 class Mulis(ZMIndexOptimised):
@@ -290,7 +289,7 @@ class Mulis(ZMIndexOptimised):
                     index_cur += index_lens[j]
                     delta_index_cur += delta_index_lens[j]
                 self.rmi.append(leaf_nodes)
-        self.io_cost = math.ceil(self.size()[0] / ITEMS_PER_RA)
+        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def size(self):
         structure_size, ie_size = super(Mulis, self).size()

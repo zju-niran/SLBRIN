@@ -13,10 +13,9 @@ from src.spatial_index.spatial_index import SpatialIndex
 from src.experiment.common_utils import Distribution, load_data
 
 DIM_NUM = 2
-RA_PAGES = 256
 PAGE_SIZE = 4096
 NODE_SIZE = 1 + 4 + 4 * 2 + (8 * 2 + 4)  # 33
-NODES_PER_RA = RA_PAGES * int(PAGE_SIZE / NODE_SIZE)
+NODES_PER_RA = int(PAGE_SIZE / NODE_SIZE)
 
 
 def distance_value(value1, value2):

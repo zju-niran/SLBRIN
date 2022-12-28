@@ -12,18 +12,18 @@ sys.path.append('/home/zju/wlj/SBRIN')
 from src.mlp import MLP
 from src.mlp_simple import MLPSimple
 from src.spatial_index.common_utils import Region, biased_search_duplicate, normalize_input_minmax, \
-    denormalize_output_minmax, binary_search_less_max, binary_search_duplicate, relu, normalize_output, normalize_input
+    denormalize_output_minmax, binary_search_less_max, binary_search_duplicate, normalize_output, normalize_input, \
+    sigmoid
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
 
-# 预设pagesize=4096, read_ahead_pages=256, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
-RA_PAGES = 256
+# 预设pagesize=4096, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
 PAGE_SIZE = 4096
 MODEL_SIZE = 2000
 ITEM_SIZE = 8 * 3 + 4  # 28
-MODELS_PER_RA = RA_PAGES * int(PAGE_SIZE / MODEL_SIZE)
-ITEMS_PER_RA = RA_PAGES * int(PAGE_SIZE / ITEM_SIZE)
+MODELS_PER_PAGE = int(PAGE_SIZE / MODEL_SIZE)
+ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 
 
 class ZMIndex(SpatialIndex):
@@ -233,14 +233,14 @@ class ZMIndex(SpatialIndex):
         # 3. binary search in scope
         result = [leaf_node.index[key][4] for key in
                   biased_search_duplicate(leaf_node.index, 2, gh, pre, l_bound, r_bound)]
-        self.io_cost += math.ceil((r_bound - l_bound) / ITEMS_PER_RA)
+        self.io_cost += math.ceil((r_bound - l_bound) / ITEMS_PER_PAGE)
         # 4. filter in update index
         if leaf_node.delta_index:
             delta_index_len = len(leaf_node.delta_index)
             result.extend([leaf_node.delta_index[key][4]
                            for key in
                            binary_search_duplicate(leaf_node.delta_index, 2, gh, 0, len(leaf_node.delta_index) - 1)])
-            self.io_cost += delta_index_len // ITEMS_PER_RA + 1
+            self.io_cost += delta_index_len // ITEMS_PER_PAGE + 1
         return result
 
     def range_query_single(self, window):
@@ -274,7 +274,7 @@ class ZMIndex(SpatialIndex):
             # filter index
             result = [ie[4] for ie in leaf_node1.index[left_key:right_key + 1]
                       if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
-            self.io_cost += math.ceil((r_bound2 - l_bound1) / ITEMS_PER_RA)
+            self.io_cost += math.ceil((r_bound2 - l_bound1) / ITEMS_PER_PAGE)
             # filter delta index
             delta_index = leaf_node1.delta_index
             if delta_index:
@@ -284,7 +284,7 @@ class ZMIndex(SpatialIndex):
                 result.extend([ie[4]
                                for ie in delta_index[left_key:right_key + 1]
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-                self.io_cost += math.ceil(delta_index_len / ITEMS_PER_RA)
+                self.io_cost += math.ceil(delta_index_len / ITEMS_PER_PAGE)
         else:
             # filter index
             io_index_len = len(leaf_node1.index) + r_bound2 - l_bound1
@@ -301,7 +301,7 @@ class ZMIndex(SpatialIndex):
             result.extend([ie[4]
                            for ie in leaf_node2.index[:right_key + 1]
                            if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-            self.io_cost += math.ceil(io_index_len / ITEMS_PER_RA)
+            self.io_cost += math.ceil(io_index_len / ITEMS_PER_PAGE)
             # filter delta index
             delta_index = leaf_node1.delta_index
             io_index_len = 0
@@ -327,7 +327,7 @@ class ZMIndex(SpatialIndex):
                 result.extend([ie[4]
                                for ie in delta_index[:right_key + 1]
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-            self.io_cost += math.ceil(io_index_len / ITEMS_PER_RA)
+            self.io_cost += math.ceil(io_index_len / ITEMS_PER_PAGE)
         return result
 
     def knn_query_single(self, knn):
@@ -339,6 +339,7 @@ class ZMIndex(SpatialIndex):
         """
         # 1. init window by weight on CDF(key)
         x, y, k = knn
+        k = int(k)
         w = self.get_weight(self.geohash.encode(x, y))
         if w > 0:
             window_ratio = (k / self.max_key) ** 0.5 / w
@@ -418,7 +419,7 @@ class ZMIndex(SpatialIndex):
                     window_radius = dst
                 else:
                     break
-        self.io_cost += math.ceil(io_index_len / ITEMS_PER_RA) + math.ceil(io_delta_index_len / ITEMS_PER_RA)
+        self.io_cost += math.ceil(io_index_len / ITEMS_PER_PAGE) + math.ceil(io_delta_index_len / ITEMS_PER_PAGE)
         return [tp[1] for tp in tp_list[:k]]
 
     def save(self):
@@ -488,7 +489,7 @@ class ZMIndex(SpatialIndex):
                     index_cur += index_lens[j]
                     delta_index_cur += delta_index_lens[j]
                 self.rmi.append(leaf_nodes)
-        self.io_cost = math.ceil(self.size()[0] / ITEMS_PER_RA)
+        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def size(self):
         """
@@ -519,13 +520,14 @@ class ZMIndex(SpatialIndex):
         stage2_model_num = len(
             [node.model for node in self.rmi[-1] if node.model]) if self.non_leaf_stage_len > 0 else 0
         # io when load node
-        if stage2_model_num + 1 < MODELS_PER_RA:
+        if stage2_model_num + 1 < MODELS_PER_PAGE:
             model_io_list = [1] * stage2_model_num
         else:
-            model_io_list = [1] * (MODELS_PER_RA - 1)
-            model_io_list.extend([2] * (stage2_model_num + 1 - MODELS_PER_RA))
+            model_io_list = [1] * (MODELS_PER_PAGE - 1)
+            model_io_list.extend([2] * (stage2_model_num + 1 - MODELS_PER_PAGE))
         # io when load data
-        data_io_list = [math.ceil((node.model.max_err - node.model.min_err) / ITEMS_PER_RA) for node in self.rmi[-1] if
+        data_io_list = [math.ceil((node.model.max_err - node.model.min_err) / ITEMS_PER_PAGE) for node in self.rmi[-1]
+                        if
                         node.model]
         # compute avg io: data io + node io
         data_num_list = [node.model.output_max - node.model.output_min + 1 for node in self.rmi[-1] if node.model]
@@ -534,7 +536,7 @@ class ZMIndex(SpatialIndex):
         data_io = sum(data_node_io_list) / sum(data_num_list)
         # io when load update data
         update_data_num = sum([len(node.delta_index) for node in self.rmi[-1]])
-        update_data_io_list = [math.ceil(len(node.delta_index) / ITEMS_PER_RA) * len(node.delta_index) for node in
+        update_data_io_list = [math.ceil(len(node.delta_index) / ITEMS_PER_PAGE) * len(node.delta_index) for node in
                                self.rmi[-1]]
         update_data_io = sum(update_data_io_list) / update_data_num if update_data_num else 0
         return data_io + update_data_io
@@ -622,7 +624,7 @@ class AbstractNN:
     def predict(self, input_key):
         y = normalize_input_minmax(input_key, self.input_min, self.input_max)
         for i in range(self.hl_nums):
-            y = relu(np.dot(y, self.matrices[i * 2]) + self.matrices[i * 2 + 1])
+            y = sigmoid(np.dot(y, self.matrices[i * 2]) + self.matrices[i * 2 + 1])
         y = np.dot(y, self.matrices[-2]) + self.matrices[-1]
         return denormalize_output_minmax(y[0, 0], self.output_min, self.output_max)
 
@@ -635,8 +637,8 @@ class AbstractNN:
         y1 = normalize_input_minmax(input_key, self.input_min, self.input_max)
         y2 = y1 + delta
         for i in range(self.hl_nums):
-            y1 = relu(y1 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
-            y2 = relu(y2 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
+            y1 = sigmoid(y1 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
+            y2 = sigmoid(y2 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
         return (np.dot(y2, self.matrices[-2]) - np.dot(y1, self.matrices[-2]))[0, 0] / delta
 
 
@@ -722,6 +724,7 @@ def main():
     logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
     io_cost = index.io_cost
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+
 
 if __name__ == '__main__':
     main()

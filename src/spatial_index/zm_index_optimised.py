@@ -10,13 +10,12 @@ from src.mlp_simple import MLPSimple
 from src.spatial_index.zm_index import ZMIndex, Node, build_nn
 from src.spatial_index.geohash_utils import Geohash
 
-# 预设pagesize=4096, read_ahead_pages=256, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
-RA_PAGES = 256
+# 预设pagesize=4096, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
 PAGE_SIZE = 4096
 MODEL_SIZE = 2000
 ITEM_SIZE = 8 * 3 + 4  # 28
-MODELS_PER_RA = RA_PAGES * int(PAGE_SIZE / MODEL_SIZE)
-ITEMS_PER_RA = RA_PAGES * int(PAGE_SIZE / ITEM_SIZE)
+MODELS_PER_PAGE = int(PAGE_SIZE / MODEL_SIZE)
+ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 
 
 class ZMIndexOptimised(ZMIndex):
