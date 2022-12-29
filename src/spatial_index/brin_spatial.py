@@ -7,7 +7,7 @@ import time
 import numpy as np
 
 sys.path.append('/home/zju/wlj/SBRIN')
-from src.spatial_index.common_utils import get_mbr_by_points, intersect, Region, binary_search_duplicate
+from src.spatial_index.common_utils import get_mbr_by_points, intersect, Region
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 from src.experiment.common_utils import load_data, Distribution, data_region, data_precision
@@ -49,6 +49,8 @@ class BRINSpatial(SpatialIndex):
         # blknum: pages偏移 = id * pagesperrange，为便于检索，直接存id
         # value: 改动：blk的MBR
         self.block_ranges = block_ranges
+        # 统计所需：
+        self.io_cost = 0
 
     def insert_single(self, point):
         if self.meta.is_sorted:
@@ -168,9 +170,11 @@ class BRINSpatial(SpatialIndex):
             gh = self.meta.geohash.encode(point[0], point[1])
             result = []
             for blk in blks:
+                self.io_cost += self.meta.pages_per_range
                 result.extend(self.binary_search_duplicate(gh, blk.blknum, blk.blknum + self.meta.datas_per_range - 1))
             return result
         else:
+            self.io_cost += math.ceil(len(blks) * self.meta.pages_per_range)
             return [ie[-1]
                     for blk in blks
                     for ie in self.index_entries[blk.blknum: blk.blknum + self.meta.datas_per_range]
@@ -191,11 +195,13 @@ class BRINSpatial(SpatialIndex):
             # 3. 直接添加包含的blks对应磁盘范围内的数据
             elif target_blk[1] == 2:
                 blk = target_blk[0]
+                self.io_cost += self.meta.pages_per_range
                 result.extend([ie[-1]
                                for ie in self.index_entries[blk.blknum:blk.blknum + self.meta.datas_per_range]])
             # 2. 精确过滤相交的blks对应磁盘范围内的数据
             else:
                 blk = target_blk[0]
+                self.io_cost += self.meta.pages_per_range
                 result.extend([ie[-1]
                                for ie in self.index_entries[blk.blknum:blk.blknum + self.meta.datas_per_range]
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
@@ -210,6 +216,7 @@ class BRINSpatial(SpatialIndex):
         """
         # 1. init window
         x, y, k = knn
+        k = int(k)
         window_ratio = (k / len(self.index_entries)) ** 0.5
         window_radius = window_ratio * self.meta.region_width / 2
         tp_list = []
@@ -225,6 +232,7 @@ class BRINSpatial(SpatialIndex):
                         continue
                     elif target_blk[1] == 2:
                         blk = target_blk[0]
+                        self.io_cost += self.meta.pages_per_range
                         tmp_tp_list.extend(
                             [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[-1]]
                              for ie in self.index_entries[blk.blknum:blk.blknum + self.meta.datas_per_range]
@@ -232,6 +240,7 @@ class BRINSpatial(SpatialIndex):
                                      old_window[2] <= ie[0] <= old_window[3])])
                     else:
                         blk = target_blk[0]
+                        self.io_cost += self.meta.pages_per_range
                         tmp_tp_list.extend(
                             [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[-1]]
                              for ie in self.index_entries[blk.blknum:blk.blknum + self.meta.datas_per_range]
@@ -243,11 +252,13 @@ class BRINSpatial(SpatialIndex):
                         continue
                     elif target_blk[1] == 2:
                         blk = target_blk[0]
+                        self.io_cost += self.meta.pages_per_range
                         tmp_tp_list.extend(
                             [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[-1]]
                              for ie in self.index_entries[blk.blknum:blk.blknum + self.meta.datas_per_range]])
                     else:
                         blk = target_blk[0]
+                        self.io_cost += self.meta.pages_per_range
                         tmp_tp_list.extend(
                             [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[-1]]
                              for ie in self.index_entries[blk.blknum:blk.blknum + self.meta.datas_per_range]
@@ -305,6 +316,7 @@ class BRINSpatial(SpatialIndex):
         self.meta = Meta(brins_meta[0], brins_meta[1], brins_meta[2], brins_meta[3], brins_meta[4], is_sorted, geohash)
         self.block_ranges = [BlockRange(blk[0], [blk[1], blk[2], blk[3], blk[4]]) for blk in brins_blk]
         self.index_entries = index_entries.tolist()
+        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def size(self):
         """
@@ -322,20 +334,6 @@ class BRINSpatial(SpatialIndex):
         return 44 + \
                blk_size * 36 + \
                blk_size * 6, os.path.getsize(os.path.join(self.model_path, "index_entries.npy")) - 128
-
-    def io(self):
-        """
-        io=获取brin的io+获取data
-        """
-        range_len = len(self.block_ranges)
-        meta_page_len = 1
-        regular_page_len = math.ceil(range_len * RANGE_SIZE / ITEMS_PER_PAGE)
-        revmap_page_len = math.ceil(range_len * REVMAP_SIZE / ITEMS_PER_PAGE)
-        # io when load brin
-        brin_io = math.ceil((meta_page_len + regular_page_len + revmap_page_len) / RA_PAGES)
-        # io when load data
-        data_io = math.ceil(self.meta.pages_per_range / RA_PAGES)
-        return brin_io + data_io
 
 
 class Meta:
@@ -366,7 +364,7 @@ class BlockRange:
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     model_path = "model/brinspatial_10w/"
-    data_distribution = Distribution.UNIFORM_10W
+    data_distribution = Distribution.NYCT_10W_SORTED
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
     index = BRINSpatial(model_path=model_path)
@@ -399,7 +397,8 @@ def main():
     structure_size, ie_size = index.size()
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
-    logging.info("IO cost: %s" % index.io())
+    io_cost = index.io_cost
+    logging.info("IO cost: %s" % io_cost)
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()
@@ -407,6 +406,8 @@ def main():
     end_time = time.time()
     search_time = (end_time - start_time) / len(point_query_list)
     logging.info("Point query time: %s" % search_time)
+    logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
+    io_cost = index.io_cost
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     path = '../../data/query/range_query_nyct.npy'
     range_query_list = np.load(path, allow_pickle=True).tolist()
@@ -415,6 +416,8 @@ def main():
     end_time = time.time()
     search_time = (end_time - start_time) / len(range_query_list)
     logging.info("Range query time: %s" % search_time)
+    logging.info("Range query io cost: %s" % ((index.io_cost - io_cost) / len(range_query_list)))
+    io_cost = index.io_cost
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     path = '../../data/query/knn_query_nyct.npy'
     knn_query_list = np.load(path, allow_pickle=True).tolist()
@@ -423,6 +426,7 @@ def main():
     end_time = time.time()
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time: %s" % search_time)
+    logging.info("KNN query io cost: %s" % ((index.io_cost - io_cost) / len(knn_query_list)))
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     update_data_list = load_data(Distribution.NYCT_10W, 1)
     start_time = time.time()
