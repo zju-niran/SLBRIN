@@ -101,7 +101,6 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
         self.start_time = meta_append[0]
         self.cur_time_interval = meta_append[1]
         self.time_interval = meta_append[2]
-        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def size(self):
         structure_size, ie_size = super(ZMIndexDeltaInsert, self).size()

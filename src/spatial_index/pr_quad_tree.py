@@ -33,7 +33,7 @@ class QuadTreeNode:
 
     def get_all_items(self, result):
         if self.is_leaf == 1:
-            result.extend([item.key for item in self.items])
+            result.append(self.items)
         else:
             self.LB.get_all_items(result)
             self.RB.get_all_items(result)
@@ -53,6 +53,8 @@ class PRQuadTree(SpatialIndex):
                             format="%(asctime)s - %(levelname)s - %(message)s",
                             datefmt="%Y/%m/%d %H:%M:%S %p")
         self.logging = logging.getLogger(self.name)
+        # 统计所需：
+        self.io_cost = 0
 
     def insert_single(self, point):
         self.insert_node(Point(point[0], point[1], key=point[2]), self.root_node)
@@ -166,6 +168,7 @@ class PRQuadTree(SpatialIndex):
         if node is None:
             node = self.root_node
         if node.is_leaf == 1:
+            self.io_cost += math.ceil(len(node.items) / ITEMS_PER_PAGE)
             return [item.key for item in node.items if item == point]
         y_center = (node.region.up + node.region.bottom) / 2
         x_center = (node.region.left + node.region.right) / 2
@@ -220,9 +223,14 @@ class PRQuadTree(SpatialIndex):
     def range_search(self, region, result, node=None):
         node = self.root_node if node is None else node
         if node.region == region:
-            node.get_all_items(result)
+            tmp_result = []
+            node.get_all_items(tmp_result)
+            for items in tmp_result:
+                self.io_cost += math.ceil(len(items) / ITEMS_PER_PAGE)
+                result.extend([item.key for item in items])
             return
         if node.is_leaf == 1:
+            self.io_cost += math.ceil(len(node.items) / ITEMS_PER_PAGE)
             result.extend([item.key for item in node.items if region.contain_and_border_by_point(item)])
         else:
             # 所有的or：region的四至点刚好在子节点的region上，因为split的时候经纬度都是向上取整，所以子节点的重心在右和上
@@ -271,6 +279,7 @@ class PRQuadTree(SpatialIndex):
             cur = stack.pop(-1)
             if cur.region.within_distance_pow(point, -nearest_distance[0]):
                 if cur.is_leaf:
+                    self.io_cost += math.ceil(len(cur.items) / ITEMS_PER_PAGE)
                     for item in cur.items:
                         point_distance = point.distance_pow(item)
                         if len(point_heap) < n:
@@ -297,6 +306,7 @@ class PRQuadTree(SpatialIndex):
         nearest_distance = (float('-inf'), None)
         point_heap = []
         point_node = self.search_node(point)
+        self.io_cost += math.ceil(len(point_node.items) / ITEMS_PER_PAGE)
         for item in point_node.items:
             point_distance = point.distance_pow(item)
             if len(point_heap) < n:
@@ -313,6 +323,7 @@ class PRQuadTree(SpatialIndex):
                 continue
             if cur.region.within_distance_pow(point, -nearest_distance[0]):
                 if cur.is_leaf:
+                    self.io_cost += math.ceil(len(cur.items) / ITEMS_PER_PAGE)
                     for item in cur.items:
                         point_distance = point.distance_pow(item)
                         if len(point_heap) < n:
@@ -358,25 +369,6 @@ class PRQuadTree(SpatialIndex):
         return os.path.getsize(os.path.join(self.model_path, "prquadtree_tree.npy")) - 128 + \
                os.path.getsize(os.path.join(self.model_path, "prquadtree_meta.npy")) - 128, \
                os.path.getsize(os.path.join(self.model_path, "prquadtree_item.npy")) - 128
-
-    def io(self):
-        """
-        假设查询条件和数据分布一致，io=获取leaf node的io+获取leaf node内数据的io
-        node io由node的路径决定，data io由所在node的数据量决定
-        先计算单个node的node io和data io，然后乘以node的数据量，最后除以总数据量，来计算整体的平均io
-        """
-        # io when load node
-        prqt_tree = np.load(os.path.join(self.model_path, 'prquadtree_tree.npy'), allow_pickle=True)
-        item_len = np.load(os.path.join(self.model_path, 'prquadtree_item.npy'), allow_pickle=True).size
-        leaf_path_list = []
-        get_leaf_and_path(prqt_tree, leaf_path_list, [], 0)
-        node_io_list = [len(set([int(node_path / NODES_PER_PAGE) for node_path in leaf_path[0]])) * leaf_path[1]
-                        for leaf_path in leaf_path_list]
-        node_io = sum(node_io_list) / item_len
-        # io when load item
-        item_io_list = [math.ceil(leaf_path[1] / ITEMS_PER_PAGE) * leaf_path[1] for leaf_path in leaf_path_list]
-        item_io = sum(item_io_list) / item_len
-        return node_io + item_io
 
 
 def tree_to_list(node, node_list, item_list):
@@ -448,19 +440,6 @@ def main():
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
         build_data_list = load_data(data_distribution, 0)
-        # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y)=8, node和data按照DFS的顺序密集存储在page中
-        # tree存放所有node的深度、是否叶节点、region、四节点指针和data的始末指针:
-        # node size=1+1+8*4+4*4+4*2=58，单page存放4096/58=70node，单read_ahead读取256*70=17920node
-        # item存放xy数据和数据指针：
-        # data size=8*2+4=20，单page存放4096/20=204data，单read_ahead读取256*204=52224data
-        # 10w数据，[1000]参数下：
-        # 叶节点平均数据约为0.5*1000=500，叶节点约有10w/500=200个，非叶节点数量由数据分布决定，节点大约280个
-        # 单次扫描IO=读取node+读取node对应数据=280/17920+500/52224=2
-        # 索引体积=280/64*4096+20*10w
-        # 1451w数据，[1000]参数下：
-        # 叶节点平均数据约为0.5*1000=500，叶节点约有1451w/500=29020个，非叶节点数量由数据分布决定，节点大约5w个
-        # 单次扫描IO=读取node+读取node对应数据=5w/17920+500/52224=4~5
-        # 索引体积=5w/64*4096+20*1451w
         index.build(data_list=build_data_list,
                     threshold_number=1000,
                     data_precision=data_precision[data_distribution],
@@ -472,7 +451,7 @@ def main():
     structure_size, ie_size = index.size()
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
-    logging.info("IO cost: %s" % index.io())
+    io_cost = index.io_cost
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()
@@ -480,6 +459,8 @@ def main():
     end_time = time.time()
     search_time = (end_time - start_time) / len(point_query_list)
     logging.info("Point query time: %s" % search_time)
+    logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
+    io_cost = index.io_cost
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     path = '../../data/query/range_query_nyct.npy'
     range_query_list = np.load(path, allow_pickle=True).tolist()
@@ -488,6 +469,8 @@ def main():
     end_time = time.time()
     search_time = (end_time - start_time) / len(range_query_list)
     logging.info("Range query time: %s" % search_time)
+    logging.info("Range query io cost: %s" % ((index.io_cost - io_cost) / len(range_query_list)))
+    io_cost = index.io_cost
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     path = '../../data/query/knn_query_nyct.npy'
     knn_query_list = np.load(path, allow_pickle=True).tolist()
@@ -496,6 +479,7 @@ def main():
     end_time = time.time()
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time: %s" % search_time)
+    logging.info("KNN query io cost: %s" % ((index.io_cost - io_cost) / len(knn_query_list)))
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     update_data_list = load_data(Distribution.NYCT_10W, 1)
     start_time = time.time()

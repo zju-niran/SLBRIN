@@ -37,26 +37,32 @@ if __name__ == '__main__':
             structure_size, ie_size = index.size()
             logging.info("Structure size: %s" % structure_size)
             logging.info("Index entry size: %s" % ie_size)
-            logging.info("IO cost: %s" % index.io())
+            io_cost = index.io_cost
             point_query_list = load_query(data_distribution, 0).tolist()
             start_time = time.time()
             index.test_point_query(point_query_list)
             end_time = time.time()
             search_time = (end_time - start_time) / len(point_query_list)
             logging.info("Point query time: %s" % search_time)
+            logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
             range_query_list = load_query(data_distribution, 1).tolist()
             for i in range(len(range_query_list) // 1000):
                 tmp_range_query_list = range_query_list[i * 1000:(i + 1) * 1000]
                 start_time = time.time()
                 index.test_range_query(tmp_range_query_list)
                 end_time = time.time()
-                search_time = (end_time - start_time) / 1000
+                search_time = (end_time - start_time) / len(tmp_range_query_list)
                 logging.info("Range query time: %s" % search_time)
+                logging.info("Range query io cost: %s" % ((index.io_cost - io_cost) / len(tmp_range_query_list)))
+                io_cost = index.io_cost
             knn_query_list = load_query(data_distribution, 2).tolist()
             for i in range(len(knn_query_list) // 1000):
                 tmp_knn_query_list = knn_query_list[i * 1000:(i + 1) * 1000]
                 start_time = time.time()
                 index.test_knn_query(tmp_knn_query_list)
                 end_time = time.time()
-                search_time = (end_time - start_time) / 1000
+                search_time = (end_time - start_time) / len(tmp_knn_query_list)
                 logging.info("KNN query time: %s" % search_time)
+                logging.info("KNN query io cost: %s" % ((index.io_cost - io_cost) / len(tmp_knn_query_list)))
+                io_cost = index.io_cost
+
