@@ -352,6 +352,7 @@ class PRQuadTree(SpatialIndex):
         np.save(os.path.join(self.model_path, 'prquadtree_tree.npy'), prqt_tree)
         np.save(os.path.join(self.model_path, 'prquadtree_item.npy'), prqt_item)
         np.save(os.path.join(self.model_path, 'prquadtree_meta.npy'), prqt_meta)
+        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def load(self):
         prqt_tree = np.load(os.path.join(self.model_path, 'prquadtree_tree.npy'), allow_pickle=True)
@@ -360,6 +361,7 @@ class PRQuadTree(SpatialIndex):
         self.root_node = list_to_tree(prqt_tree, prqt_item)
         self.max_depth = prqt_meta[0]
         self.threshold_number = prqt_meta[1]
+        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def size(self):
         """
@@ -452,6 +454,7 @@ def main():
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
     io_cost = index.io_cost
+    logging.info("IO cost: %s" % io_cost)
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()

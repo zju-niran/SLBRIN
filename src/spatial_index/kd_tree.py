@@ -408,10 +408,12 @@ class KDTree(SpatialIndex):
         kd_tree = np.array(node_list, dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i1'), ("3", 'i4'),
                                              ("4", 'f8'), ("5", 'f8'), ("6", 'i4')])
         np.save(os.path.join(self.model_path, 'kd_tree.npy'), kd_tree)
+        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def load(self):
         kd_tree = np.load(os.path.join(self.model_path, 'kd_tree.npy'), allow_pickle=True)
         self.root_node = list_to_tree(kd_tree, 0)
+        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def size(self):
         """
@@ -424,36 +426,6 @@ class KDTree(SpatialIndex):
         ie_size = data_len * data_size
         structure_size = size - ie_size
         return structure_size, ie_size
-
-    def io(self):
-        """
-        假设查询条件和数据分布一致，且kdtree完全平衡，io=获取node的io
-        每次检索的node路径长度<=树高
-        先计算每层的io，然后乘以该层节点数，最后除以总数据量，来计算整体的平均io
-        1. 1-14层的节点共16383只需要一次read_ahead
-        2. 15层即其上每层的节点一部分是1，一部分是2，且1/2随着层数递增
-        3. 最后一层不满要根据实际数据量缩放
-        """
-        # io when load node
-        kd_tree = np.load(os.path.join(self.model_path, 'kd_tree.npy'), allow_pickle=True)
-        data_len = kd_tree.size
-        tree_depth = math.ceil(math.log(data_len, 2))
-        if tree_depth <= 14:
-            return 1
-        else:
-            # 1-14层统一为1
-            node_len_1_14 = 2 ** 14 - 1
-            node_io_1_14 = 1 * node_len_1_14
-            # 15层开始，左边一部分是1，右边剩下的是2，每加一层则1/2加1
-            node_len_15 = 2 ** (15 - 1)
-            node_io_15_top = [2 ** i * ((NODES_PER_RA - node_io_1_14) * (1 + i)
-                                        + (node_len_15 - NODES_PER_RA + node_io_1_14) * (2 + i))
-                              for i in range(tree_depth - 15 + 1)]
-            # 最后一层不满，因此最后一层的io总量要用最后一层的数据量缩放下
-            node_len_top = data_len - 2 ** (tree_depth - 1) + 1
-            node_capacity_top = 2 ** (tree_depth - 1)
-            node_io_15_top[-1] = node_io_15_top[-1] * node_len_top / node_capacity_top
-            return (node_len_1_14 + sum(node_io_15_top)) / data_len
 
 
 def tree_to_list(node, node_list):
@@ -512,7 +484,8 @@ def main():
     structure_size, ie_size = index.size()
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
-    logging.info("IO cost: %s" % index.io())
+    io_cost = index.io_cost
+    logging.info("IO cost: %s" % io_cost)
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()
@@ -520,6 +493,8 @@ def main():
     end_time = time.time()
     search_time = (end_time - start_time) / len(point_query_list)
     logging.info("Point query time: %s" % search_time)
+    logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
+    io_cost = index.io_cost
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     path = '../../data/query/range_query_nyct.npy'
     range_query_list = np.load(path, allow_pickle=True).tolist()
@@ -528,6 +503,8 @@ def main():
     end_time = time.time()
     search_time = (end_time - start_time) / len(range_query_list)
     logging.info("Range query time: %s" % search_time)
+    logging.info("Range query io cost: %s" % ((index.io_cost - io_cost) / len(range_query_list)))
+    io_cost = index.io_cost
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     path = '../../data/query/knn_query_nyct.npy'
     knn_query_list = np.load(path, allow_pickle=True).tolist()
@@ -536,6 +513,7 @@ def main():
     end_time = time.time()
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time: %s" % search_time)
+    logging.info("KNN query io cost: %s" % ((index.io_cost - io_cost) / len(knn_query_list)))
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     update_data_list = load_data(Distribution.NYCT_10W, 1)
     start_time = time.time()

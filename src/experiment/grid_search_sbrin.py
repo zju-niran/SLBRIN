@@ -51,6 +51,7 @@ def train_tn():
             logging.info("Structure size: %s" % structure_size)
             logging.info("Index entry size: %s" % ie_size)
             io_cost = index.io_cost
+            logging.info("IO cost: %s" % io_cost)
             model_num = index.meta.last_hr + 1
             logging.info("Model num: %s" % model_num)
             model_precisions = [(hr.model.max_err - hr.model.min_err) for hr in index.history_ranges]

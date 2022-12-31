@@ -52,6 +52,8 @@ if __name__ == '__main__':
             logging.info("Structure size: %s" % structure_size)
             logging.info("Index entry size: %s" % ie_size)
             io_cost = index.io_cost
+            io_cost = index.io_cost
+            logging.info("IO cost: %s" % io_cost)
             stage1_model_precision = index.rmi[0][0].model.max_err - index.rmi[0][0].model.min_err
             logging.info("Stage1 model precision: %s" % stage1_model_precision)
             stage2_model_precisions = [(node.model.max_err - node.model.min_err)

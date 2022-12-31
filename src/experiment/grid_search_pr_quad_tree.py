@@ -38,6 +38,7 @@ if __name__ == '__main__':
             logging.info("Structure size: %s" % structure_size)
             logging.info("Index entry size: %s" % ie_size)
             io_cost = index.io_cost
+            logging.info("IO cost: %s" % io_cost)
             point_query_list = load_query(data_distribution, 0).tolist()
             start_time = time.time()
             index.test_point_query(point_query_list)

@@ -6,7 +6,6 @@ import os
 import sys
 import time
 
-import line_profiler
 import numpy as np
 
 sys.path.append('/home/zju/wlj/SBRIN')
@@ -18,13 +17,12 @@ from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 from src.experiment.common_utils import load_data, Distribution, data_precision, data_region
 
-RA_PAGES = 256
 PAGE_SIZE = 4096
 HR_SIZE = 8 + 1 + 2 + 4 + 1  # 16
 CR_SIZE = 8 * 4 + 2 + 1  # 35
 MODEL_SIZE = 2000
 ITEM_SIZE = 8 * 3 + 4  # 28
-ITEMS_PER_RA = RA_PAGES * int(PAGE_SIZE / ITEM_SIZE)
+ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 
 
 # TODO 检索的时候要检索crs
@@ -75,6 +73,8 @@ class SBRIN(SpatialIndex):
         self.merge_outdated_cr_time = 0.0
         self.retrain_inefficient_model_time = 0.0
         self.retrain_inefficient_model_num = 0
+        # 统计所需：
+        self.io_cost = 0
 
     def build(self, data_list, is_sorted, threshold_number, data_precision, region, threshold_err,
               threshold_summary, threshold_merge,
@@ -150,6 +150,9 @@ class SBRIN(SpatialIndex):
         model_hdf_dir = os.path.join(self.model_path, "hdf/")
         if os.path.exists(model_hdf_dir) is False:
             os.makedirs(model_hdf_dir)
+        model_png_dir = os.path.join(self.model_path, "png/")
+        if os.path.exists(model_png_dir) is False:
+            os.makedirs(model_png_dir)
         pool = multiprocessing.Pool(processes=thread_pool_size)
         mp_dict = multiprocessing.Manager().dict()
         for hr_key in range(self.meta.last_hr + 1):
@@ -749,6 +752,8 @@ class SBRIN(SpatialIndex):
             index_entries.extend(ies)
         index_entries = np.array(index_entries, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')])
         np.save(os.path.join(self.model_path, 'sbrin_data.npy'), index_entries)
+        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
+
 
     def load(self):
         sbrin_meta = np.load(os.path.join(self.model_path, 'sbrin_meta.npy'), allow_pickle=True).item()
@@ -791,6 +796,7 @@ class SBRIN(SpatialIndex):
         for cr in self.current_ranges:
             self.index_entries.append(index_entries[offset:offset + cr.number])
             offset += cr.number
+        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def size(self):
         """
@@ -1208,7 +1214,8 @@ def main():
     structure_size, ie_size = index.size()
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
-    logging.info("IO cost: %s" % index.io())
+    io_cost = index.io_cost
+    logging.info("IO cost: %s" % io_cost)
     model_num = index.meta.last_hr + 1
     logging.info("Model num: %s" % model_num)
     model_precisions = [(hr.model.max_err - hr.model.min_err) for hr in index.history_ranges]

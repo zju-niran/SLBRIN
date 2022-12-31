@@ -28,6 +28,8 @@ class RTree(SpatialIndex):
                             format="%(asctime)s - %(levelname)s - %(message)s",
                             datefmt="%Y/%m/%d %H:%M:%S %p")
         self.logging = logging.getLogger(self.name)
+        # 统计所需：
+        self.io_cost = 0
 
     def insert_single(self, point):
         self.index.insert(point[2], (point[0], point[1]))
@@ -73,6 +75,7 @@ class RTree(SpatialIndex):
         rtree_meta = (self.fill_factor, self.leaf_node_capacity, self.non_leaf_node_capacity, self.buffering_capacity)
         np.save(os.path.join(self.model_path, 'rtree_meta.npy'),
                 np.array(rtree_meta, dtype=[("0", 'f8'), ("1", 'i1'), ("2", 'i1'), ("3", 'i2')]))
+        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def load(self):
         rtree_meta = np.load(os.path.join(self.model_path, 'rtree_meta.npy'), allow_pickle=True).item()
@@ -92,6 +95,7 @@ class RTree(SpatialIndex):
         self.non_leaf_node_capacity = rtree_meta[2]
         self.buffering_capacity = rtree_meta[3]
         self.index = index.Index(os.path.join(self.model_path, 'rtree'), properties=p, overwrite=False)
+        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def size(self):
         """
@@ -105,14 +109,6 @@ class RTree(SpatialIndex):
         ie_size = data_len * data_size
         structure_size = size - ie_size
         return structure_size, ie_size
-
-    def io(self):
-        """
-        io = 树高
-        """
-        data_len = len(self.index)
-        tree_depth = math.ceil(math.log(data_len, self.leaf_node_capacity))
-        return tree_depth
 
 
 def main():
@@ -156,7 +152,8 @@ def main():
     structure_size, ie_size = index.size()
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
-    logging.info("IO cost: %s" % index.io())
+    io_cost = index.io_cost
+    logging.info("IO cost: %s" % io_cost)
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()
@@ -164,6 +161,8 @@ def main():
     end_time = time.time()
     search_time = (end_time - start_time) / len(point_query_list)
     logging.info("Point query time: %s" % search_time)
+    logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
+    io_cost = index.io_cost
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     path = '../../data/query/range_query_nyct.npy'
     range_query_list = np.load(path, allow_pickle=True).tolist()
@@ -172,6 +171,8 @@ def main():
     end_time = time.time()
     search_time = (end_time - start_time) / len(range_query_list)
     logging.info("Range query time: %s" % search_time)
+    logging.info("Range query io cost: %s" % ((index.io_cost - io_cost) / len(range_query_list)))
+    io_cost = index.io_cost
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     path = '../../data/query/knn_query_nyct.npy'
     knn_query_list = np.load(path, allow_pickle=True).tolist()
@@ -180,6 +181,7 @@ def main():
     end_time = time.time()
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time: %s" % search_time)
+    logging.info("KNN query io cost: %s" % ((index.io_cost - io_cost) / len(knn_query_list)))
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     update_data_list = load_data(Distribution.NYCT_10W, 1)
     start_time = time.time()

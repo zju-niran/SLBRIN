@@ -452,6 +452,7 @@ class ZMIndex(SpatialIndex):
         np.save(os.path.join(self.model_path, 'delta_indexes.npy'),
                 np.array(delta_indexes, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4'), ("4", 'i4')]))
         np.save(os.path.join(self.model_path, 'delta_index_lens.npy'), delta_index_lens)
+        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def load(self):
         meta = np.load(os.path.join(self.model_path, 'meta.npy'), allow_pickle=True).item()
@@ -489,6 +490,7 @@ class ZMIndex(SpatialIndex):
                     index_cur += index_lens[j]
                     delta_index_cur += delta_index_lens[j]
                 self.rmi.append(leaf_nodes)
+        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def size(self):
         """
@@ -681,6 +683,7 @@ def main():
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
     io_cost = index.io_cost
+    logging.info("IO cost: %s" % io_cost)
     logging.info("Model precision avg: %s" % index.model_err())
     # point_query_list = load_query(data_distribution, 0).tolist()
     # start_time = time.time()
