@@ -170,6 +170,7 @@ class PRQuadTree(SpatialIndex):
         if node.is_leaf == 1:
             self.io_cost += math.ceil(len(node.items) / ITEMS_PER_PAGE)
             return [item.key for item in node.items if item == point]
+        self.io_cost += 1
         y_center = (node.region.up + node.region.bottom) / 2
         x_center = (node.region.left + node.region.right) / 2
         if point.lat < y_center:
@@ -194,6 +195,7 @@ class PRQuadTree(SpatialIndex):
             node = self.root_node
         if node.is_leaf == 1:
             return node
+        self.io_cost += 1
         y_center = (node.region.up + node.region.bottom) / 2
         x_center = (node.region.left + node.region.right) / 2
         if point.lat < y_center:
@@ -233,6 +235,7 @@ class PRQuadTree(SpatialIndex):
             self.io_cost += math.ceil(len(node.items) / ITEMS_PER_PAGE)
             result.extend([item.key for item in node.items if region.contain_and_border_by_point(item)])
         else:
+            self.io_cost += 1
             # 所有的or：region的四至点刚好在子节点的region上，因为split的时候经纬度都是向上取整，所以子节点的重心在右和上
             if node.LB.region.contain(Point(region.left, region.bottom)):
                 self.range_search(Region(region.bottom, min(node.LB.region.up, region.up),

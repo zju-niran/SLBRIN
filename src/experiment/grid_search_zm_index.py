@@ -15,8 +15,8 @@ if __name__ == '__main__':
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
                         level=logging.INFO,
                         format="%(message)s")
-    stage2_nums = [10000]
-    data_distributions = [Distribution.NORMAL_SORTED]
+    stage2_nums = [500, 1000, 2000, 5000, 10000]
+    data_distributions = [Distribution.UNIFORM_SORTED, Distribution.NORMAL_SORTED, Distribution.NYCT_SORTED]
     for data_distribution in data_distributions:
         for stage2_num in stage2_nums:
             model_path = "model/zmindex/%s/stage2_num_%s" % (data_distribution.name, stage2_num)
@@ -26,24 +26,25 @@ if __name__ == '__main__':
             logging.info("*************start %s************" % model_path)
             start_time = time.time()
             build_data_list = load_data(data_distribution, 0)
-            index.build(data_list=build_data_list,
-                        is_sorted=True,
-                        data_precision=data_precision[data_distribution],
-                        region=data_region[data_distribution],
-                        is_new=True,
-                        is_simple=False,
-                        is_gpu=True,
-                        weight=1,
-                        stages=[1, stage2_num],
-                        cores=[[1, 128], [1, 128]],
-                        train_steps=[5000, 5000],
-                        batch_nums=[64, 64],
-                        learning_rates=[0.1, 0.1],
-                        use_thresholds=[False, True],
-                        thresholds=[0, 0],
-                        retrain_time_limits=[3, 3],
-                        thread_pool_size=8)
-            index.save()
+            # index.build(data_list=build_data_list,
+            #             is_sorted=True,
+            #             data_precision=data_precision[data_distribution],
+            #             region=data_region[data_distribution],
+            #             is_new=True,
+            #             is_simple=False,
+            #             is_gpu=True,
+            #             weight=1,
+            #             stages=[1, stage2_num],
+            #             cores=[[1, 128], [1, 128]],
+            #             train_steps=[5000, 5000],
+            #             batch_nums=[64, 64],
+            #             learning_rates=[0.1, 0.1],
+            #             use_thresholds=[False, True],
+            #             thresholds=[0, 0],
+            #             retrain_time_limits=[5, 2],
+            #             thread_pool_size=8)
+            # index.save()
+            index.load()
             end_time = time.time()
             build_time = end_time - start_time
             logging.info("Build time: %s" % build_time)
@@ -51,7 +52,6 @@ if __name__ == '__main__':
             structure_size, ie_size = index.size()
             logging.info("Structure size: %s" % structure_size)
             logging.info("Index entry size: %s" % ie_size)
-            io_cost = index.io_cost
             io_cost = index.io_cost
             logging.info("IO cost: %s" % io_cost)
             stage1_model_precision = index.rmi[0][0].model.max_err - index.rmi[0][0].model.min_err
