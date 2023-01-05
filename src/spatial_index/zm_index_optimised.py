@@ -4,7 +4,7 @@ import sys
 
 import numpy as np
 
-sys.path.append('/home/zju/wlj/SBRIN')
+sys.path.append('/home/zju/wlj/SLBRIN')
 from src.mlp import MLP
 from src.mlp_simple import MLPSimple
 from src.spatial_index.zm_index import ZMIndex, Node, build_nn

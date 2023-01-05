@@ -3,7 +3,7 @@ import os
 import sys
 import time
 
-sys.path.append('/home/zju/wlj/SBRIN')
+sys.path.append('/home/zju/wlj/SLBRIN')
 from src.experiment.common_utils import Distribution, load_data, data_region, data_precision, load_query
 from src.spatial_index.pr_quad_tree import PRQuadTree
 

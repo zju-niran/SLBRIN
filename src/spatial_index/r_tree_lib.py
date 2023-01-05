@@ -6,7 +6,7 @@ import time
 import numpy as np
 from rtreelib import RTree as RTreeLib, Rect
 
-sys.path.append('/home/zju/wlj/SBRIN')
+sys.path.append('/home/zju/wlj/SLBRIN')
 from src.spatial_index.spatial_index import SpatialIndex
 from src.experiment.common_utils import load_data, Distribution
 

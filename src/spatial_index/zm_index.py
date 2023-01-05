@@ -8,7 +8,7 @@ import time
 
 import numpy as np
 
-sys.path.append('/home/zju/wlj/SBRIN')
+sys.path.append('/home/zju/wlj/SLBRIN')
 from src.mlp import MLP
 from src.mlp_simple import MLPSimple
 from src.spatial_index.common_utils import Region, biased_search_duplicate, normalize_input_minmax, \

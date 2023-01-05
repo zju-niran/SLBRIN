@@ -6,7 +6,7 @@ import time
 
 import numpy as np
 
-sys.path.append('/home/zju/wlj/SBRIN')
+sys.path.append('/home/zju/wlj/SLBRIN')
 from src.spatial_index.common_utils import get_mbr_by_points, intersect, Region
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex

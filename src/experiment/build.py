@@ -3,8 +3,8 @@ import os
 import sys
 import time
 
-sys.path.append('/home/zju/wlj/SBRIN')
-from src.spatial_index.sbrin import SBRIN
+sys.path.append('/home/zju/wlj/SLBRIN')
+from src.spatial_index.slbrin import SLBRIN
 from src.spatial_index.zm_index import ZMIndex
 from src.experiment.common_utils import Distribution, load_data, data_precision, data_region
 
@@ -45,10 +45,10 @@ if __name__ == '__main__':
         end_time = time.time()
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)
-        # SBRIN: 多进程 + GPU
-        logging.info("*************start SBRIN multi processes and GPU************")
+        # SLBRIN: 多进程 + GPU
+        logging.info("*************start SLBRIN multi processes and GPU************")
         start_time = time.time()
-        index = SBRIN(model_path=parent_path + data_distribution.name + "/sbrin_mp_gpu/")
+        index = SLBRIN(model_path=parent_path + data_distribution.name + "/slbrin_mp_gpu/")
         index.build(data_list=build_data_list,
                     is_sorted=True,
                     threshold_number=10000,
@@ -98,10 +98,10 @@ if __name__ == '__main__':
         end_time = time.time()
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)
-        # SBRIN: 单进程 + GPU
-        logging.info("*************start SBRIN single processes and GPU************")
+        # SLBRIN: 单进程 + GPU
+        logging.info("*************start SLBRIN single processes and GPU************")
         start_time = time.time()
-        index = SBRIN(model_path=parent_path + data_distribution.name + "/sbrin_sp_gpu/")
+        index = SLBRIN(model_path=parent_path + data_distribution.name + "/slbrin_sp_gpu/")
         index.build(data_list=build_data_list,
                     is_sorted=True,
                     threshold_number=10000,
@@ -151,10 +151,10 @@ if __name__ == '__main__':
         end_time = time.time()
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)
-        # SBRIN: 单进程 + CPU
-        logging.info("*************start SBRIN single processes and CPU************")
+        # SLBRIN: 单进程 + CPU
+        logging.info("*************start SLBRIN single processes and CPU************")
         start_time = time.time()
-        index = SBRIN(model_path=parent_path + data_distribution.name + "/sbrin_sp_cpu/")
+        index = SLBRIN(model_path=parent_path + data_distribution.name + "/slbrin_sp_cpu/")
         index.build(data_list=build_data_list,
                     is_sorted=True,
                     threshold_number=10000,

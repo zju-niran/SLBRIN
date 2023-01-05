@@ -8,7 +8,7 @@ import time
 
 import numpy as np
 
-sys.path.append('/home/zju/wlj/SBRIN')
+sys.path.append('/home/zju/wlj/SLBRIN')
 from src.mlp import MLP
 from src.mlp_simple import MLPSimple
 from src.spatial_index.common_utils import Region, binary_search_less_max, sigmoid, biased_search_almost, \
@@ -26,9 +26,9 @@ ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 
 
 # TODO 检索的时候要检索crs
-class SBRIN(SpatialIndex):
+class SLBRIN(SpatialIndex):
     def __init__(self, model_path=None):
-        super(SBRIN, self).__init__("SBRIN")
+        super(SLBRIN, self).__init__("SLBRIN")
         self.index_entries = None
         self.model_path = model_path
         logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
@@ -81,13 +81,13 @@ class SBRIN(SpatialIndex):
               is_new, is_simple, is_gpu, weight, core, train_step, batch_num, learning_rate, use_threshold, threshold,
               retrain_time_limit, thread_pool_size):
         """
-        构建SBRIN
+        构建SLBRIN
         1. order data by geohash
-        2. build SBRIN
+        2. build SLBRIN
         2.1. init hr
         2.2. quartile recursively
         2.3. reorganize index entries
-        2.4. create sbrin
+        2.4. create slbrin
         3. build learned model
         """
         self.is_gpu = is_gpu
@@ -104,7 +104,7 @@ class SBRIN(SpatialIndex):
             data_list = [(data_list[i][0], data_list[i][1], geohash.encode(data_list[i][0], data_list[i][1]), i)
                          for i in range(len(data_list))]
             data_list.sort(key=lambda x: x[2])
-        # 2. build SBRIN
+        # 2. build SLBRIN
         # 2.1. init hr
         n = len(data_list)
         range_stack = [(0, 0, n, 0, region)]
@@ -133,7 +133,7 @@ class SBRIN(SpatialIndex):
                 range_list.append(cur)
         # 2.3. reorganize index entries
         self.index_entries = [data_list[r[3]: r[3] + r[2]] for r in range_list]
-        # 2.4. create sbrin
+        # 2.4. create slbrin
         self.meta = Meta(len(range_list) - 1, -1, threshold_number, threshold_length, threshold_err, threshold_summary,
                          threshold_merge, geohash)
         region_offset = pow(10, -data_precision - 1)
@@ -527,13 +527,13 @@ class SBRIN(SpatialIndex):
     def point_query_single(self, point):
         """
         1. compute geohash from x/y of points
-        2. find hr within geohash by sbrin.point_query
+        2. find hr within geohash by slbrin.point_query
         3. predict by leaf model
         4. biased search in scope [pre - max_err, pre + min_err]
         """
         # 1. compute geohash from x/y of point
         gh = self.meta.geohash.encode(point[0], point[1])
-        # 2. find hr within geohash by sbrin.point_query
+        # 2. find hr within geohash by slbrin.point_query
         hr_key = self.point_query_hr(gh)
         hr = self.history_ranges[hr_key]
         if hr.number == 0:
@@ -543,9 +543,10 @@ class SBRIN(SpatialIndex):
             pre = hr.model_predict(gh)
             target_ies = self.index_entries[hr_key]
             # 4. biased search in scope [pre - max_err, pre + min_err]
-            return [target_ies[key][4] for key in biased_search_duplicate(target_ies, 2, gh, pre,
-                                                                          max(pre - hr.model.max_err, 0),
-                                                                          min(pre - hr.model.min_err, hr.max_key))]
+            l_bound = max(pre - hr.model.max_err, 0)
+            r_bound = min(pre - hr.model.min_err, hr.max_key)
+            self.io_cost += math.ceil((r_bound - l_bound) / ITEMS_PER_PAGE)
+            return [target_ies[key][4] for key in biased_search_duplicate(target_ies, 2, gh, pre, l_bound, r_bound)]
 
     def range_query_single(self, window):
         """
@@ -571,6 +572,7 @@ class SBRIN(SpatialIndex):
             hr_data = self.index_entries[hr_key]
             if position == 0:  # window contain hr
                 result.extend([ie[4] for ie in hr_data])
+                self.io_cost += math.ceil(len(hr_data) / ITEMS_PER_PAGE)
             else:
                 # wrong child hr from range_by_int
                 is_valid = valid_position_funcs[position](hr.scope, window)
@@ -586,6 +588,7 @@ class SBRIN(SpatialIndex):
                     r_bound1 = min(pre1 - hr.model.min_err, hr.max_key)
                     left_key = min(biased_search_almost(hr_data, 2, gh_new1, pre1, l_bound1, r_bound1))
                 else:
+                    l_bound1 = 0
                     left_key = 0
                 if gh_new2:
                     pre2 = hr.model_predict(gh_new2)
@@ -593,10 +596,12 @@ class SBRIN(SpatialIndex):
                     r_bound2 = min(pre2 - hr.model.min_err, hr.max_key)
                     right_key = max(biased_search_almost(hr_data, 2, gh_new2, pre2, l_bound2, r_bound2)) + 1
                 else:
+                    r_bound2 = hr.number
                     right_key = hr.number
                 # 5 filter all the point of scope[min_key/max_key] by range.contain(point)
                 # 优化: region.contain->compare_func不同位置的点做不同的判断: 638->474mil
                 result.extend([ie[4] for ie in hr_data[left_key:right_key] if compare_func(ie)])
+                self.io_cost += math.ceil((r_bound2 - l_bound1) / ITEMS_PER_PAGE)
         return result
 
     def knn_query_single(self, knn):
@@ -607,6 +612,7 @@ class SBRIN(SpatialIndex):
         主要耗时间：knn_query_hr/nn predict/精确过滤: 6.1/30/40.5
         """
         x, y, k = knn
+        k = int(k)
         # 1. get the nearest key of query point
         qp_g = self.meta.geohash.encode(x, y)
         qp_hr_key = self.point_query_hr(qp_g)
@@ -684,6 +690,7 @@ class SBRIN(SpatialIndex):
             hr_data = self.index_entries[hr_key]
             if position == 0:  # window contain hr
                 tmp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[4]] for ie in hr_data]
+                self.io_cost += math.ceil(len(hr_data) / ITEMS_PER_PAGE)
             else:
                 # wrong child hr from range_by_int
                 is_valid = valid_position_funcs[position](hr.scope, window)
@@ -697,6 +704,7 @@ class SBRIN(SpatialIndex):
                     r_bound1 = min(pre1 - hr.model.min_err, hr.max_key)
                     left_key = min(biased_search_almost(hr_data, 2, gh_new1, pre1, l_bound1, r_bound1))
                 else:
+                    l_bound1 = 0
                     left_key = 0
                 if gh_new2:
                     pre2 = hr.model_predict(gh_new2)
@@ -704,10 +712,12 @@ class SBRIN(SpatialIndex):
                     r_bound2 = min(pre2 - hr.model.min_err, hr.max_key)
                     right_key = max(biased_search_almost(hr_data, 2, gh_new2, pre2, l_bound2, r_bound2)) + 1
                 else:
+                    r_bound2 = hr.number
                     right_key = hr.number
                 # 3. filter point by distance
                 tmp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[4]]
                             for ie in hr_data[left_key:right_key] if compare_func(ie)]
+                self.io_cost += math.ceil((r_bound2 - l_bound1) / ITEMS_PER_PAGE)
             if len(tmp_list) > 0:
                 tp_list.extend(tmp_list)
                 tp_list = sorted(tp_list)[:k]
@@ -716,7 +726,7 @@ class SBRIN(SpatialIndex):
 
     def save(self):
         assert self.meta.threshold_number < 2 ** (16 - 1), "threshold_number exceed the store size int16"
-        sbrin_meta = np.array((self.meta.last_hr, self.meta.last_cr,
+        slbrin_meta = np.array((self.meta.last_hr, self.meta.last_cr,
                                self.meta.threshold_number, self.meta.threshold_length,
                                self.meta.threshold_err, self.meta.threshold_summary, self.meta.threshold_merge,
                                self.meta.geohash.data_precision,
@@ -727,58 +737,58 @@ class SBRIN(SpatialIndex):
                                      ("6", 'i2'), ("7", 'i1'),
                                      ("8", 'f8'), ("9", 'f8'), ("10", 'f8'), ("11", 'f8'),
                                      ("12", 'i1'), ("13", 'f4'), ("14", 'i2'), ("15", 'i2'), ("16", 'f4')])
-        sbrin_models = np.array([hr.model for hr in self.history_ranges])
-        sbrin_hrs = np.array([(hr.value, hr.length, hr.number, hr.state, hr.value_diff,
+        slbrin_models = np.array([hr.model for hr in self.history_ranges])
+        slbrin_hrs = np.array([(hr.value, hr.length, hr.number, hr.state, hr.value_diff,
                                hr.scope.bottom, hr.scope.up, hr.scope.left, hr.scope.right)
                               for hr in self.history_ranges],
                              dtype=[("0", 'i8'), ("1", 'i1'), ("2", 'i2'), ("3", 'i1'), ("4", 'i8'),
                                     ("5", 'f8'), ("6", 'f8'), ("7", 'f8'), ("8", 'f8')])
-        sbrin_crs = []
+        slbrin_crs = []
         for cr in self.current_ranges:
             if cr.value is None:
                 cr_list = [-1, -1, -1, -1, cr.number, cr.state]
             else:
                 cr_list = [cr.value[0], cr.value[1], cr.value[2], cr.value[3], cr.number, cr.state]
-            sbrin_crs.append(tuple(cr_list))
-        sbrin_crs = np.array(sbrin_crs, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'f8'), ("3", 'f8'),
+            slbrin_crs.append(tuple(cr_list))
+        slbrin_crs = np.array(slbrin_crs, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'f8'), ("3", 'f8'),
                                                ("4", 'i2'), ("5", 'i1')])
-        np.save(os.path.join(self.model_path, 'sbrin_meta.npy'), sbrin_meta)
-        np.save(os.path.join(self.model_path, 'sbrin_model_cores.npy'), self.cores)
-        np.save(os.path.join(self.model_path, 'sbrin_hrs.npy'), sbrin_hrs)
-        np.save(os.path.join(self.model_path, 'sbrin_models.npy'), sbrin_models)
-        np.save(os.path.join(self.model_path, 'sbrin_crs.npy'), sbrin_crs)
+        np.save(os.path.join(self.model_path, 'slbrin_meta.npy'), slbrin_meta)
+        np.save(os.path.join(self.model_path, 'slbrin_model_cores.npy'), self.cores)
+        np.save(os.path.join(self.model_path, 'slbrin_hrs.npy'), slbrin_hrs)
+        np.save(os.path.join(self.model_path, 'slbrin_models.npy'), slbrin_models)
+        np.save(os.path.join(self.model_path, 'slbrin_crs.npy'), slbrin_crs)
         index_entries = []
         for ies in self.index_entries:
             index_entries.extend(ies)
-        index_entries = np.array(index_entries, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4')])
-        np.save(os.path.join(self.model_path, 'sbrin_data.npy'), index_entries)
+        index_entries = np.array(index_entries, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4'), ("4", 'i4')])
+        np.save(os.path.join(self.model_path, 'slbrin_data.npy'), index_entries)
         self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
 
     def load(self):
-        sbrin_meta = np.load(os.path.join(self.model_path, 'sbrin_meta.npy'), allow_pickle=True).item()
-        sbrin_hrs = np.load(os.path.join(self.model_path, 'sbrin_hrs.npy'), allow_pickle=True)
-        sbrin_models = np.load(os.path.join(self.model_path, 'sbrin_models.npy'), allow_pickle=True)
-        sbrin_crs = np.load(os.path.join(self.model_path, 'sbrin_crs.npy'), allow_pickle=True)
-        index_entries = np.load(os.path.join(self.model_path, 'sbrin_data.npy'), allow_pickle=True)
-        region = Region(sbrin_meta[8], sbrin_meta[9], sbrin_meta[10], sbrin_meta[11])
-        geohash = Geohash.init_by_precision(data_precision=sbrin_meta[7], region=region)
-        self.meta = Meta(sbrin_meta[0], sbrin_meta[1], sbrin_meta[2], sbrin_meta[3], sbrin_meta[4], sbrin_meta[5],
-                         sbrin_meta[6], geohash)
-        self.cores = np.load(os.path.join(self.model_path, 'sbrin_model_cores.npy'), allow_pickle=True).tolist()
-        self.is_gpu = bool(sbrin_meta[12])
-        self.weight = sbrin_meta[13]
-        self.train_step = sbrin_meta[14]
-        self.batch_num = sbrin_meta[15]
-        self.learning_rate = sbrin_meta[16]
+        slbrin_meta = np.load(os.path.join(self.model_path, 'slbrin_meta.npy'), allow_pickle=True).item()
+        slbrin_hrs = np.load(os.path.join(self.model_path, 'slbrin_hrs.npy'), allow_pickle=True)
+        slbrin_models = np.load(os.path.join(self.model_path, 'slbrin_models.npy'), allow_pickle=True)
+        slbrin_crs = np.load(os.path.join(self.model_path, 'slbrin_crs.npy'), allow_pickle=True)
+        index_entries = np.load(os.path.join(self.model_path, 'slbrin_data.npy'), allow_pickle=True)
+        region = Region(slbrin_meta[8], slbrin_meta[9], slbrin_meta[10], slbrin_meta[11])
+        geohash = Geohash.init_by_precision(data_precision=slbrin_meta[7], region=region)
+        self.meta = Meta(slbrin_meta[0], slbrin_meta[1], slbrin_meta[2], slbrin_meta[3], slbrin_meta[4], slbrin_meta[5],
+                         slbrin_meta[6], geohash)
+        self.cores = np.load(os.path.join(self.model_path, 'slbrin_model_cores.npy'), allow_pickle=True).tolist()
+        self.is_gpu = bool(slbrin_meta[12])
+        self.weight = slbrin_meta[13]
+        self.train_step = slbrin_meta[14]
+        self.batch_num = slbrin_meta[15]
+        self.learning_rate = slbrin_meta[16]
         # length从int32转int，不然位运算时候会超出限制变为负数
         self.history_ranges = [
-            HistoryRange(sbrin_hrs[i][0], int(sbrin_hrs[i][1]), sbrin_hrs[i][2], sbrin_models[i], sbrin_hrs[i][3],
-                         Region(sbrin_hrs[i][5], sbrin_hrs[i][6], sbrin_hrs[i][7], sbrin_hrs[i][8]),
-                         sbrin_hrs[i][4]) for i in range(len(sbrin_hrs))]
+            HistoryRange(slbrin_hrs[i][0], int(slbrin_hrs[i][1]), slbrin_hrs[i][2], slbrin_models[i], slbrin_hrs[i][3],
+                         Region(slbrin_hrs[i][5], slbrin_hrs[i][6], slbrin_hrs[i][7], slbrin_hrs[i][8]),
+                         slbrin_hrs[i][4]) for i in range(len(slbrin_hrs))]
         crs = []
-        for i in range(len(sbrin_crs)):
-            cr = sbrin_crs[i]
+        for i in range(len(slbrin_crs)):
+            cr = slbrin_crs[i]
             if cr[0] == -1:
                 region = None
             else:
@@ -800,15 +810,15 @@ class SBRIN(SpatialIndex):
 
     def size(self):
         """
-        structure_size = sbrin_meta.npy + sbrin_hrs.npy + sbrin_models.npy + sbrin_crs.npy
-        ie_size = sbrin_data.npy
+        structure_size = slbrin_meta.npy + slbrin_hrs.npy + slbrin_models.npy + slbrin_crs.npy
+        ie_size = slbrin_data.npy
         """
         # 实际上：
-        # meta=os.path.getsize(os.path.join(self.model_path, "sbrin_meta.npy"))-128-64*3=1*2+2*7+4*4+8*4=64
-        # hr=os.path.getsize(os.path.join(self.model_path, "sbrin_hrs.npy"))-128-64=hr_len*(1*2+2*1+8*6)=hr_len*52
-        # model一致=os.path.getsize(os.path.join(self.model_path, "sbrin_models.npy"))-128=hr_len*model_size
-        # cr=os.path.getsize(os.path.join(self.model_path, "sbrin_crs.npy"))-128-64=cr_len*(1*1+2*1+8*4)=cr_len*35
-        # index_entries=os.path.getsize(os.path.join(self.model_path, "sbrin_data.npy"))-128
+        # meta=os.path.getsize(os.path.join(self.model_path, "slbrin_meta.npy"))-128-64*3=1*2+2*7+4*4+8*4=64
+        # hr=os.path.getsize(os.path.join(self.model_path, "slbrin_hrs.npy"))-128-64=hr_len*(1*2+2*1+8*6)=hr_len*52
+        # model一致=os.path.getsize(os.path.join(self.model_path, "slbrin_models.npy"))-128=hr_len*model_size
+        # cr=os.path.getsize(os.path.join(self.model_path, "slbrin_crs.npy"))-128-64=cr_len*(1*1+2*1+8*4)=cr_len*35
+        # index_entries=os.path.getsize(os.path.join(self.model_path, "slbrin_data.npy"))-128
         # =hr_len*meta.threshold_number*(8*3+4)
         # 理论上：
         # meta只存last_hr/last_cr/5*ts/L=4+4+5*2+1=19
@@ -820,33 +830,8 @@ class SBRIN(SpatialIndex):
         cr_len = self.meta.last_cr + 1
         return 19 + \
                hr_len * 16 + \
-               os.path.getsize(os.path.join(self.model_path, "sbrin_models.npy")) - 128 + \
+               os.path.getsize(os.path.join(self.model_path, "slbrin_models.npy")) - 128 + \
                cr_len * 35, data_len * 28
-
-    def io(self):
-        """
-        假设查询条件和数据分布一致，io=获取meta的io+获取hr的io+获取cr的io+对应model的io+获取model内数据的io
-        一次read_ahead可以加载meta+hr+cr和部分的model, 其他model需要第二次read_ahead，model内数据单独一次read_ahead
-        先计算单个model的model io和data io，然后乘以model的数据量，最后除以总数据量，来计算整体的平均io
-        """
-        hr_len = self.meta.last_hr + 1
-        meta_page_len = 1
-        hr_page_len = math.ceil((self.meta.last_hr + 1) * HR_SIZE / PAGE_SIZE)
-        cr_page_len = math.ceil((self.meta.last_cr + 1) * CR_SIZE / PAGE_SIZE)
-        model_page_len = math.ceil((self.meta.last_hr + 1) * MODEL_SIZE / PAGE_SIZE)
-        origin_page_len = meta_page_len + hr_page_len + cr_page_len + model_page_len
-        # io when load model
-        if origin_page_len < RA_PAGES:
-            model_io_list = [1] * hr_len
-        else:
-            model_io_list = [1] * origin_page_len
-            model_io_list.extend([2] * (hr_len - origin_page_len))
-        # io when load data
-        data_io_list = [math.ceil((hr.model.max_err - hr.model.min_err) / ITEMS_PER_RA) for hr in self.history_ranges]
-        # compute avg io
-        data_num_list = [hr.number for hr in self.history_ranges]
-        io_list = [(model_io_list[i] + data_io_list[i]) * data_num_list[i] for i in range(hr_len)]
-        return sum(io_list) / sum(data_num_list)
 
     def model_clear(self):
         """
@@ -957,7 +942,7 @@ range_position_funcs = [
 
 # for train
 def build_nn(model_path, model_key, inputs, labels, is_new, is_simple, is_gpu, weight, core, train_step, batch_size,
-             learning_rate, use_threshold, threshold, retrain_time_limit, tmp_dict=None):
+             learning_rate, use_threshold, threshold, retrain_time_limit, tmp_dict):
     if is_simple:
         tmp_index = NNSimple(inputs, labels, is_gpu, weight, core, train_step, batch_size, learning_rate)
     else:
@@ -994,7 +979,7 @@ class Meta:
     def __init__(self, last_hr, last_cr, threshold_number, threshold_length, threshold_err, threshold_summary,
                  threshold_merge, geohash):
         # BRIN
-        # SBRIN
+        # SLBRIN
         self.last_hr = last_hr
         self.last_cr = last_cr
         self.threshold_number = threshold_number
@@ -1011,7 +996,7 @@ class HistoryRange:
     def __init__(self, value, length, number, model, state, scope, value_diff):
         # BRIN
         self.value = value
-        # SBRIN
+        # SLBRIN
         self.length = length
         self.number = number
         self.model = model
@@ -1056,7 +1041,7 @@ class CurrentRange:
     def __init__(self, value, number, state):
         # BRIN
         self.value = value
-        # SBRIN
+        # SLBRIN
         self.number = number
         self.state = state
         # For compute
@@ -1065,7 +1050,7 @@ class CurrentRange:
 class NN(MLP):
     def __init__(self, model_path, model_key, train_x, train_y, is_new, is_gpu, weight, core, train_step, batch_size,
                  learning_rate, use_threshold, threshold, retrain_time_limit):
-        self.name = "SBRIN NN"
+        self.name = "SLBRIN NN"
         # train_x的是有序的，归一化不需要计算最大最小值
         train_x_min = train_x[0]
         train_x_max = train_x[-1]
@@ -1093,7 +1078,7 @@ class NN(MLP):
 
 class NNSimple(MLPSimple):
     def __init__(self, train_x, train_y, is_gpu, weight, core, train_step, batch_size, learning_rate):
-        self.name = "SBRIN NN"
+        self.name = "SLBRIN NN"
         # train_x的是有序的，归一化不需要计算最大最小值
         train_x_min = train_x[0]
         train_x_max = train_x[-1]
@@ -1165,11 +1150,11 @@ class AbstractNN:
 
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    model_path = "model/sbrin_10w/"
+    model_path = "model/slbrin_10w/"
     data_distribution = Distribution.NYCT_10W_SORTED
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
-    index = SBRIN(model_path=model_path)
+    index = SLBRIN(model_path=model_path)
     index_name = index.name
     load_index_from_file = True
     if load_index_from_file:
@@ -1178,14 +1163,14 @@ def main():
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
         build_data_list = load_data(data_distribution, 0)
-        # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y/g)=8, sbrin整体连续存, meta一个page, br分页存，model(2009大小)单独存
+        # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y/g)=8, slbrin整体连续存, meta一个page, br分页存，model(2009大小)单独存
         # hr体积=value/length/number=16，一个page存256个hr
         # cr体积=value/number=35，一个page存117个cr
         # model体积=2009，一个page存2个model
         # data体积=x/y/g/key=8*3+4=28，一个page存146个data
         # 10w数据，[1000]参数下：大约有289个cr
         # 1meta page，289/256=2hr page，1cr page, 289/2=145model page，10w/146=685data page
-        # 单次扫描IO=读取sbrin+读取对应model+读取model对应索引项=1+1+误差范围/146/256
+        # 单次扫描IO=读取slbrin+读取对应model+读取model对应索引项=1+1+误差范围/146/256
         # 索引体积=meta+hrs+crs+model+索引项
         index.build(data_list=build_data_list,
                     is_sorted=True,
@@ -1228,6 +1213,8 @@ def main():
     end_time = time.time()
     search_time = (end_time - start_time) / len(point_query_list)
     logging.info("Point query time: %s" % search_time)
+    logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
+    io_cost = index.io_cost
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     path = '../../data/query/range_query_nyct.npy'
     range_query_list = np.load(path, allow_pickle=True).tolist()
@@ -1236,6 +1223,8 @@ def main():
     end_time = time.time()
     search_time = (end_time - start_time) / len(range_query_list)
     logging.info("Range query time: %s" % search_time)
+    logging.info("Range query io cost: %s" % ((index.io_cost - io_cost) / len(range_query_list)))
+    io_cost = index.io_cost
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     path = '../../data/query/knn_query_nyct.npy'
     knn_query_list = np.load(path, allow_pickle=True).tolist()
@@ -1244,14 +1233,11 @@ def main():
     end_time = time.time()
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time: %s" % search_time)
+    logging.info("KNN query io cost: %s" % ((index.io_cost - io_cost) / len(knn_query_list)))
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     update_data_list = load_data(Distribution.NYCT_10W, 1)
     start_time = time.time()
-    profile = line_profiler.LineProfiler(index.update_hr)
-    profile.enable()
     index.insert(update_data_list)
-    profile.disable()
-    profile.print_stats()
     end_time = time.time()
     logging.info("Sum up full cr time: %s" % index.sum_up_full_cr_time)
     logging.info("Merge outdated cr time: %s" % index.merge_outdated_cr_time)

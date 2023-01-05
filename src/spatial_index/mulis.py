@@ -6,7 +6,7 @@ import time
 
 import numpy as np
 
-sys.path.append('/home/zju/wlj/SBRIN')
+sys.path.append('/home/zju/wlj/SLBRIN')
 from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
 from src.spatial_index.common_utils import biased_search_duplicate, binary_search_less_max, binary_search_duplicate, \
     Region

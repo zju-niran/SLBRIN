@@ -4,9 +4,9 @@ import shutil
 import sys
 import time
 
-sys.path.append('/home/zju/wlj/SBRIN')
+sys.path.append('/home/zju/wlj/SLBRIN')
 from src.experiment.common_utils import Distribution, load_query, load_data, data_precision, data_region, copy_dirs
-from src.spatial_index.sbrin import SBRIN
+from src.spatial_index.slbrin import SLBRIN
 
 
 def train_tn():
@@ -14,10 +14,10 @@ def train_tn():
     tn_list = [5000, 6000, 8000, 10000, 20000]
     for data_distribution in data_distributions:
         for tn in tn_list:
-            model_path = "model/sbrin/%s/tn_%s" % (data_distribution.name, tn)
+            model_path = "model/slbrin/%s/tn_%s" % (data_distribution.name, tn)
             if not os.path.exists(model_path):
                 os.makedirs(model_path)
-            index = SBRIN(model_path=model_path)
+            index = SLBRIN(model_path=model_path)
             logging.info("*************start %s************" % model_path)
             start_time = time.time()
             build_data_list = load_data(data_distribution, 0)
@@ -92,8 +92,8 @@ def train_ts_tm():
     tn = 10000
     ts_list = [20000, 10000, 5000, 1000]
     tm_list = [100, 50, 10]
-    origin_path = "model/sbrin/%s_SORTED/tn_%s"
-    target_path = "model/sbrin/%s_SORTED/tn_%s_ts_%s_tm_%s"
+    origin_path = "model/slbrin/%s_SORTED/tn_%s"
+    target_path = "model/slbrin/%s_SORTED/tn_%s_ts_%s_tm_%s"
     for data_distribution in data_distributions:
         for ts in ts_list:
             for tm in tm_list:
@@ -104,7 +104,7 @@ def train_ts_tm():
                     shutil.rmtree(target_model_path)
                 copy_dirs(origin_model_path, target_model_path, ignore_file='hdf')
                 # 加载索引结构到内存
-                index = SBRIN(model_path=target_model_path)
+                index = SLBRIN(model_path=target_model_path)
                 index.load()
                 index.meta.threshold_summary = ts
                 index.meta.threshold_merge = tm
@@ -131,8 +131,8 @@ def train_te():
     ts = 1000
     tm = 50
     te_list = [10.0, 5.0, 2.0, 1.5, 1.0]
-    origin_path = "model/sbrin/%s_SORTED/tn_%s"
-    target_path = "model/sbrin/%s_SORTED/tn_%s_ts_%s_tm_%s_te_%s"
+    origin_path = "model/slbrin/%s_SORTED/tn_%s"
+    target_path = "model/slbrin/%s_SORTED/tn_%s_ts_%s_tm_%s_te_%s"
     for te in te_list:
         for data_distribution in data_distributions:
             # 拷贝目标索引磁盘文件
@@ -145,7 +145,7 @@ def train_te():
                 os.makedirs(target_model_hdf_dir)
             copy_dirs(origin_model_path, target_model_path, ignore_file='hdf')
             # 加载索引结构到内存
-            index = SBRIN(model_path=target_model_path)
+            index = SLBRIN(model_path=target_model_path)
             index.load()
             index.meta.threshold_summary = ts
             index.meta.threshold_merge = tm
@@ -168,7 +168,7 @@ def train_te():
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    parent_path = "model/sbrin"
+    parent_path = "model/slbrin"
     if not os.path.exists(parent_path):
         os.makedirs(parent_path)
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),

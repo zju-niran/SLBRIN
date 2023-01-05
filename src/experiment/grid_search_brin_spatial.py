@@ -3,7 +3,7 @@ import os
 import sys
 import time
 
-sys.path.append('/home/zju/wlj/SBRIN')
+sys.path.append('/home/zju/wlj/SLBRIN')
 from src.experiment.common_utils import Distribution, load_data, load_query, data_region, data_precision
 from src.spatial_index.brin_spatial import BRINSpatial
 

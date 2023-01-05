@@ -4,13 +4,13 @@ import shutil
 import sys
 import time
 
-sys.path.append('/home/zju/wlj/SBRIN')
+sys.path.append('/home/zju/wlj/SLBRIN')
 from src.spatial_index.r_tree import RTree
 from src.spatial_index.pr_quad_tree import PRQuadTree
 from src.spatial_index.kd_tree import KDTree
 from src.spatial_index.brin_spatial import BRINSpatial
 from src.spatial_index.zm_index import ZMIndex
-from src.spatial_index.sbrin import SBRIN
+from src.spatial_index.slbrin import SLBRIN
 from src.experiment.common_utils import Distribution, load_data, load_query, copy_dirs
 
 if __name__ == '__main__':
@@ -27,21 +27,21 @@ if __name__ == '__main__':
                KDTree,
                BRINSpatial,
                ZMIndex,
-               SBRIN
+               SLBRIN
                ]
     origin_model_paths = ["rtree/%s/fill_factor_0.8",
                           "prquadtree/%s/n_500",
                           "kdtree/%s",
                           "brinspatial/%s_SORTED/ppr_sorted_64",
                           "zmindex/%s_SORTED/stage2_num_5000",
-                          "sbrin/%s_SORTED/tn_10000"
+                          "slbrin/%s_SORTED/tn_10000"
                           ]
     target_model_paths = ["rtree/%s",
                           "prquadtree/%s",
                           "kdtree/%s",
                           "brinspatial/%s",
                           "zmindex/%s",
-                          "sbrin/%s"
+                          "slbrin/%s"
                           ]
     data_distributions = [Distribution.UNIFORM, Distribution.NORMAL, Distribution.NYCT]
     for i in range(len(indices)):
@@ -55,7 +55,7 @@ if __name__ == '__main__':
             # 加载索引结构到内存
             index = indices[i](model_path=target_model_path)
             index.load()
-            if index.name == 'SBRIN':
+            if index.name == 'SLBRIN':
                 index.meta.threshold_err = 1.0
                 index.is_gpu = False
             # 更新数据集一分为五
@@ -78,7 +78,7 @@ if __name__ == '__main__':
                 logging.info("Structure size: %s" % structure_size)
                 logging.info("Index entry size: %s" % ie_size)
                 logging.info("IO cost: %s" % index.io())
-                if index.name == "SBRIN":
+                if index.name == "SLBRIN":
                     model_num = index.meta.last_hr + 1
                     logging.info("Model num: %s" % model_num)
                     model_precisions = [(hr.model.max_err - hr.model.min_err) for hr in index.history_ranges]

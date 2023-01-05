@@ -3,13 +3,13 @@ import os
 import sys
 import time
 
-sys.path.append('/home/zju/wlj/SBRIN')
+sys.path.append('/home/zju/wlj/SLBRIN')
 from src.experiment.common_utils import Distribution, load_data, data_region, data_precision
-from src.spatial_index.sbrin import SBRIN
+from src.spatial_index.slbrin import SLBRIN
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    parent_path = "model/sbrin"
+    parent_path = "model/slbrin"
     if not os.path.exists(parent_path):
         os.makedirs(parent_path)
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
@@ -22,10 +22,10 @@ if __name__ == '__main__':
     for data_distribution in data_distributions:
         for lr in lrs:
             for batch_num in batch_nums:
-                model_path = "model/sbrin/%s/lr_bn_%s_%s" % (data_distribution.name, lr, batch_num)
+                model_path = "model/slbrin/%s/lr_bn_%s_%s" % (data_distribution.name, lr, batch_num)
                 if not os.path.exists(model_path):
                     os.makedirs(model_path)
-                index = SBRIN(model_path=model_path)
+                index = SLBRIN(model_path=model_path)
                 logging.info("*************start %s************" % model_path)
                 start_time = time.time()
                 build_data_list = load_data(data_distribution, 0)
