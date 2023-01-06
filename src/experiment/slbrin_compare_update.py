@@ -77,7 +77,8 @@ if __name__ == '__main__':
                 structure_size, ie_size = index.size()
                 logging.info("Structure size: %s" % structure_size)
                 logging.info("Index entry size: %s" % ie_size)
-                logging.info("IO cost: %s" % index.io())
+                io_cost = index.io_cost
+                logging.info("IO cost: %s" % io_cost)
                 if index.name == "SLBRIN":
                     model_num = index.meta.last_hr + 1
                     logging.info("Model num: %s" % model_num)
@@ -92,24 +93,47 @@ if __name__ == '__main__':
                                   index.sum_up_full_cr_time - index.merge_outdated_cr_time - index.retrain_inefficient_model_time
                     logging.info("Update time: %s" % update_time)
                 # 查询跑多次，避免算力波动的影响
-                for k in range(5):
-                    point_query_list = load_query(data_distribution, 0).tolist()
+                search_time_list = [0] * 5
+                search_io_cost_list = [0] * 5
+                point_query_list = load_query(data_distribution, 0).tolist()
+                range_query_list = load_query(data_distribution, 1).tolist()
+                knn_query_list = load_query(data_distribution, 2).tolist()
+                for k in range(0, 5):
                     start_time = time.time()
                     index.test_point_query(point_query_list)
                     end_time = time.time()
                     search_time = (end_time - start_time) / len(point_query_list)
-                    logging.info("Point query time: %s" % search_time)
-                for k in range(5):
-                    range_query_list = load_query(data_distribution, 1).tolist()
+                    search_io_cost = (index.io_cost - io_cost) / len(point_query_list)
+                    io_cost = index.io_cost
+                    search_time_list[k] = search_time
+                    search_io_cost_list[k] = search_io_cost
+                search_time_list = sorted(search_time_list)
+                search_io_cost_list = sorted(search_io_cost_list)
+                logging.info("Point query time: %s" % (sum(search_time_list[1:4]) / 3))
+                logging.info("Point query io cost: %s" % (sum(search_io_cost_list[1:4]) / 3))
+                for k in range(0, 5):
                     start_time = time.time()
                     index.test_range_query(range_query_list)
                     end_time = time.time()
                     search_time = (end_time - start_time) / len(range_query_list)
-                    logging.info("Range query time: %s" % search_time)
-                for k in range(5):
-                    knn_query_list = load_query(data_distribution, 2).tolist()
+                    search_io_cost = (index.io_cost - io_cost) / len(range_query_list)
+                    io_cost = index.io_cost
+                    search_time_list[k] = search_time
+                    search_io_cost_list[k] = search_io_cost
+                search_time_list = sorted(search_time_list)
+                search_io_cost_list = sorted(search_io_cost_list)
+                logging.info("Range query time: %s" % (sum(search_time_list[1:4]) / 3))
+                logging.info("Range query io cost: %s" % (sum(search_io_cost_list[1:4]) / 3))
+                for k in range(0, 5):
                     start_time = time.time()
                     index.test_knn_query(knn_query_list)
                     end_time = time.time()
                     search_time = (end_time - start_time) / len(knn_query_list)
-                    logging.info("KNN query time: %s" % search_time)
+                    search_io_cost = (index.io_cost - io_cost) / len(knn_query_list)
+                    io_cost = index.io_cost
+                    search_time_list[k] = search_time
+                    search_io_cost_list[k] = search_io_cost
+                search_time_list = sorted(search_time_list)
+                search_io_cost_list = sorted(search_io_cost_list)
+                logging.info("KNN query time: %s" % (sum(search_time_list[1:4]) / 3))
+                logging.info("KNN query io cost: %s" % (sum(search_io_cost_list[1:4]) / 3))

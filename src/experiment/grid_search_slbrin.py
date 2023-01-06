@@ -21,28 +21,27 @@ def train_tn():
             logging.info("*************start %s************" % model_path)
             start_time = time.time()
             build_data_list = load_data(data_distribution, 0)
-            # index.build(data_list=build_data_list,
-            #             is_sorted=True,
-            #             threshold_number=tn,
-            #             data_precision=data_precision[data_distribution],
-            #             region=data_region[data_distribution],
-            #             threshold_err=1,
-            #             threshold_summary=1000,
-            #             threshold_merge=5,
-            #             is_new=True,
-            #             is_simple=False,
-            #             is_gpu=True,
-            #             weight=1,
-            #             core=[1, 128],
-            #             train_step=5000,
-            #             batch_num=64,
-            #             learning_rate=0.1,
-            #             use_threshold=False,
-            #             threshold=0,
-            #             retrain_time_limit=0,
-            #             thread_pool_size=12)
-            # index.save()
-            index.load()
+            index.build(data_list=build_data_list,
+                        is_sorted=True,
+                        threshold_number=tn,
+                        data_precision=data_precision[data_distribution],
+                        region=data_region[data_distribution],
+                        threshold_err=1,
+                        threshold_summary=1000,
+                        threshold_merge=5,
+                        is_new=True,
+                        is_simple=False,
+                        is_gpu=True,
+                        weight=1,
+                        core=[1, 128],
+                        train_step=5000,
+                        batch_num=64,
+                        learning_rate=0.1,
+                        use_threshold=False,
+                        threshold=0,
+                        retrain_time_limit=0,
+                        thread_pool_size=12)
+            index.save()
             end_time = time.time()
             build_time = end_time - start_time
             logging.info("Build time: %s" % build_time)
