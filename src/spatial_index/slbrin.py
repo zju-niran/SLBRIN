@@ -176,8 +176,8 @@ class SLBRIN(SpatialIndex):
             self.history_ranges[key].model = value
 
     def insert_single(self, point):
-        # 1. encode p to geohash and create index entry(x, y, geohash, pointer)
-        point = (point[0], point[1], self.meta.geohash.encode(point[0], point[1]), point[2])
+        # 1. encode p to geohash and create index entry(x, y, geohash, t, pointer)
+        point = (point[0], point[1], self.meta.geohash.encode(point[0], point[1]), point[2], point[3])
         # 2. insert into cr
         self.current_ranges[-1].number += 1
         self.index_entries[-1].append(tuple(point))
@@ -307,6 +307,7 @@ class SLBRIN(SpatialIndex):
             batch_size = 1
         tmp_index = NN(self.model_path, str(hr_key), inputs, labels, True, self.is_gpu, self.weight,
                        self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
+        # tmp_index.build_simple(None)
         tmp_index.build_simple(hr.model.matrices)
         hr.model = AbstractNN(tmp_index.matrices, hr.model.hl_nums,
                               math.floor(tmp_index.min_err),

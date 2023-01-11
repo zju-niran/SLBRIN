@@ -56,8 +56,8 @@ class BRINSpatial(SpatialIndex):
         if self.meta.is_sorted:
             # 1. compute geohash from x/y of point
             gh = self.meta.geohash.encode(point[0], point[1])
-            # 2. encode p to geohash and create index entry(x, y, geohash, pointer)
-            point = (point[0], point[1], gh, point[2])
+            # 2. encode p to geohash and create index entry(x, y, geohash, t, pointer)
+            point = (point[0], point[1], gh, point[2], point[3])
             # 3. append in xy index
             self.index_entries.append(tuple(point))
             # 3. create tmp blk and sort last blk if point is on the breakpoint
@@ -314,7 +314,8 @@ class BRINSpatial(SpatialIndex):
         else:
             is_sorted = False
             geohash = None
-        self.meta = Meta(brins_meta[0], brins_meta[1], brins_meta[2], brins_meta[3], brins_meta[4], is_sorted, geohash)
+        self.meta = Meta(int(brins_meta[0]), int(brins_meta[1]), int(brins_meta[2]),
+                         brins_meta[3], brins_meta[4], is_sorted, geohash)
         self.block_ranges = [BlockRange(blk[0], [blk[1], blk[2], blk[3], blk[4]]) for blk in brins_blk]
         self.index_entries = index_entries.tolist()
         self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)

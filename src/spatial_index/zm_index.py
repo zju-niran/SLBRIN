@@ -163,13 +163,13 @@ class ZMIndex(SpatialIndex):
     def insert_single(self, point):
         """
         1. compute geohash from x/y of point
-        2. encode p to geohash and create index entry(x, y, geohash, pointer)
+        2. encode p to geohash and create index entry(x, y, geohash, t, pointer)
         3. predict the leaf_node by rmi
         4. insert ie into update index
         """
         # 1. compute geohash from x/y of point
         gh = self.geohash.encode(point[0], point[1])
-        # 2. encode p to geohash and create index entry(x, y, geohash, pointer)
+        # 2. encode p to geohash and create index entry(x, y, geohash, t, pointer)
         point = (point[0], point[1], gh, point[2], point[3])
         # 3. predict the leaf_node by rmi
         node_key = self.get_leaf_node(gh)
