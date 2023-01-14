@@ -221,7 +221,7 @@ class KDTree(SpatialIndex):
         self.io_cost = 0
 
     def insert_single(self, point):
-        self.root_node = self.root_node.insert(point.tolist())
+        self.root_node = self.root_node.insert((point[0], point[1], point[3]))
 
     def insert(self, points):
         for point in points:
@@ -258,7 +258,7 @@ class KDTree(SpatialIndex):
 
     def build(self, data_list):
         # 方法1：先排序后划分节点
-        data_list = data_list.tolist()
+        data_list = [(data[0], data[1], data[3]) for data in data_list]
         self.root_node = self.build_node(data_list, len(data_list), 0)
         # 方法2：不停插入
         # data_list = np.insert(data_list, np.arange(len(data_list)), axis=1)
