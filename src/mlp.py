@@ -76,7 +76,7 @@ class MLP:
                             datefmt="%Y/%m/%d %H:%M:%S %p")
         self.logging = logging.getLogger(self.name)
         self.train(self.is_new)
-        self.plot()
+        # self.plot()
 
     def init(self):
         self.model = tf.keras.Sequential()

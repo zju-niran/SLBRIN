@@ -13,7 +13,7 @@ from src.mlp import MLP
 from src.mlp_simple import MLPSimple
 from src.spatial_index.common_utils import Region, biased_search_duplicate, normalize_input_minmax, \
     denormalize_output_minmax, binary_search_less_max, binary_search_duplicate, normalize_output, normalize_input, \
-    sigmoid
+    relu
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
@@ -165,7 +165,7 @@ class ZMIndex(SpatialIndex):
         1. compute geohash from x/y of point
         2. encode p to geohash and create index entry(x, y, geohash, t, pointer)
         3. predict the leaf_node by rmi
-        4. insert ie into update index
+        4. insert ie into delta index
         """
         # 1. compute geohash from x/y of point
         gh = self.geohash.encode(point[0], point[1])
@@ -173,7 +173,7 @@ class ZMIndex(SpatialIndex):
         point = (point[0], point[1], gh, point[2], point[3])
         # 3. predict the leaf_node by rmi
         node_key = self.get_leaf_node(gh)
-        # 4. insert ie into update index
+        # 4. insert ie into delta index
         leaf_node = self.rmi[-1][node_key]
         leaf_node.delta_index.insert(
             binary_search_less_max(leaf_node.delta_index, 2, gh, 0, len(leaf_node.delta_index) - 1) + 1, point)
@@ -222,7 +222,7 @@ class ZMIndex(SpatialIndex):
         1. compute geohash from x/y of point
         2. predict by geohash and create key scope [pre - min_err, pre + max_err]
         3. binary search in scope
-        4. filter in update index
+        4. filter in delta index
         """
         # 1. compute geohash from x/y of point
         gh = self.geohash.encode(point[0], point[1])
@@ -234,7 +234,7 @@ class ZMIndex(SpatialIndex):
         result = [leaf_node.index[key][4] for key in
                   biased_search_duplicate(leaf_node.index, 2, gh, pre, l_bound, r_bound)]
         self.io_cost += math.ceil((r_bound - l_bound) / ITEMS_PER_PAGE)
-        # 4. filter in update index
+        # 4. filter in delta index
         if leaf_node.delta_index:
             delta_index_len = len(leaf_node.delta_index)
             result.extend([leaf_node.delta_index[key][4]
@@ -249,7 +249,7 @@ class ZMIndex(SpatialIndex):
         2. find left_key by point query
         3. find right_key by point query
         4. filter all the points of scope[left_key, right_key] by range(x1/y1/x2/y2).contain(point)
-        5. filter in update index
+        5. filter in delta index
         """
         # 1. compute z of window_left and window_right
         gh1 = self.geohash.encode(window[2], window[0])
@@ -269,7 +269,7 @@ class ZMIndex(SpatialIndex):
         right_key = biased_search_duplicate(leaf_node2.index, 2, gh2, pre2, l_bound2, r_bound2)
         right_key = r_bound2 if len(right_key) == 0 else max(right_key)
         # 4. filter all the point of scope[key1, key2] by range(x1/y1/x2/y2).contain(point)
-        # 5. filter in update index
+        # 5. filter in delta index
         if leaf_key1 == leaf_key2:
             # filter index
             result = [ie[4] for ie in leaf_node1.index[left_key:right_key + 1]
@@ -625,7 +625,7 @@ class AbstractNN:
     def predict(self, input_key):
         y = normalize_input_minmax(input_key, self.input_min, self.input_max)
         for i in range(self.hl_nums):
-            y = sigmoid(np.dot(y, self.matrices[i * 2]) + self.matrices[i * 2 + 1])
+            y = relu(np.dot(y, self.matrices[i * 2]) + self.matrices[i * 2 + 1])
         y = np.dot(y, self.matrices[-2]) + self.matrices[-1]
         return denormalize_output_minmax(y[0, 0], self.output_min, self.output_max)
 
@@ -638,8 +638,8 @@ class AbstractNN:
         y1 = normalize_input_minmax(input_key, self.input_min, self.input_max)
         y2 = y1 + delta
         for i in range(self.hl_nums):
-            y1 = sigmoid(y1 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
-            y2 = sigmoid(y2 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
+            y1 = relu(y1 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
+            y2 = relu(y2 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
         return (np.dot(y2, self.matrices[-2]) - np.dot(y1, self.matrices[-2]))[0, 0] / delta
 
 
