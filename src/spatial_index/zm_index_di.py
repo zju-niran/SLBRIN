@@ -8,7 +8,6 @@ import numpy as np
 
 sys.path.append('/home/zju/wlj/SLBRIN')
 from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
-from src.spatial_index.zm_index import AbstractNN
 from src.spatial_index.zm_index_optimised import ZMIndexOptimised, NN
 
 # 预设pagesize=4096, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
@@ -58,6 +57,7 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
         retrain_model_epoch = 0
         for j in range(0, self.stages[-1]):
             leaf_node = leaf_nodes[j]
+            model = leaf_node.model
             if leaf_node.delta_index:
                 # 1. merge delta index into index
                 if leaf_node.index:
@@ -68,8 +68,8 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
                 leaf_node.delta_index = []
                 # 2. update model
                 inputs = [data[2] for data in leaf_node.index]
-                inputs.insert(0, leaf_node.model.input_min)
-                inputs.append(leaf_node.model.input_max)
+                inputs.insert(0, model.input_min)
+                inputs.append(model.input_max)
                 inputs_num = len(inputs)
                 labels = list(range(0, inputs_num))
                 batch_size = 2 ** math.ceil(math.log(inputs_num / self.batch_num, 2))
@@ -79,13 +79,14 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
                 tmp_index = NN(self.model_path, model_key, inputs, labels, True, self.is_gpu, self.weight,
                                self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
                 # tmp_index.train_simple(None)  # retrain with initial model
-                tmp_index.build_simple(leaf_node.model.matrices if leaf_node.model else None)  # retrain with old model
-                leaf_node.model = AbstractNN(tmp_index.get_matrices(), leaf_node.model.hl_nums,
-                                             leaf_node.model.input_min, leaf_node.model.input_max,
-                                             0, inputs_num - 3,
-                                             math.floor(tmp_index.min_err), math.ceil(tmp_index.max_err))
+                tmp_index.build_simple(model.matrices if model else None)  # retrain with old model
+                model.matrices = tmp_index.get_matrices()
+                model.output_max = inputs_num - 3
+                model.min_err = math.floor(tmp_index.min_err)
+                model.max_err = math.ceil(tmp_index.max_err)
                 retrain_model_num += 1
                 retrain_model_epoch += tmp_index.get_epochs()
+                del tmp_index
         self.logging.info("Retrain model num: %s" % retrain_model_num)
         self.logging.info("Retrain model epoch: %s" % retrain_model_epoch)
 
@@ -116,7 +117,7 @@ def main():
         os.makedirs(model_path)
     index = ZMIndexDeltaInsert(model_path=model_path)
     index_name = index.name
-    load_index_from_json = False
+    load_index_from_json = True
     if load_index_from_json:
         index.load()
     else:

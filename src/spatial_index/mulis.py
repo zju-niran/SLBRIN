@@ -11,7 +11,7 @@ from src.experiment.common_utils import load_data, Distribution, data_region, da
 from src.spatial_index.common_utils import biased_search_duplicate, binary_search_less_max, binary_search_duplicate, \
     Region
 from src.spatial_index.geohash_utils import Geohash
-from src.spatial_index.zm_index import Node, AbstractNN
+from src.spatial_index.zm_index import Node
 from src.spatial_index.zm_index_optimised import ZMIndexOptimised, NN
 from src.ts_model import TimeSeriesModel, build_cdf
 
@@ -69,7 +69,7 @@ class Mulis(ZMIndexOptimised):
             # plot_ts(cdfs)
             node.delta_model = TimeSeriesModel(old_cdfs, None, old_max_keys, None, key_list)
             node.delta_model.build(self.cdf_width, self.cdf_lag)
-            # 2. change delta_index from list into list of list
+            # 2. change delta_index from [] into [[]]
             node.delta_index = [[] for i in range(node.delta_model.cur_max_key + 1)]
 
     def insert_single(self, point):
@@ -114,6 +114,7 @@ class Mulis(ZMIndexOptimised):
             delta_index = []
             for tmp in leaf_node.delta_index:
                 delta_index.extend(tmp)
+            model = leaf_node.model
             if delta_index:
                 # 1. merge delta index into index
                 if leaf_node.index:
@@ -123,8 +124,8 @@ class Mulis(ZMIndexOptimised):
                     leaf_node.index = delta_index
                 # 2. update model
                 inputs = [data[2] for data in leaf_node.index]
-                inputs.insert(0, leaf_node.model.input_min)
-                inputs.append(leaf_node.model.input_max)
+                inputs.insert(0, model.input_min)
+                inputs.append(model.input_max)
                 inputs_num = len(inputs)
                 labels = list(range(0, inputs_num))
                 batch_size = 2 ** math.ceil(math.log(inputs_num / self.batch_num, 2))
@@ -134,13 +135,14 @@ class Mulis(ZMIndexOptimised):
                 tmp_index = NN(self.model_path, model_key, inputs, labels, True, self.is_gpu, self.weight,
                                self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
                 # tmp_index.train_simple(None)  # retrain with initial model
-                tmp_index.build_simple(leaf_node.model.matrices if leaf_node.model else None)  # retrain with old model
-                leaf_node.model = AbstractNN(tmp_index.get_matrices(), leaf_node.model.hl_nums,
-                                             leaf_node.model.input_min, leaf_node.model.input_max,
-                                             0, inputs_num - 3,
-                                             math.floor(tmp_index.min_err), math.ceil(tmp_index.max_err))
+                tmp_index.build_simple(model.matrices if model else None)  # retrain with old model
+                model.matrices = tmp_index.get_matrices()
+                model.output_max = inputs_num - 3
+                model.min_err = math.floor(tmp_index.min_err)
+                model.max_err = math.ceil(tmp_index.max_err)
                 retrain_model_num += 1
                 retrain_model_epoch += tmp_index.get_epochs()
+                del tmp_index
                 # 3. update delta model
                 leaf_node.delta_model.update([data[2] for data in delta_index], self.cdf_width, self.cdf_lag)
                 leaf_node.delta_index = [[] for i in range(leaf_node.delta_model.cur_max_key + 1)]
@@ -187,15 +189,19 @@ class Mulis(ZMIndexOptimised):
         meta = np.array((self.geohash.data_precision,
                          self.geohash.region.bottom, self.geohash.region.up,
                          self.geohash.region.left, self.geohash.region.right,
-                         self.is_gpu, self.weight, self.train_step, self.batch_num, self.learning_rate,
-                         self.start_time, self.cur_time_interval, self.time_interval,
-                         self.cdf_lag, self.cdf_width),
+                         self.is_gpu, self.weight, self.train_step, self.batch_num, self.learning_rate),
                         dtype=[("0", 'i4'),
                                ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8'),
                                ("5", 'i1'), ("6", 'f4'), ("7", 'i2'), ("8", 'i2'), ("9", 'f4'),
                                ("10", 'i4'), ("11", 'i4'), ("12", 'i4'),
                                ("13", 'i1'), ("14", 'i1')])
+                               ("5", 'i1'), ("6", 'f4'), ("7", 'i2'), ("8", 'i2'), ("9", 'f4')])
         np.save(os.path.join(self.model_path, 'meta.npy'), meta)
+        meta_append = np.array((self.start_time, self.cur_time_interval, self.time_interval,
+                                self.cdf_lag, self.cdf_width),
+                               dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'),
+                                      ("13", 'i1'), ("14", 'i1')])
+        np.save(os.path.join(self.model_path, 'meta_append.npy'), meta_append)
         np.save(os.path.join(self.model_path, 'stages.npy'), self.stages)
         np.save(os.path.join(self.model_path, 'cores.npy'), self.cores)
         models = []
@@ -227,7 +233,7 @@ class Mulis(ZMIndexOptimised):
     def load(self):
         """
         different from zm_index
-        1. the delta_index isn't list but a list of list
+        1. the delta_index isn't [] but [[]]
         """
         meta = np.load(os.path.join(self.model_path, 'meta.npy'), allow_pickle=True).item()
         region = Region(meta[1], meta[2], meta[3], meta[4])
@@ -240,11 +246,12 @@ class Mulis(ZMIndexOptimised):
         self.train_step = meta[7]
         self.batch_num = meta[8]
         self.learning_rate = meta[9]
-        self.start_time = meta[10]
-        self.cur_time_interval = meta[11]
-        self.time_interval = meta[12]
-        self.cdf_lag = meta[13]
-        self.cdf_width = meta[14]
+        meta_append = np.load(os.path.join(self.model_path, 'meta_append.npy'), allow_pickle=True).item()
+        self.start_time = meta_append[0]
+        self.cur_time_interval = meta_append[1]
+        self.time_interval = meta_append[2]
+        self.cdf_lag = meta_append[3]
+        self.cdf_width = meta_append[4]
         models = np.load(os.path.join(self.model_path, 'models.npy'), allow_pickle=True)
         indexes = np.load(os.path.join(self.model_path, 'indexes.npy'), allow_pickle=True).tolist()
         index_lens = np.load(os.path.join(self.model_path, 'index_lens.npy'), allow_pickle=True).tolist()
@@ -302,7 +309,7 @@ def main():
         os.makedirs(model_path)
     index = Mulis(model_path=model_path)
     index_name = index.name
-    load_index_from_json = False
+    load_index_from_json = True
     if load_index_from_json:
         index.load()
     else:

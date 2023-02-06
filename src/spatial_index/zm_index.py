@@ -651,7 +651,7 @@ def main():
         os.makedirs(model_path)
     index = ZMIndex(model_path=model_path)
     index_name = index.name
-    load_index_from_json = False
+    load_index_from_json = True
     if load_index_from_json:
         index.load()
     else:
@@ -662,7 +662,7 @@ def main():
                     is_sorted=True,
                     data_precision=data_precision[data_distribution],
                     region=data_region[data_distribution],
-                    is_new=False,
+                    is_new=True,
                     is_simple=False,
                     is_gpu=True,
                     weight=1,
