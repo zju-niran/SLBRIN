@@ -1,14 +1,17 @@
+import logging
 import multiprocessing
 import os
 import sys
+import time
 
 import numpy as np
 
 sys.path.append('/home/zju/wlj/SLBRIN')
 from src.mlp import MLP
 from src.mlp_simple import MLPSimple
-from src.spatial_index.zm_index import ZMIndex, Node, build_nn
+from src.experiment.common_utils import load_data, Distribution, load_query, data_precision, data_region
 from src.spatial_index.geohash_utils import Geohash
+from src.spatial_index.zm_index import ZMIndex, Node, build_nn
 
 # 预设pagesize=4096, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
 PAGE_SIZE = 4096
@@ -183,3 +186,90 @@ class NNSimple(MLPSimple):
         train_y = (np.array(train_y) - train_y_min) / (train_y_max - train_y_min)
         super().__init__(train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
                          is_gpu, weight, core, train_step, batch_size, learning_rate)
+
+
+def main():
+    os.chdir(os.path.dirname(os.path.realpath(__file__)))
+    model_path = "model/zm_index_optimised_10w/"
+    data_distribution = Distribution.NYCT_10W_SORTED
+    if os.path.exists(model_path) is False:
+        os.makedirs(model_path)
+    index = ZMIndex(model_path=model_path)
+    index_name = index.name
+    load_index_from_json = True
+    if load_index_from_json:
+        index.load()
+    else:
+        index.logging.info("*************start %s************" % index_name)
+        start_time = time.time()
+        build_data_list = load_data(data_distribution, 0)
+        index.build(data_list=build_data_list,
+                    is_sorted=True,
+                    data_precision=data_precision[data_distribution],
+                    region=data_region[data_distribution],
+                    is_new=True,
+                    is_simple=False,
+                    is_gpu=True,
+                    weight=1,
+                    stages=[1, 100],
+                    cores=[[1, 32], [1, 32]],
+                    train_steps=[5000, 5000],
+                    batch_nums=[64, 64],
+                    learning_rates=[0.001, 0.001],
+                    use_thresholds=[False, False],
+                    thresholds=[5, 20],
+                    retrain_time_limits=[4, 2],
+                    thread_pool_size=6)
+        index.save()
+        end_time = time.time()
+        build_time = end_time - start_time
+        index.logging.info("Build time: %s" % build_time)
+    structure_size, ie_size = index.size()
+    logging.info("Structure size: %s" % structure_size)
+    logging.info("Index entry size: %s" % ie_size)
+    io_cost = 0
+    logging.info("Model precision avg: %s" % index.model_err())
+    point_query_list = load_query(data_distribution, 0).tolist()
+    start_time = time.time()
+    results = index.point_query(point_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(point_query_list)
+    logging.info("Point query time: %s" % search_time)
+    logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
+    io_cost = index.io_cost
+    np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    # range_query_list = load_query(data_distribution, 1).tolist()
+    # start_time = time.time()
+    # results = index.range_query(range_query_list)
+    # end_time = time.time()
+    # search_time = (end_time - start_time) / len(range_query_list)
+    # logging.info("Range query time: %s" % search_time)
+    # logging.info("Range query io cost: %s" % ((index.io_cost - io_cost) / len(range_query_list)))
+    # io_cost = index.io_cost
+    # np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    # knn_query_list = load_query(data_distribution, 2).tolist()
+    # start_time = time.time()
+    # results = index.knn_query(knn_query_list)
+    # end_time = time.time()
+    # search_time = (end_time - start_time) / len(knn_query_list)
+    # logging.info("KNN query time: %s" % search_time)
+    # logging.info("KNN query io cost: %s" % ((index.io_cost - io_cost) / len(knn_query_list)))
+    # np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    update_data_list = load_data(Distribution.NYCT_10W, 1)
+    start_time = time.time()
+    index.insert(update_data_list)
+    end_time = time.time()
+    logging.info("Update time: %s" % (end_time - start_time))
+    point_query_list = load_query(data_distribution, 0).tolist()
+    start_time = time.time()
+    results = index.point_query(point_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(point_query_list)
+    logging.info("Point query time: %s" % search_time)
+    logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
+    io_cost = index.io_cost
+    np.savetxt(model_path + 'point_query_result1.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+
+
+if __name__ == '__main__':
+    main()

@@ -763,7 +763,6 @@ class SLBRIN(SpatialIndex):
             index_entries.extend(ies)
         index_entries = np.array(index_entries, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4'), ("4", 'i4')])
         np.save(os.path.join(self.model_path, 'slbrin_data.npy'), index_entries)
-        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
 
     def load(self):
@@ -807,7 +806,6 @@ class SLBRIN(SpatialIndex):
         for cr in self.current_ranges:
             self.index_entries.append(index_entries[offset:offset + cr.number])
             offset += cr.number
-        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def size(self):
         """
@@ -1200,8 +1198,7 @@ def main():
     structure_size, ie_size = index.size()
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
-    io_cost = index.io_cost
-    logging.info("IO cost: %s" % io_cost)
+    io_cost = 0
     model_num = index.meta.last_hr + 1
     logging.info("Model num: %s" % model_num)
     model_precisions = [(hr.model.max_err - hr.model.min_err) for hr in index.history_ranges]

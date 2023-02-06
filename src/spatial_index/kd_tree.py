@@ -408,12 +408,10 @@ class KDTree(SpatialIndex):
         kd_tree = np.array(node_list, dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i1'), ("3", 'i4'),
                                              ("4", 'f8'), ("5", 'f8'), ("6", 'i4')])
         np.save(os.path.join(self.model_path, 'kd_tree.npy'), kd_tree)
-        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def load(self):
         kd_tree = np.load(os.path.join(self.model_path, 'kd_tree.npy'), allow_pickle=True)
         self.root_node = list_to_tree(kd_tree, 0)
-        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def size(self):
         """
@@ -484,8 +482,7 @@ def main():
     structure_size, ie_size = index.size()
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
-    io_cost = index.io_cost
-    logging.info("IO cost: %s" % io_cost)
+    io_cost = 0
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()

@@ -452,7 +452,6 @@ class ZMIndex(SpatialIndex):
         np.save(os.path.join(self.model_path, 'delta_indexes.npy'),
                 np.array(delta_indexes, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4'), ("4", 'i4')]))
         np.save(os.path.join(self.model_path, 'delta_index_lens.npy'), delta_index_lens)
-        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def load(self):
         meta = np.load(os.path.join(self.model_path, 'meta.npy'), allow_pickle=True).item()
@@ -490,7 +489,6 @@ class ZMIndex(SpatialIndex):
                     index_cur += index_lens[j]
                     delta_index_cur += delta_index_lens[j]
                 self.rmi.append(leaf_nodes)
-        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def size(self):
         """
@@ -573,6 +571,8 @@ def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new,
                                 int(tmp_index.train_x_min), int(tmp_index.train_x_max),
                                 int(tmp_index.train_y_min), int(tmp_index.train_y_max),
                                 math.floor(tmp_index.min_err), math.ceil(tmp_index.max_err))
+    if abstract_index.min_err > abstract_index.max_err:
+        print()
     del tmp_index
     gc.collect(generation=0)
     mp_list[current_stage_step] = abstract_index
@@ -682,18 +682,17 @@ def main():
     structure_size, ie_size = index.size()
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
-    io_cost = index.io_cost
-    logging.info("IO cost: %s" % io_cost)
+    io_cost = 0
     logging.info("Model precision avg: %s" % index.model_err())
-    # point_query_list = load_query(data_distribution, 0).tolist()
-    # start_time = time.time()
-    # results = index.point_query(point_query_list)
-    # end_time = time.time()
-    # search_time = (end_time - start_time) / len(point_query_list)
-    # logging.info("Point query time: %s" % search_time)
-    # logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
-    # io_cost = index.io_cost
-    # np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    point_query_list = load_query(data_distribution, 0).tolist()
+    start_time = time.time()
+    results = index.point_query(point_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(point_query_list)
+    logging.info("Point query time: %s" % search_time)
+    logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
+    io_cost = index.io_cost
+    np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     # range_query_list = load_query(data_distribution, 1).tolist()
     # start_time = time.time()
     # results = index.range_query(range_query_list)
@@ -715,7 +714,7 @@ def main():
     start_time = time.time()
     index.insert(update_data_list)
     end_time = time.time()
-    logging.info("Insert time: %s" % (end_time - start_time))
+    logging.info("Update time: %s" % (end_time - start_time))
     point_query_list = load_query(data_distribution, 0).tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)
@@ -724,7 +723,7 @@ def main():
     logging.info("Point query time: %s" % search_time)
     logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
     io_cost = index.io_cost
-    np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    np.savetxt(model_path + 'point_query_result1.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
 
 
 if __name__ == '__main__':

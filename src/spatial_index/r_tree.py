@@ -75,7 +75,6 @@ class RTree(SpatialIndex):
         rtree_meta = (self.fill_factor, self.leaf_node_capacity, self.non_leaf_node_capacity, self.buffering_capacity)
         np.save(os.path.join(self.model_path, 'rtree_meta.npy'),
                 np.array(rtree_meta, dtype=[("0", 'f8'), ("1", 'i1'), ("2", 'i1'), ("3", 'i2')]))
-        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def load(self):
         rtree_meta = np.load(os.path.join(self.model_path, 'rtree_meta.npy'), allow_pickle=True).item()
@@ -95,7 +94,6 @@ class RTree(SpatialIndex):
         self.non_leaf_node_capacity = rtree_meta[2]
         self.buffering_capacity = rtree_meta[3]
         self.index = index.Index(os.path.join(self.model_path, 'rtree'), properties=p, overwrite=False)
-        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def size(self):
         """
@@ -152,8 +150,7 @@ def main():
     structure_size, ie_size = index.size()
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
-    io_cost = index.io_cost
-    logging.info("IO cost: %s" % io_cost)
+    io_cost = 0
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()

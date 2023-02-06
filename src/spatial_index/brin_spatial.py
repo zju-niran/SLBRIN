@@ -300,7 +300,6 @@ class BRINSpatial(SpatialIndex):
         np.save(os.path.join(self.model_path, 'brins_meta.npy'), brins_meta)
         np.save(os.path.join(self.model_path, 'brins_blk.npy'), brins_blk)
         np.save(os.path.join(self.model_path, 'index_entries.npy'), index_entries)
-        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def load(self):
         brins_meta = np.load(os.path.join(self.model_path, 'brins_meta.npy'))
@@ -318,7 +317,6 @@ class BRINSpatial(SpatialIndex):
                          brins_meta[3], brins_meta[4], is_sorted, geohash)
         self.block_ranges = [BlockRange(blk[0], [blk[1], blk[2], blk[3], blk[4]]) for blk in brins_blk]
         self.index_entries = index_entries.tolist()
-        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def size(self):
         """
@@ -399,8 +397,7 @@ def main():
     structure_size, ie_size = index.size()
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
-    io_cost = index.io_cost
-    logging.info("IO cost: %s" % io_cost)
+    io_cost = 0
     path = '../../data/query/point_query_nyct.npy'
     point_query_list = np.load(path, allow_pickle=True).tolist()
     start_time = time.time()

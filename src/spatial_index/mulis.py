@@ -36,7 +36,7 @@ class Mulis(ZMIndexOptimised):
     def build_append(self, time_interval, start_time, end_time, cdf_width, cdf_lag):
         """
         1. create delta_model with ts_model
-        2. change delta_index from list into list of list
+        2. change delta_index from [] into [[]]
         """
         self.start_time = start_time
         self.cur_time_interval = math.ceil((end_time - start_time) / time_interval)
@@ -150,9 +150,6 @@ class Mulis(ZMIndexOptimised):
     def get_delta_index_list(self, key, leaf_node):
         """
         get the delta_index list which contains the key
-        :param key: float
-        :param leaf_node: node
-        :return: the list of delta_index
         """
         pos = (key - leaf_node.model.input_min) / (
                 leaf_node.model.input_max - leaf_node.model.input_min) * self.cdf_width
@@ -226,7 +223,6 @@ class Mulis(ZMIndexOptimised):
                 np.array(delta_indexes, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4'), ("4", 'i4')]))
         np.save(os.path.join(self.model_path, 'delta_index_lens.npy'), delta_index_lens)
         np.save(os.path.join(self.model_path, 'delta_models.npy'), delta_models)
-        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def load(self):
         """
@@ -290,7 +286,6 @@ class Mulis(ZMIndexOptimised):
                     index_cur += index_lens[j]
                     delta_index_cur += delta_index_lens[j]
                 self.rmi.append(leaf_nodes)
-        self.io_cost = math.ceil(self.size()[0] / PAGE_SIZE)
 
     def size(self):
         structure_size, ie_size = super(Mulis, self).size()
@@ -343,8 +338,7 @@ def main():
     structure_size, ie_size = index.size()
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
-    io_cost = index.io_cost
-    logging.info("IO cost: %s" % io_cost)
+    io_cost = 0
     logging.info("Model precision avg: %s" % index.model_err())
     point_query_list = load_query(data_distribution, 0).tolist()
     start_time = time.time()
@@ -352,12 +346,23 @@ def main():
     end_time = time.time()
     search_time = (end_time - start_time) / len(point_query_list)
     logging.info("Point query time: %s" % search_time)
+    logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
+    io_cost = index.io_cost
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    update_data_list = load_data(Distribution.NYCT_10W, 1)[:1000]
+    update_data_list = load_data(Distribution.NYCT_10W, 1)
     start_time = time.time()
     index.insert(update_data_list)
     end_time = time.time()
-    logging.info("Insert time: %s" % (end_time - start_time))
+    logging.info("Update time: %s" % (end_time - start_time))
+    point_query_list = load_query(data_distribution, 0).tolist()
+    start_time = time.time()
+    results = index.point_query(point_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(point_query_list)
+    logging.info("Point query time: %s" % search_time)
+    logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
+    io_cost = index.io_cost
+    np.savetxt(model_path + 'point_query_result1.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
 
 
 if __name__ == '__main__':
