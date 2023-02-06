@@ -195,7 +195,6 @@ class Mulis(ZMIndexOptimised):
                                ("5", 'i1'), ("6", 'f4'), ("7", 'i2'), ("8", 'i2'), ("9", 'f4'),
                                ("10", 'i4'), ("11", 'i4'), ("12", 'i4'),
                                ("13", 'i1'), ("14", 'i1')])
-                               ("5", 'i1'), ("6", 'f4'), ("7", 'i2'), ("8", 'i2'), ("9", 'f4')])
         np.save(os.path.join(self.model_path, 'meta.npy'), meta)
         meta_append = np.array((self.start_time, self.cur_time_interval, self.time_interval,
                                 self.cdf_lag, self.cdf_width),
