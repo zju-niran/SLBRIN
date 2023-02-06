@@ -26,7 +26,7 @@ class TimeSeriesModel:
         if old_cdfs_num == 0:  # if old_cdfs is []
             self.cur_cdf = [0.0] * cdf_width
             self.cur_max_key = 0
-        elif old_cdfs_num <= cdf_lag:  # if old_cdfs are not enough in quantity
+        elif old_cdfs_num <= cdf_lag:  # if old_cdfs are not enough for ts_model in quantity
             self.cur_cdf = self.old_cdfs[-1]
             self.cur_max_key = self.old_max_keys[-1]
         else:
@@ -74,7 +74,7 @@ def train_ar(data, lag):
         start = 1
     for i in range(0, lag):
         new_data += data[-i - 1] * model[start + i]
-    return new_data
+    return correct_max_key(new_data)
 
 
 def build_cdf(data, cdf_width, key_list):
@@ -112,3 +112,11 @@ def correct_cdf(cdf):
         cdf[i] = 1.0
         i += 1
     return cdf
+
+
+def correct_max_key(max_key):
+    """
+    correct the max_key:
+    1. max_key >= 0
+    """
+    return max(0, max_key)
