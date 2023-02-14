@@ -14,7 +14,7 @@ import tensorflow as tf
 
 class MLPSimple:
     def __init__(self, train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
-                 is_gpu, weight, core, train_step, batch_size, learning_rate):
+                 weight, core, train_step, batch_size, learning_rate):
         # common
         self.name = "MLP"
         # data
@@ -25,7 +25,6 @@ class MLPSimple:
         self.train_y_min = train_y_min
         self.train_y_max = train_y_max
         # model structure
-        self.is_gpu = is_gpu
         self.weight = weight
         self.core = core
         self.train_step = train_step
@@ -48,17 +47,6 @@ class MLPSimple:
         self.model.compile(optimizer=optimizer, loss=self.mse)
 
     def train_simple(self, matrices):
-        if self.is_gpu:
-            os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-            os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-            # 不输出报错：This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the
-            # following CPU instructions in performance-critical operations:  AVX AVX2
-            os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-            gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
-            for gpu in gpus:
-                tf.config.experimental.set_memory_growth(gpu, True)
-        else:
-            os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
         self.init()
         if matrices:
             self.set_matrices(matrices)

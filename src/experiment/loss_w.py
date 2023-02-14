@@ -36,7 +36,6 @@ if __name__ == '__main__':
                         threshold_merge=0,
                         is_new=True,
                         is_simple=False,
-                        is_gpu=True,
                         weight=weight,
                         core=[1, 128],
                         train_step=5000,

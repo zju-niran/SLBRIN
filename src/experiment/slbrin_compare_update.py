@@ -57,7 +57,6 @@ if __name__ == '__main__':
             index.load()
             if index.name == 'SLBRIN':
                 index.meta.threshold_err = 1.0
-                index.is_gpu = False
             # 更新数据集一分为五
             update_data_list = load_data(data_distribution, 1)
             update_data_len = len(update_data_list)

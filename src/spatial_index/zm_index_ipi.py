@@ -154,7 +154,7 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
                 if batch_size < 1:
                     batch_size = 1
                 model_key = "retrain_%s" % j
-                tmp_index = NN(self.model_path, model_key, inputs, labels, True, self.is_gpu, self.weight,
+                tmp_index = NN(self.model_path, model_key, inputs, labels, True, self.weight,
                                self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
                 # tmp_index.train_simple(None)  # retrain with initial model
                 tmp_index.build_simple(model.matrices if model else None)  # retrain with old model
@@ -239,7 +239,6 @@ def main():
                     region=data_region[data_distribution],
                     is_new=False,
                     is_simple=False,
-                    is_gpu=True,
                     weight=1,
                     stages=[1, 100],
                     cores=[[1, 32], [1, 32]],

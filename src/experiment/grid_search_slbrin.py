@@ -31,7 +31,6 @@ def train_tn():
                         threshold_merge=5,
                         is_new=True,
                         is_simple=False,
-                        is_gpu=True,
                         weight=1,
                         core=[1, 128],
                         train_step=5000,

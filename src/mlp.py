@@ -11,7 +11,7 @@ from matplotlib import pyplot as plt
 
 class MLP:
     def __init__(self, model_path, model_key, train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
-                 is_new, is_gpu, weight, core, train_step, batch_size, learning_rate,
+                 is_new, weight, core, train_step, batch_size, learning_rate,
                  use_threshold, threshold, retrain_time_limit):
         # common
         self.name = "MLP"
@@ -27,7 +27,6 @@ class MLP:
         self.train_y_max = train_y_max
         # model structure
         self.is_new = is_new
-        self.is_gpu = is_gpu
         self.weight = weight
         self.core = core
         self.train_step = train_step
@@ -45,17 +44,6 @@ class MLP:
         self.logging = None
 
     def build(self):
-        if self.is_gpu:
-            os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-            os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-            # 不输出报错：This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the
-            # following CPU instructions in performance-critical operations:  AVX AVX2
-            os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-            gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
-            for gpu in gpus:
-                tf.config.experimental.set_memory_growth(gpu, True)
-        else:
-            os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
         if self.is_new:
             self.init()
             self.model_hdf_file = os.path.join(self.model_hdf_dir, '.'.join([self.model_key, "best", "hdf5"]))
@@ -144,17 +132,6 @@ class MLP:
 
     # 区别：simple结尾的函数用于模型的重训练
     def build_simple(self, matrices):
-        if self.is_gpu:
-            os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-            os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-            # 不输出报错：This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the
-            # following CPU instructions in performance-critical operations:  AVX AVX2
-            os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-            gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
-            for gpu in gpus:
-                tf.config.experimental.set_memory_growth(gpu, True)
-        else:
-            os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
         self.init()
         if matrices:
             self.set_matrices(matrices)

@@ -62,7 +62,6 @@ class SLBRIN(SpatialIndex):
         # state: 新增：状态，1=full, 2=outdated
         self.current_ranges = None
         # 训练所需：
-        self.is_gpu = None
         self.weight = None
         self.cores = None
         self.train_step = None
@@ -78,7 +77,7 @@ class SLBRIN(SpatialIndex):
 
     def build(self, data_list, is_sorted, threshold_number, data_precision, region, threshold_err,
               threshold_summary, threshold_merge,
-              is_new, is_simple, is_gpu, weight, core, train_step, batch_num, learning_rate, use_threshold, threshold,
+              is_new, is_simple, weight, core, train_step, batch_num, learning_rate, use_threshold, threshold,
               retrain_time_limit, thread_pool_size):
         """
         构建SLBRIN
@@ -90,7 +89,6 @@ class SLBRIN(SpatialIndex):
         2.4. create slbrin
         3. build learned model
         """
-        self.is_gpu = is_gpu
         self.weight = weight
         self.cores = core
         self.train_step = train_step
@@ -142,10 +140,10 @@ class SLBRIN(SpatialIndex):
         self.current_ranges = []
         self.create_cr()
         # 3. build learned model
-        self.build_nn_multiprocess(is_new, is_simple, is_gpu, weight, core, train_step, batch_num, learning_rate,
+        self.build_nn_multiprocess(is_new, is_simple, weight, core, train_step, batch_num, learning_rate,
                                    use_threshold, threshold, retrain_time_limit, thread_pool_size)
 
-    def build_nn_multiprocess(self, is_new, is_simple, is_gpu, weight, core, train_step, batch_num, learning_rate,
+    def build_nn_multiprocess(self, is_new, is_simple, weight, core, train_step, batch_num, learning_rate,
                               use_threshold, threshold, retrain_time_limit, thread_pool_size):
         model_hdf_dir = os.path.join(self.model_path, "hdf/")
         if os.path.exists(model_hdf_dir) is False:
@@ -167,7 +165,7 @@ class SLBRIN(SpatialIndex):
             if batch_size < 1:
                 batch_size = 1
             # batch_size = batch_num
-            pool.apply_async(build_nn, (self.model_path, hr_key, inputs, labels, is_new, is_simple, is_gpu,
+            pool.apply_async(build_nn, (self.model_path, hr_key, inputs, labels, is_new, is_simple,
                                         weight, core, train_step, batch_size, learning_rate,
                                         use_threshold, threshold, retrain_time_limit, mp_dict))
         pool.close()
@@ -305,7 +303,7 @@ class SLBRIN(SpatialIndex):
         batch_size = 2 ** math.ceil(math.log(data_num / self.batch_num, 2))
         if batch_size < 1:
             batch_size = 1
-        tmp_index = NN(self.model_path, str(hr_key), inputs, labels, True, self.is_gpu, self.weight,
+        tmp_index = NN(self.model_path, str(hr_key), inputs, labels, True, self.weight,
                        self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
         # tmp_index.build_simple(None)
         tmp_index.build_simple(hr.model.matrices)
@@ -728,22 +726,22 @@ class SLBRIN(SpatialIndex):
     def save(self):
         assert self.meta.threshold_number < 2 ** (16 - 1), "threshold_number exceed the store size int16"
         slbrin_meta = np.array((self.meta.last_hr, self.meta.last_cr,
-                               self.meta.threshold_number, self.meta.threshold_length,
-                               self.meta.threshold_err, self.meta.threshold_summary, self.meta.threshold_merge,
-                               self.meta.geohash.data_precision,
-                               self.meta.geohash.region.bottom, self.meta.geohash.region.up,
-                               self.meta.geohash.region.left, self.meta.geohash.region.right,
-                               self.is_gpu, self.weight, self.train_step, self.batch_num, self.learning_rate),
-                              dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i2'), ("3", 'i2'), ("4", 'i2'), ("5", 'i2'),
-                                     ("6", 'i2'), ("7", 'i1'),
-                                     ("8", 'f8'), ("9", 'f8'), ("10", 'f8'), ("11", 'f8'),
-                                     ("12", 'i1'), ("13", 'f4'), ("14", 'i2'), ("15", 'i2'), ("16", 'f4')])
+                                self.meta.threshold_number, self.meta.threshold_length,
+                                self.meta.threshold_err, self.meta.threshold_summary, self.meta.threshold_merge,
+                                self.meta.geohash.data_precision,
+                                self.meta.geohash.region.bottom, self.meta.geohash.region.up,
+                                self.meta.geohash.region.left, self.meta.geohash.region.right,
+                                self.weight, self.train_step, self.batch_num, self.learning_rate),
+                               dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i2'), ("3", 'i2'), ("4", 'i2'), ("5", 'i2'),
+                                      ("6", 'i2'), ("7", 'i1'),
+                                      ("8", 'f8'), ("9", 'f8'), ("10", 'f8'), ("11", 'f8'),
+                                      ("12", 'f4'), ("13", 'i2'), ("14", 'i2'), ("15", 'f4')])
         slbrin_models = np.array([hr.model for hr in self.history_ranges])
         slbrin_hrs = np.array([(hr.value, hr.length, hr.number, hr.state, hr.value_diff,
-                               hr.scope.bottom, hr.scope.up, hr.scope.left, hr.scope.right)
-                              for hr in self.history_ranges],
-                             dtype=[("0", 'i8'), ("1", 'i1'), ("2", 'i2'), ("3", 'i1'), ("4", 'i8'),
-                                    ("5", 'f8'), ("6", 'f8'), ("7", 'f8'), ("8", 'f8')])
+                                hr.scope.bottom, hr.scope.up, hr.scope.left, hr.scope.right)
+                               for hr in self.history_ranges],
+                              dtype=[("0", 'i8'), ("1", 'i1'), ("2", 'i2'), ("3", 'i1'), ("4", 'i8'),
+                                     ("5", 'f8'), ("6", 'f8'), ("7", 'f8'), ("8", 'f8')])
         slbrin_crs = []
         for cr in self.current_ranges:
             if cr.value is None:
@@ -752,7 +750,7 @@ class SLBRIN(SpatialIndex):
                 cr_list = [cr.value[0], cr.value[1], cr.value[2], cr.value[3], cr.number, cr.state]
             slbrin_crs.append(tuple(cr_list))
         slbrin_crs = np.array(slbrin_crs, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'f8'), ("3", 'f8'),
-                                               ("4", 'i2'), ("5", 'i1')])
+                                                 ("4", 'i2'), ("5", 'i1')])
         np.save(os.path.join(self.model_path, 'slbrin_meta.npy'), slbrin_meta)
         np.save(os.path.join(self.model_path, 'slbrin_model_cores.npy'), self.cores)
         np.save(os.path.join(self.model_path, 'slbrin_hrs.npy'), slbrin_hrs)
@@ -763,7 +761,6 @@ class SLBRIN(SpatialIndex):
             index_entries.extend(ies)
         index_entries = np.array(index_entries, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4'), ("4", 'i4')])
         np.save(os.path.join(self.model_path, 'slbrin_data.npy'), index_entries)
-
 
     def load(self):
         slbrin_meta = np.load(os.path.join(self.model_path, 'slbrin_meta.npy'), allow_pickle=True).item()
@@ -776,11 +773,10 @@ class SLBRIN(SpatialIndex):
         self.meta = Meta(slbrin_meta[0], slbrin_meta[1], slbrin_meta[2], slbrin_meta[3], slbrin_meta[4], slbrin_meta[5],
                          slbrin_meta[6], geohash)
         self.cores = np.load(os.path.join(self.model_path, 'slbrin_model_cores.npy'), allow_pickle=True).tolist()
-        self.is_gpu = bool(slbrin_meta[12])
-        self.weight = slbrin_meta[13]
-        self.train_step = slbrin_meta[14]
-        self.batch_num = slbrin_meta[15]
-        self.learning_rate = slbrin_meta[16]
+        self.weight = slbrin_meta[12]
+        self.train_step = slbrin_meta[13]
+        self.batch_num = slbrin_meta[14]
+        self.learning_rate = slbrin_meta[15]
         # length从int32转int，不然位运算时候会超出限制变为负数
         self.history_ranges = [
             HistoryRange(slbrin_hrs[i][0], int(slbrin_hrs[i][1]), slbrin_hrs[i][2], slbrin_models[i], slbrin_hrs[i][3],
@@ -940,12 +936,12 @@ range_position_funcs = [
 
 
 # for train
-def build_nn(model_path, model_key, inputs, labels, is_new, is_simple, is_gpu, weight, core, train_step, batch_size,
+def build_nn(model_path, model_key, inputs, labels, is_new, is_simple, weight, core, train_step, batch_size,
              learning_rate, use_threshold, threshold, retrain_time_limit, tmp_dict):
     if is_simple:
-        tmp_index = NNSimple(inputs, labels, is_gpu, weight, core, train_step, batch_size, learning_rate)
+        tmp_index = NNSimple(inputs, labels, weight, core, train_step, batch_size, learning_rate)
     else:
-        tmp_index = NN(model_path, str(model_key), inputs, labels, is_new, is_gpu, weight, core,
+        tmp_index = NN(model_path, str(model_key), inputs, labels, is_new, weight, core,
                        train_step, batch_size, learning_rate, use_threshold, threshold, retrain_time_limit)
     tmp_index.build()
     abstract_index = AbstractNN(tmp_index.matrices, len(core) - 1,
@@ -1047,7 +1043,7 @@ class CurrentRange:
 
 
 class NN(MLP):
-    def __init__(self, model_path, model_key, train_x, train_y, is_new, is_gpu, weight, core, train_step, batch_size,
+    def __init__(self, model_path, model_key, train_x, train_y, is_new, weight, core, train_step, batch_size,
                  learning_rate, use_threshold, threshold, retrain_time_limit):
         self.name = "SLBRIN NN"
         # train_x的是有序的，归一化不需要计算最大最小值
@@ -1058,7 +1054,7 @@ class NN(MLP):
         train_y_max = train_y[-1]
         train_y = (np.array(train_y) - train_y_min) / (train_y_max - train_y_min)
         super().__init__(model_path, model_key, train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
-                         is_new, is_gpu, weight, core, train_step, batch_size, learning_rate, use_threshold, threshold,
+                         is_new, weight, core, train_step, batch_size, learning_rate, use_threshold, threshold,
                          retrain_time_limit)
 
     # 计算err的时候不考虑breakpoints
@@ -1076,7 +1072,7 @@ class NN(MLP):
 
 
 class NNSimple(MLPSimple):
-    def __init__(self, train_x, train_y, is_gpu, weight, core, train_step, batch_size, learning_rate):
+    def __init__(self, train_x, train_y, weight, core, train_step, batch_size, learning_rate):
         self.name = "SLBRIN NN"
         # train_x的是有序的，归一化不需要计算最大最小值
         train_x_min = train_x[0]
@@ -1086,7 +1082,7 @@ class NNSimple(MLPSimple):
         train_y_max = train_y[-1]
         train_y = (np.array(train_y) - train_y_min) / (train_y_max - train_y_min)
         super().__init__(train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
-                         is_gpu, weight, core, train_step, batch_size, learning_rate)
+                         weight, core, train_step, batch_size, learning_rate)
 
     # 计算err的时候不考虑breakpoints
     def get_err(self):
@@ -1181,7 +1177,6 @@ def main():
                     threshold_merge=5,
                     is_new=False,
                     is_simple=False,
-                    is_gpu=True,
                     weight=1,
                     core=[1, 128],
                     train_step=5000,

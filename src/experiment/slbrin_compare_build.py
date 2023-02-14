@@ -20,6 +20,11 @@ if __name__ == '__main__':
     for data_distribution in data_distributions:
         logging.info("*************start %s************" % data_distribution)
         build_data_list = load_data(data_distribution, 0)
+        os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+        os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+        # 不输出报错：This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the
+        # following CPU instructions in performance-critical operations:  AVX AVX2
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
         # ZM: 多进程 + GPU
         logging.info("*************start ZM multi processes and GPU************")
         start_time = time.time()
@@ -30,7 +35,6 @@ if __name__ == '__main__':
                     region=data_region[data_distribution],
                     is_new=True,
                     is_simple=True,
-                    is_gpu=True,
                     weight=1,
                     stages=[1, 5000],
                     cores=[[1, 128], [1, 128]],
@@ -59,7 +63,6 @@ if __name__ == '__main__':
                     threshold_merge=0,
                     is_new=True,
                     is_simple=True,
-                    is_gpu=True,
                     weight=1,
                     core=[1, 128],
                     train_step=500,
@@ -83,7 +86,6 @@ if __name__ == '__main__':
                     region=data_region[data_distribution],
                     is_new=True,
                     is_simple=True,
-                    is_gpu=True,
                     weight=1,
                     stages=[1, 5000],
                     cores=[[1, 128], [1, 128]],
@@ -112,7 +114,6 @@ if __name__ == '__main__':
                     threshold_merge=0,
                     is_new=True,
                     is_simple=True,
-                    is_gpu=True,
                     weight=1,
                     core=[1, 128],
                     train_step=500,
@@ -126,6 +127,7 @@ if __name__ == '__main__':
         end_time = time.time()
         build_time = end_time - start_time
         logging.info("Build time: %s" % build_time)
+        os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
         # ZM: 单进程 + CPU
         logging.info("*************start ZM single processes and CPU************")
         start_time = time.time()
@@ -136,7 +138,6 @@ if __name__ == '__main__':
                     region=data_region[data_distribution],
                     is_new=True,
                     is_simple=True,
-                    is_gpu=False,
                     weight=1,
                     stages=[1, 5000],
                     cores=[[1, 128], [1, 128]],
@@ -165,7 +166,6 @@ if __name__ == '__main__':
                     threshold_merge=0,
                     is_new=True,
                     is_simple=True,
-                    is_gpu=False,
                     weight=1,
                     core=[1, 128],
                     train_step=500,

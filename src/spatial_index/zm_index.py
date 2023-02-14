@@ -41,7 +41,6 @@ class ZMIndex(SpatialIndex):
                             datefmt="%Y/%m/%d %H:%M:%S %p")
         self.logging = logging.getLogger(self.name)
         # 训练所需：
-        self.is_gpu = None
         self.weight = None
         self.cores = None
         self.train_step = None
@@ -50,7 +49,7 @@ class ZMIndex(SpatialIndex):
         # 统计所需：
         self.io_cost = 0
 
-    def build(self, data_list, is_sorted, data_precision, region, is_new, is_simple, is_gpu, weight,
+    def build(self, data_list, is_sorted, data_precision, region, is_new, is_simple, weight,
               stages, cores, train_steps, batch_nums, learning_rates, use_thresholds, thresholds, retrain_time_limits,
               thread_pool_size):
         """
@@ -58,7 +57,6 @@ class ZMIndex(SpatialIndex):
         1. ordering x/y point by geohash
         2. create rmi to train geohash->key data
         """
-        self.is_gpu = is_gpu
         self.weight = weight
         self.cores = cores[-1]
         self.train_step = train_steps[-1]
@@ -114,7 +112,7 @@ class ZMIndex(SpatialIndex):
                         divisor = stages[i + 1] * 1.0 / data_len
                         labels = [int(k * divisor) for k in train_label[j]]
                         # train model
-                        pool.apply_async(build_nn, (self.model_path, i, j, inputs, labels, is_new, is_simple, is_gpu,
+                        pool.apply_async(build_nn, (self.model_path, i, j, inputs, labels, is_new, is_simple,
                                                     weight, core, train_step, batch_num, learning_rate,
                                                     use_threshold, threshold, retrain_time_limit, mp_list))
                 pool.close()
@@ -138,7 +136,7 @@ class ZMIndex(SpatialIndex):
                     labels = list(range(0, len(inputs)))
                     if not labels:
                         continue
-                    pool.apply_async(build_nn, (self.model_path, i, j, inputs, labels, is_new, is_simple, is_gpu,
+                    pool.apply_async(build_nn, (self.model_path, i, j, inputs, labels, is_new, is_simple,
                                                 weight, core, train_step, batch_num, learning_rate,
                                                 use_threshold, threshold, retrain_time_limit, mp_list))
                 pool.close()
@@ -426,10 +424,10 @@ class ZMIndex(SpatialIndex):
         meta = np.array((self.geohash.data_precision,
                          self.geohash.region.bottom, self.geohash.region.up,
                          self.geohash.region.left, self.geohash.region.right,
-                         self.is_gpu, self.weight, self.train_step, self.batch_num, self.learning_rate),
+                         self.weight, self.train_step, self.batch_num, self.learning_rate),
                         dtype=[("0", 'i4'),
                                ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8'),
-                               ("5", 'i1'), ("6", 'f4'), ("7", 'i2'), ("8", 'i2'), ("9", 'f4')])
+                               ("5", 'f4'), ("6", 'i2'), ("7", 'i2'), ("8", 'f4')])
         np.save(os.path.join(self.model_path, 'meta.npy'), meta)
         np.save(os.path.join(self.model_path, 'stages.npy'), self.stages)
         np.save(os.path.join(self.model_path, 'cores.npy'), self.cores)
@@ -460,11 +458,10 @@ class ZMIndex(SpatialIndex):
         self.stages = np.load(os.path.join(self.model_path, 'stages.npy'), allow_pickle=True).tolist()
         self.non_leaf_stage_len = len(self.stages) - 1
         self.cores = np.load(os.path.join(self.model_path, 'cores.npy'), allow_pickle=True).tolist()
-        self.is_gpu = bool(meta[5])
-        self.weight = meta[6]
-        self.train_step = meta[7]
-        self.batch_num = meta[8]
-        self.learning_rate = meta[9]
+        self.weight = meta[5]
+        self.train_step = meta[6]
+        self.batch_num = meta[7]
+        self.learning_rate = meta[8]
         models = np.load(os.path.join(self.model_path, 'models.npy'), allow_pickle=True)
         indexes = np.load(os.path.join(self.model_path, 'indexes.npy'), allow_pickle=True).tolist()
         index_lens = np.load(os.path.join(self.model_path, 'index_lens.npy'), allow_pickle=True).tolist()
@@ -552,7 +549,7 @@ class ZMIndex(SpatialIndex):
                 tmp_index.clean_not_best_model_file()
 
 
-def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new, is_simple, is_gpu,
+def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new, is_simple,
              weight, core, train_step, batch_num, learning_rate,
              use_threshold, threshold, retrain_time_limit, mp_list=None):
     # In high stage, the data is too large to overflow in cpu/gpu, so adapt the batch_size normally by inputs
@@ -560,10 +557,10 @@ def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new,
     if batch_size < 1:
         batch_size = 1
     if is_simple:
-        tmp_index = NNSimple(inputs, labels, is_gpu, weight, core, train_step, batch_size, learning_rate)
+        tmp_index = NNSimple(inputs, labels, weight, core, train_step, batch_size, learning_rate)
     else:
         model_key = "%s_%s" % (curr_stage, current_stage_step)
-        tmp_index = NN(model_path, model_key, inputs, labels, is_new, is_gpu,
+        tmp_index = NN(model_path, model_key, inputs, labels, is_new,
                        weight, core, train_step, batch_size, learning_rate,
                        use_threshold, threshold, retrain_time_limit)
     tmp_index.build()
@@ -587,7 +584,7 @@ class Node:
 
 
 class NN(MLP):
-    def __init__(self, model_path, model_key, train_x, train_y, is_new, is_gpu, weight, core, train_step, batch_size,
+    def __init__(self, model_path, model_key, train_x, train_y, is_new, weight, core, train_step, batch_size,
                  learning_rate, use_threshold, threshold, retrain_time_limit):
         self.name = "ZM Index NN"
         # 当只有一个输入输出时，整数的key作为y_true会导致loss中y_true-y_pred出现类型错误：
@@ -595,19 +592,19 @@ class NN(MLP):
         train_x, train_x_min, train_x_max = normalize_input(np.array(train_x).astype("float"))
         train_y, train_y_min, train_y_max = normalize_output(np.array(train_y).astype("float"))
         super().__init__(model_path, model_key, train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
-                         is_new, is_gpu, weight, core, train_step, batch_size, learning_rate, use_threshold, threshold,
+                         is_new, weight, core, train_step, batch_size, learning_rate, use_threshold, threshold,
                          retrain_time_limit)
 
 
 class NNSimple(MLPSimple):
-    def __init__(self, train_x, train_y, is_gpu, weight, core, train_step, batch_size, learning_rate):
+    def __init__(self, train_x, train_y, weight, core, train_step, batch_size, learning_rate):
         self.name = "ZM Index NN"
         # 当只有一个输入输出时，整数的key作为y_true会导致loss中y_true-y_pred出现类型错误：
         # TypeError: Input 'y' of 'Sub' Op has type float32 that does not match type int32 of argument 'x'.
         train_x, train_x_min, train_x_max = normalize_input(np.array(train_x).astype("float"))
         train_y, train_y_min, train_y_max = normalize_output(np.array(train_y).astype("float"))
         super().__init__(train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
-                         is_gpu, weight, core, train_step, batch_size, learning_rate)
+                         weight, core, train_step, batch_size, learning_rate)
 
 
 class AbstractNN:
@@ -664,7 +661,6 @@ def main():
                     region=data_region[data_distribution],
                     is_new=True,
                     is_simple=False,
-                    is_gpu=True,
                     weight=1,
                     stages=[1, 100],
                     cores=[[1, 32], [1, 32]],

@@ -25,14 +25,13 @@ class ZMIndexOptimised(ZMIndex):
     def __init__(self, model_path=None):
         super(ZMIndexOptimised, self).__init__(model_path)
 
-    def build(self, data_list, is_sorted, data_precision, region, is_new, is_simple, is_gpu, weight,
+    def build(self, data_list, is_sorted, data_precision, region, is_new, is_simple, weight,
               stages, cores, train_steps, batch_nums, learning_rates, use_thresholds, thresholds, retrain_time_limits,
               thread_pool_size):
         """
         different from zm_index
         1. add the key bound into the inputs of each leaf node to reduce the err bound
         """
-        self.is_gpu = is_gpu
         self.weight = weight
         self.cores = cores[-1]
         self.train_step = train_steps[-1]
@@ -88,7 +87,7 @@ class ZMIndexOptimised(ZMIndex):
                         divisor = stages[i + 1] * 1.0 / data_len
                         labels = [int(k * divisor) for k in train_label[j]]
                         # train model
-                        pool.apply_async(build_nn, (self.model_path, i, j, inputs, labels, is_new, is_simple, is_gpu,
+                        pool.apply_async(build_nn, (self.model_path, i, j, inputs, labels, is_new, is_simple,
                                                     weight, core, train_step, batch_num, learning_rate,
                                                     use_threshold, threshold, retrain_time_limit, mp_list))
                 pool.close()
@@ -119,7 +118,7 @@ class ZMIndexOptimised(ZMIndex):
                     inputs.insert(0, key_left_bounds[j])
                     inputs.append(key_left_bounds[j + 1] if j + 1 < task_size else 1 << self.geohash.sum_bits)
                     labels = list(range(0, len(inputs)))
-                    pool.apply_async(build_nn, (self.model_path, i, j, inputs, labels, is_new, is_simple, is_gpu,
+                    pool.apply_async(build_nn, (self.model_path, i, j, inputs, labels, is_new, is_simple,
                                                 weight, core, train_step, batch_num, learning_rate,
                                                 use_threshold, threshold, retrain_time_limit, mp_list))
                 pool.close()
@@ -159,7 +158,7 @@ class ZMIndexOptimised(ZMIndex):
 
 
 class NN(MLP):
-    def __init__(self, model_path, model_key, train_x, train_y, is_new, is_gpu, weight, core, train_step, batch_size,
+    def __init__(self, model_path, model_key, train_x, train_y, is_new, weight, core, train_step, batch_size,
                  learning_rate, use_threshold, threshold, retrain_time_limit):
         self.name = "MULIS NN"
         # train_x的是有序的，归一化不需要计算最大最小值
@@ -170,12 +169,12 @@ class NN(MLP):
         train_y_max = train_y[-1]
         train_y = (np.array(train_y) - train_y_min) / (train_y_max - train_y_min)
         super().__init__(model_path, model_key, train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
-                         is_new, is_gpu, weight, core, train_step, batch_size, learning_rate, use_threshold, threshold,
+                         is_new, weight, core, train_step, batch_size, learning_rate, use_threshold, threshold,
                          retrain_time_limit)
 
 
 class NNSimple(MLPSimple):
-    def __init__(self, train_x, train_y, is_gpu, weight, core, train_step, batch_size, learning_rate):
+    def __init__(self, train_x, train_y, weight, core, train_step, batch_size, learning_rate):
         self.name = "MULIS NN"
         # train_x的是有序的，归一化不需要计算最大最小值
         train_x_min = train_x[0]
@@ -185,7 +184,7 @@ class NNSimple(MLPSimple):
         train_y_max = train_y[-1]
         train_y = (np.array(train_y) - train_y_min) / (train_y_max - train_y_min)
         super().__init__(train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
-                         is_gpu, weight, core, train_step, batch_size, learning_rate)
+                         weight, core, train_step, batch_size, learning_rate)
 
 
 def main():
@@ -209,7 +208,6 @@ def main():
                     region=data_region[data_distribution],
                     is_new=True,
                     is_simple=False,
-                    is_gpu=True,
                     weight=1,
                     stages=[1, 100],
                     cores=[[1, 32], [1, 32]],

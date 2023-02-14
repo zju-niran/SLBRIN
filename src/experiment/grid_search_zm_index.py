@@ -32,7 +32,6 @@ if __name__ == '__main__':
                         region=data_region[data_distribution],
                         is_new=True,
                         is_simple=False,
-                        is_gpu=True,
                         weight=1,
                         stages=[1, stage2_num],
                         cores=[[1, 128], [1, 128]],

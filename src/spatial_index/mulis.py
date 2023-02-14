@@ -132,7 +132,7 @@ class Mulis(ZMIndexOptimised):
                 if batch_size < 1:
                     batch_size = 1
                 model_key = "retrain_%s" % j
-                tmp_index = NN(self.model_path, model_key, inputs, labels, True, self.is_gpu, self.weight,
+                tmp_index = NN(self.model_path, model_key, inputs, labels, True, self.weight,
                                self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
                 # tmp_index.train_simple(None)  # retrain with initial model
                 tmp_index.build_simple(model.matrices if model else None)  # retrain with old model
@@ -189,12 +189,10 @@ class Mulis(ZMIndexOptimised):
         meta = np.array((self.geohash.data_precision,
                          self.geohash.region.bottom, self.geohash.region.up,
                          self.geohash.region.left, self.geohash.region.right,
-                         self.is_gpu, self.weight, self.train_step, self.batch_num, self.learning_rate),
+                         self.weight, self.train_step, self.batch_num, self.learning_rate),
                         dtype=[("0", 'i4'),
                                ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8'),
-                               ("5", 'i1'), ("6", 'f4'), ("7", 'i2'), ("8", 'i2'), ("9", 'f4'),
-                               ("10", 'i4'), ("11", 'i4'), ("12", 'i4'),
-                               ("13", 'i1'), ("14", 'i1')])
+                               ("5", 'f4'), ("6", 'i2'), ("7", 'i2'), ("8", 'f4')])
         np.save(os.path.join(self.model_path, 'meta.npy'), meta)
         meta_append = np.array((self.start_time, self.cur_time_interval, self.time_interval,
                                 self.cdf_lag, self.cdf_width),
@@ -240,11 +238,10 @@ class Mulis(ZMIndexOptimised):
         self.stages = np.load(os.path.join(self.model_path, 'stages.npy'), allow_pickle=True).tolist()
         self.non_leaf_stage_len = len(self.stages) - 1
         self.cores = np.load(os.path.join(self.model_path, 'cores.npy'), allow_pickle=True).tolist()
-        self.is_gpu = bool(meta[5])
-        self.weight = meta[6]
-        self.train_step = meta[7]
-        self.batch_num = meta[8]
-        self.learning_rate = meta[9]
+        self.weight = meta[5]
+        self.train_step = meta[6]
+        self.batch_num = meta[7]
+        self.learning_rate = meta[8]
         meta_append = np.load(os.path.join(self.model_path, 'meta_append.npy'), allow_pickle=True).item()
         self.start_time = meta_append[0]
         self.cur_time_interval = meta_append[1]
@@ -321,7 +318,6 @@ def main():
                     region=data_region[data_distribution],
                     is_new=False,
                     is_simple=False,
-                    is_gpu=True,
                     weight=1,
                     stages=[1, 100],
                     cores=[[1, 32], [1, 32]],
