@@ -834,7 +834,7 @@ class SLBRIN(SpatialIndex):
         """
         for i in range(self.meta.last_hr + 1):
             tmp_index = NN(self.model_path, str(i), [0], [0],
-                           None, None, None, None, None, None, None, None, None, None)
+                           None, None, None, None, None, None, None, None, None)
             tmp_index.clean_not_best_model_file()
 
 

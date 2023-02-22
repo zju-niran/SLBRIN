@@ -545,10 +545,17 @@ class ZMIndex(SpatialIndex):
             for j in range(len(self.rmi[i])):
                 model_key = "%s_%s" % (i, j)
                 tmp_index = NN(self.model_path, model_key,
-                               None, None, None, None, None, None, None, None, None, None, None, None)
+                               None, None, None, None, None, None, None, None, None, None, None)
                 tmp_index.clean_not_best_model_file()
 
-
+    # def plot_model(self, stage_id, node_id):
+    #     """
+    #     plot the model
+    #     """
+    #     model_key = "%s_%s" % (stage_id, node_id)
+    #     tmp_index = NN(self.model_path, model_key,
+    #                    self.rmi[stage_id][node_id].index, None, None, None, None, None, None, None, None, None, None)
+    #     tmp_index.plot()
 def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new, is_simple,
              weight, core, train_step, batch_num, learning_rate,
              use_threshold, threshold, retrain_time_limit, mp_list=None):
@@ -568,8 +575,6 @@ def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new,
                                 int(tmp_index.train_x_min), int(tmp_index.train_x_max),
                                 int(tmp_index.train_y_min), int(tmp_index.train_y_max),
                                 math.floor(tmp_index.min_err), math.ceil(tmp_index.max_err))
-    if abstract_index.min_err > abstract_index.max_err:
-        print()
     del tmp_index
     gc.collect(generation=0)
     mp_list[current_stage_step] = abstract_index

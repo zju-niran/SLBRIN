@@ -109,10 +109,12 @@ class ZMIndexOptimised(ZMIndex):
                 # 1. add the key bound into the inputs of each leaf node
                 key_left_bounds = self.get_leaf_bound()
                 for j in range(task_size):
+                    # if j <= 548:
+                    #     continue
                     inputs = [data[2] for data in train_input[j]]
                     left_bound = key_left_bounds[j]
                     right_bound = key_left_bounds[j + 1] if j + 1 < task_size else 1 << self.geohash.sum_bits
-                    if inputs and not (left_bound < inputs[0] and right_bound > inputs[-1]):
+                    if inputs and not (left_bound <= inputs[0] and inputs[-1] < right_bound):
                         raise RuntimeError("the inputs [%f, %f] of leaf node %d exceed the limits [%f, %f]" % (
                             inputs[0], inputs[-1], j, left_bound, right_bound))
                     inputs.insert(0, key_left_bounds[j])
@@ -139,10 +141,10 @@ class ZMIndexOptimised(ZMIndex):
         e.g. rmi(x-1)=i-1, rmi(x)=i, rmi(y-1)=i, rmi(y)=i+1, so key_bound_i=(x, y),
         """
         leaf_node_len = self.stages[-1]
-        key_left_bounds = [0]
-        left = 0
+        key_left_bounds = [0] * leaf_node_len
         max_key = 1 << self.geohash.sum_bits
         for i in range(1, leaf_node_len):
+            left = key_left_bounds[i - 1]
             right = max_key
             while left <= right:
                 mid = (left + right) >> 1
@@ -150,17 +152,19 @@ class ZMIndexOptimised(ZMIndex):
                     if self.get_leaf_node(mid - 1) >= i:
                         right = mid - 1
                     else:
-                        key_left_bounds.append(mid)
+                        key_left_bounds[i] = mid
                         break
                 else:
                     left = mid + 1
+            if left > right:
+                key_left_bounds[i] = left
         return key_left_bounds
 
 
 class NN(MLP):
     def __init__(self, model_path, model_key, train_x, train_y, is_new, weight, core, train_step, batch_size,
                  learning_rate, use_threshold, threshold, retrain_time_limit):
-        self.name = "MULIS NN"
+        self.name = "ZMO NN"
         # train_x的是有序的，归一化不需要计算最大最小值
         train_x_min = train_x[0]
         train_x_max = train_x[-1]
@@ -175,7 +179,7 @@ class NN(MLP):
 
 class NNSimple(MLPSimple):
     def __init__(self, train_x, train_y, weight, core, train_step, batch_size, learning_rate):
-        self.name = "MULIS NN"
+        self.name = "ZMO NN"
         # train_x的是有序的，归一化不需要计算最大最小值
         train_x_min = train_x[0]
         train_x_max = train_x[-1]
@@ -193,7 +197,7 @@ def main():
     data_distribution = Distribution.NYCT_10W_SORTED
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
-    index = ZMIndex(model_path=model_path)
+    index = ZMIndexOptimised(model_path=model_path)
     index_name = index.name
     load_index_from_json = True
     if load_index_from_json:
