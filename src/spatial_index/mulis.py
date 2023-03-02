@@ -7,7 +7,7 @@ import time
 import numpy as np
 
 sys.path.append('/home/zju/wlj/SLBRIN')
-from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
+from src.experiment.common_utils import load_data, Distribution, data_precision, data_region
 from src.spatial_index.common_utils import biased_search_duplicate, binary_search_less_max, binary_search_duplicate, \
     Region
 from src.spatial_index.geohash_utils import Geohash
@@ -31,9 +31,9 @@ class Mulis(ZMIndexOptimised):
         self.cur_time_interval = None
         self.time_interval = None
         self.cdf_width = None
-        self.cdf_lag = None
+        self.lag = None
 
-    def build_append(self, time_interval, start_time, end_time, cdf_width, cdf_lag):
+    def build_append(self, time_interval, start_time, end_time, cdf_width, lag):
         """
         1. create delta_model with ts_model
         2. change delta_index from [] into [[]]
@@ -42,9 +42,13 @@ class Mulis(ZMIndexOptimised):
         self.cur_time_interval = math.ceil((end_time - start_time) / time_interval)
         self.time_interval = time_interval
         self.cdf_width = cdf_width
-        self.cdf_lag = cdf_lag
+        self.lag = lag
         # 1. create delta_model with ts_model
-        for j in range(self.stages[-1]):
+        # for j in range(self.stages[-1]):
+        index_lens = [(j, len(self.rmi[-1][j].index)) for j in range(self.stages[-1])]
+        index_lens.sort(key=lambda x: x[-1])
+        max_len_index = index_lens[-1][0]
+        for j in [max_len_index]:
             node = self.rmi[-1][j]
             # create the old_cdfs and old_max_keys for delta_model
             min_key = node.model.input_min
@@ -67,10 +71,10 @@ class Mulis(ZMIndexOptimised):
                 else:  # for empty and non-head old_cdfs, copy from their previous
                     old_cdfs[k] = old_cdfs[k - 1]
             # plot_ts(cdfs)
-            node.delta_model = TimeSeriesModel(old_cdfs, None, old_max_keys, None, key_list)
-            node.delta_model.build(self.cdf_width, self.cdf_lag)
+            node.delta_model = TimeSeriesModel(self.model_path, old_cdfs, None, "convlstm", old_max_keys, None, "sarima", key_list)
+            node.delta_model.build(self.cdf_width, self.lag)
             # 2. change delta_index from [] into [[]]
-            node.delta_index = [[] for i in range(node.delta_model.cur_max_key + 1)]
+            node.delta_index = +[[] for i in range(node.delta_model.cur_max_key + 1)]
 
     def insert_single(self, point):
         """
@@ -144,7 +148,7 @@ class Mulis(ZMIndexOptimised):
                 retrain_model_epoch += tmp_index.get_epochs()
                 del tmp_index
                 # 3. update delta model
-                leaf_node.delta_model.update([data[2] for data in delta_index], self.cdf_width, self.cdf_lag)
+                leaf_node.delta_model.update([data[2] for data in delta_index], self.cdf_width, self.lag)
                 leaf_node.delta_index = [[] for i in range(leaf_node.delta_model.cur_max_key + 1)]
         self.logging.info("Retrain model num: %s" % retrain_model_num)
         self.logging.info("Retrain model epoch: %s" % retrain_model_epoch)
@@ -195,7 +199,7 @@ class Mulis(ZMIndexOptimised):
                                ("5", 'f4'), ("6", 'i2'), ("7", 'i2'), ("8", 'f4')])
         np.save(os.path.join(self.model_path, 'meta.npy'), meta)
         meta_append = np.array((self.start_time, self.cur_time_interval, self.time_interval,
-                                self.cdf_lag, self.cdf_width),
+                                self.lag, self.cdf_width),
                                dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'),
                                       ("13", 'i1'), ("14", 'i1')])
         np.save(os.path.join(self.model_path, 'meta_append.npy'), meta_append)
@@ -246,7 +250,7 @@ class Mulis(ZMIndexOptimised):
         self.start_time = meta_append[0]
         self.cur_time_interval = meta_append[1]
         self.time_interval = meta_append[2]
-        self.cdf_lag = meta_append[3]
+        self.lag = meta_append[3]
         self.cdf_width = meta_append[4]
         models = np.load(os.path.join(self.model_path, 'models.npy'), allow_pickle=True)
         indexes = np.load(os.path.join(self.model_path, 'indexes.npy'), allow_pickle=True).tolist()
@@ -296,18 +300,24 @@ class Mulis(ZMIndexOptimised):
         ie_size += os.path.getsize(os.path.join(self.model_path, "delta_models.npy")) - 128
         return structure_size, ie_size
 
+    def ts_err(self):
+        mse_cdfs = [node.delta_model.mse_cdf for node in self.rmi[-1]]
+        mse_max_keys = [node.delta_model.mse_max_key for node in self.rmi[-1]]
+        return mse_cdfs, mse_max_keys, sum(mse_cdfs), sum(mse_max_keys)
+
 
 def main():
+    load_index_from_json = True
+    load_index_from_json2 = False
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    model_path = "model/mulis_10w_nyct/"
-    data_distribution = Distribution.NYCT_10W_SORTED
+    model_path = "model/mulis_nyct/"
+    data_distribution = Distribution.NYCT_SORTED
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
     index = Mulis(model_path=model_path)
     index_name = index.name
-    load_index_from_json = True
     if load_index_from_json:
-        index.load()
+        super(Mulis, index).load()
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
@@ -328,43 +338,54 @@ def main():
                     thresholds=[5, 20],
                     retrain_time_limits=[4, 2],
                     thread_pool_size=6)
-        index.build_append(time_interval=60 * 60 * 24,
-                           start_time=1356998400,
-                           end_time=1359676799,
-                           cdf_width=100,
-                           cdf_lag=3)
         index.save()
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
-    structure_size, ie_size = index.size()
-    logging.info("Structure size: %s" % structure_size)
-    logging.info("Index entry size: %s" % ie_size)
-    io_cost = 0
-    logging.info("Model precision avg: %s" % index.model_err())
-    point_query_list = load_query(data_distribution, 0).tolist()
-    start_time = time.time()
-    results = index.point_query(point_query_list)
-    end_time = time.time()
-    search_time = (end_time - start_time) / len(point_query_list)
-    logging.info("Point query time: %s" % search_time)
-    logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
-    io_cost = index.io_cost
-    np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    update_data_list = load_data(Distribution.NYCT_10W, 1)
-    start_time = time.time()
-    index.insert(update_data_list)
-    end_time = time.time()
-    logging.info("Update time: %s" % (end_time - start_time))
-    point_query_list = load_query(data_distribution, 0).tolist()
-    start_time = time.time()
-    results = index.point_query(point_query_list)
-    end_time = time.time()
-    search_time = (end_time - start_time) / len(point_query_list)
-    logging.info("Point query time: %s" % search_time)
-    logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
-    io_cost = index.io_cost
-    np.savetxt(model_path + 'point_query_result1.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    if load_index_from_json2:
+        index.load()
+    else:
+        index.logging.info("*************start %s************" % index_name)
+        start_time = time.time()
+        index.build_append(time_interval=60 * 60,
+                           start_time=1356998400,
+                           end_time=1359676799,
+                           cdf_width=100,
+                           lag=24)
+        index.save()
+        end_time = time.time()
+        build_time = end_time - start_time
+        index.logging.info("Build time: %s" % build_time)
+        logging.info("TS model err: %s, %s, %s, %s" % index.ts_err())
+    # structure_size, ie_size = index.size()
+    # logging.info("Structure size: %s" % structure_size)
+    # logging.info("Index entry size: %s" % ie_size)
+    # io_cost = 0
+    # logging.info("Model precision avg: %s" % index.model_err())
+    # point_query_list = load_query(data_distribution, 0).tolist()
+    # start_time = time.time()
+    # results = index.point_query(point_query_list)
+    # end_time = time.time()
+    # search_time = (end_time - start_time) / len(point_query_list)
+    # logging.info("Point query time: %s" % search_time)
+    # logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
+    # io_cost = index.io_cost
+    # np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    # update_data_list = load_data(Distribution.NYCT_10W, 1)[:10000]
+    # start_time = time.time()
+    # index.insert(update_data_list)
+    # end_time = time.time()
+    # logging.info("Update time: %s" % (end_time - start_time))
+    # logging.info("TS model err: %s, %s" % index.ts_err())
+    # point_query_list = load_query(data_distribution, 0).tolist()
+    # start_time = time.time()
+    # results = index.point_query(point_query_list)
+    # end_time = time.time()
+    # search_time = (end_time - start_time) / len(point_query_list)
+    # logging.info("Point query time: %s" % search_time)
+    # logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
+    # io_cost = index.io_cost
+    # np.savetxt(model_path + 'point_query_result1.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
 
 
 if __name__ == '__main__':

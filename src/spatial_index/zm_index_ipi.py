@@ -87,10 +87,11 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
         2. move the relative data towards the closest direction
         3. insert key into the empty location
         """
+        # 1. find the key of point by point query
         gh = self.geohash.encode(point[0], point[1])
         point = (point[0], point[1], gh, point[2], point[3])
-        # 1. insert into index instead of delta_index
-        leaf_node, node_key, pre, min_err, max_err = self.predict(gh)
+        # insert into index instead of delta_index
+        leaf_node, _, pre, min_err, max_err = self.predict(gh)
         model = leaf_node.model
         # update the state of model
         model.state = 1
@@ -99,14 +100,15 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
         r_bound = min(pre - min_err, model.output_max) + model.bias
         pre += model.bias
         key = biased_search_less_max_duplicate(leaf_node.index, 2, gh, pre, l_bound, r_bound)
-        # 2. move the relative data towards the closest direction
+        # 2. insert point at the key
+        # move the relative data towards the closest direction
         if key - model.bias >= model.bias + model.output_max - key:
             if model.output_max + model.bias >= len(leaf_node.index) - 1:
                 key += self.expand_leaf_node(leaf_node)
             for i in range(model.output_max + model.bias, key - 1, -1):
                 leaf_node.index[i + 1] = leaf_node.index[i]
             model.output_max += 1
-            # 3. insert key into the empty location
+            # insert key into the empty location
             leaf_node.index[key] = point
         else:
             if model.bias <= 0:
@@ -177,7 +179,7 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
         1. rectify the search bound with bias
         """
         gh = self.geohash.encode(point[0], point[1])
-        leaf_node, node_key, pre, min_err, max_err = self.predict(gh)
+        leaf_node, _, pre, min_err, max_err = self.predict(gh)
         model = leaf_node.model
         # 1. rectify the search bound with bias
         l_bound = max(pre - max_err, model.output_min) + model.bias
