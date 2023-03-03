@@ -6,7 +6,7 @@ import warnings
 import numpy as np
 from keras import Sequential
 from keras.callbacks import EarlyStopping
-from keras.layers import LSTM, Dense, ConvLSTM1D, Conv1D, Dropout, SimpleRNN, GRU
+from keras.layers import LSTM, Dense, ConvLSTM1D, SimpleRNN, GRU, Flatten, RepeatVector, Conv2D, Reshape
 from keras.optimizer_v2.adam import Adam
 from matplotlib import pyplot as plt
 from statsmodels.tools.sm_exceptions import ConvergenceWarning
@@ -18,50 +18,48 @@ from statsmodels.tsa.vector_ar.var_model import VAR
 warnings.simplefilter('ignore', ConvergenceWarning)
 warnings.simplefilter('ignore', UserWarning)
 warnings.simplefilter('ignore', RuntimeWarning)
-from src.spatial_index.common_utils import binary_search_less_max_duplicate
 
 
 class TimeSeriesModel:
-    def __init__(self, model_path,
-                 old_cdfs, cur_cdf, type_cdf,
-                 old_max_keys, cur_max_key, type_max_key,
-                 key_list):
+    def __init__(self, key_list, model_path, time_id, cdfs, type_cdf, max_keys, type_max_key):
+        # for compute
+        self.key_list = key_list
         # common
         self.name = "Time Series Model"
         self.model_path = model_path
+        self.time_id = time_id
         # for ts of cdf
-        self.old_cdfs = old_cdfs
-        self.cur_cdf = cur_cdf
-        self.model_cdf = type_model_dict[type_cdf]
+        self.cdfs = cdfs
+        self.model_cdf = sts_model_type[type_cdf]
         self.mse_cdf = 0
         # for ts of max key
-        self.old_max_keys = old_max_keys
-        self.cur_max_key = cur_max_key
-        self.model_max_key = type_model_dict[type_max_key]
+        self.max_keys = max_keys
+        self.model_max_key = ts_model_type[type_max_key]
         self.mse_max_key = 0
-        # for compute
-        self.key_list = key_list
 
-    def build(self, cdf_width, lag):
-        old_cdfs_num = len(self.old_cdfs)
-        if old_cdfs_num == 0:  # if old_cdfs is []
-            self.cur_cdf = [0.0] * cdf_width
-            self.cur_max_key = 0
-        elif old_cdfs_num <= lag:  # if old_cdfs are not enough for ts_model in quantity
-            self.cur_cdf = self.old_cdfs[-1]
-            self.cur_max_key = self.old_max_keys[-1]
+    def build(self, lag, predict_step, cdf_width):
+        if self.time_id == 0:  # if cdfs is []
+            pre_cdfs = [[0.0] * cdf_width for i in range(predict_step)]
+            pre_max_keys = [0 for i in range(predict_step)]
+        elif self.time_id < lag:  # if cdfs are not enough for ts_model in quantity
+            pre_cdfs = [self.cdfs[-1] for i in range(predict_step)]
+            pre_max_keys = [self.max_keys[-1] for i in range(predict_step)]
         else:
-            ts = self.model_cdf(self.old_cdfs, lag, cdf_width, self.model_path)
-            ts.grid_search(thread=4, start_num=1)
-            self.cur_cdf, self.mse_cdf = ts.train()
-            ts = self.model_max_key(self.old_max_keys, lag, self.model_path)
+            ts = self.model_cdf(self.cdfs[:self.time_id], lag, predict_step, cdf_width, self.model_path)
+            ts.grid_search(thread=4, start_num=0)
+            pre_cdfs, self.mse_cdf = ts.train()
+            ts = self.model_max_key(self.max_keys[:self.time_id], lag, predict_step, self.model_path)
             # ts.grid_search(thread=3, start_num=0)
-            self.cur_max_key, self.mse_max_key = ts.train()
+            pre_max_keys, self.mse_max_key = ts.train()
+        self.cdfs.extend(pre_cdfs)
+        self.max_keys.extend(pre_max_keys)
 
-    def update(self, data, cdf_width, lag):
-        self.old_cdfs.append(build_cdf(data, cdf_width, self.key_list))
-        self.old_max_keys.append(len(data) - 1)
-        self.build(cdf_width, lag)
+    def update(self, cur_cdf, cur_max_key, lag, predict_step, cdf_width):
+        self.cdfs[self.time_id] = cur_cdf
+        self.max_keys[self.time_id] = cur_max_key
+        self.time_id += 1
+        if self.time_id > len(self.max_keys):
+            self.build(lag, predict_step, cdf_width)
 
 
 class TSResult:
@@ -70,14 +68,14 @@ class TSResult:
 
     def print_grid_search_result(self):
         files = os.listdir(self.model_path)
-        results = [file.rsplit("_", 2) for file in files if file.endswith('.png')]
+        results = [file.rsplit("_", 1) for file in files if file.endswith('.png')]
         for result in results:
-            result[-1] = float(result[-1].replace(".png", ""))
-        results.sort(key=lambda x: x[-1])
+            result[1] = float(result[1].replace(".png", ""))
+        results.sort(key=lambda x: x[1])
         output_file = open(self.model_path + 'result.txt', 'w')
-        template = '%s, %s, %s\n'
+        template = '%s, %s\n'
         for result in results:
-            output_file.write(template % (result[2], result[1], result[0]))
+            output_file.write(template % (result[1], result[0]))
         output_file.close()
 
 
@@ -94,17 +92,18 @@ class ESResult(TSResult):
     乘法对应指数: mul/multiplicative的结果相同
     """
 
-    def __init__(self, data, lag, model_path):
+    def __init__(self, data, lag, predict_step, model_path):
         super().__init__()
         self.data = data
         self.lag = lag
+        self.predict_step = predict_step
         self.model_path = model_path + 'es/'
         if os.path.exists(self.model_path) is False:
             os.makedirs(self.model_path)
 
     def build(self, trend, seasonal, is_plot=False):
         model = ExponentialSmoothing(self.data, seasonal_periods=self.lag, trend=trend, seasonal=seasonal).fit()
-        pre = correct_max_key(model.forecast(steps=1))
+        pre = correct_max_key(model.forecast(steps=self.predict_step))
         mse = model.sse / model.model.nobs
         if is_plot:
             plt.plot(self.data)
@@ -143,10 +142,11 @@ class SARIMAResult(TSResult):
     2. 季节：PQD
     """
 
-    def __init__(self, data, lag, model_path):
+    def __init__(self, data, lag, predict_step, model_path):
         super().__init__()
         self.data = np.array(data)
         self.lag = lag
+        self.predict_step = predict_step
         self.model_path = model_path + 'sarima/'
         if os.path.exists(self.model_path) is False:
             os.makedirs(self.model_path)
@@ -155,7 +155,7 @@ class SARIMAResult(TSResult):
         model = SARIMAX(self.data, order=(p, d, q), seasonal_order=(P, D, Q, self.lag),
                         enforce_stationarity=False,
                         enforce_invertibility=False).fit(disp=False)
-        pre = correct_max_key(model.forecast(steps=1))
+        pre = correct_max_key(model.forecast(steps=self.predict_step))
         mse = model.mse
         # sum([data ** 2 for data in model.predict(0, self.data.size - 1) - self.data]) / self.data.size
         if is_plot:
@@ -204,45 +204,54 @@ class RNNResult(TSResult):
     2. 训练参数：学习率、批大小
     """
 
-    def __init__(self, data, lag, model_path):
+    def __init__(self, data, lag, predict_step, model_path):
         super().__init__()
         k = int(0.7 * len(data))
-        data = np.array(data)
         train_data, test_data = data[:k], data[k:]
-        self.train_x = np.array([train_data[i - lag:i] for i in range(lag, len(train_data))])
-        self.train_y = np.array([train_data[i] for i in range(lag, len(train_data))])
-        self.test_x = np.array([test_data[i - lag:i] for i in range(lag, len(test_data) + 1)])
-        self.test_y = np.array([test_data[i] for i in range(lag, len(test_data))])
+        self.train_x = np.array([train_data[i:i + lag]
+                                 for i in range(0, k - lag - predict_step + 1)])
+        self.train_y = np.array([train_data[i + lag:i + lag + predict_step]
+                                 for i in range(0, k - lag - predict_step + 1)])
+        self.test_x = np.array([test_data[i:i + lag]
+                                for i in range(0, len(test_data) - lag - predict_step + 1)])
+        self.test_y = np.array([test_data[i + lag:i + lag + predict_step]
+                                for i in range(0, len(test_data) - lag - predict_step + 1)])
+        self.pre_x = np.expand_dims(np.array(data[-lag:]), 0)
         self.lag = lag
+        self.predict_step = predict_step
         self.model_path = model_path + 'rnn/'
         if os.path.exists(self.model_path) is False:
             os.makedirs(self.model_path)
 
     def build(self, activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size, is_plot=False):
+        start_time = time.time()
         model = Sequential([
             SimpleRNN(activation=activation, units=unit1, input_shape=(self.lag, 1), return_sequences=True),
             # Dropout(dropout1),
             SimpleRNN(activation=activation, units=unit2, return_sequences=False),
             # Dropout(dropout2),
-            Dense(units=1)
+            Dense(units=self.predict_step)
         ])
         optimizer = Adam(learning_rate=learning_rate)
         model.compile(optimizer=optimizer, loss='mse')
         early_stopping = EarlyStopping(monitor="loss", patience=10, min_delta=0.001, verbose=0)
         # reduce_lr = ReduceLROnPlateau(monitor="loss", patience=5, verbose=0)
-        history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x[:-1], self.test_y),
+        history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x, self.test_y),
                             epochs=100, batch_size=batch_size,
                             callbacks=[early_stopping], verbose=0)
-        pre = correct_max_key(history.model.predict(self.test_x[-1:])[0])
+        pre = correct_max_key(model.predict(self.pre_x)[0])
         # ERROR: loss里的mse和实际计算的mse有差距
-        # mse = sum([(pre - true) ** 2 for pre, true in zip(model.predict(self.test_x[:-1]), self.test_y)])[0] / self.test_y.size
+        # mse = sum(sum([(pre - true) ** 2
+        #                for pre, true in zip(model.predict(self.test_x), self.test_y)])) / self.test_y.size
         mse = history.history['val_loss'][-1]
+        end_time = time.time()
         if is_plot:
             plt.plot(history.history['loss'], label='train')
             plt.plot(history.history['val_loss'], label='test')
             plt.savefig(
-                self.model_path + "%s_%s_%s_%s_%s_%s_%s_%s.png" % (
-                    activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size, mse))
+                self.model_path + "%s_%s_%s_%s_%s_%s_%s_%s_%s.png" % (
+                    activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size,
+                    end_time - start_time, mse))
             plt.close()
         return pre, mse
 
@@ -293,16 +302,21 @@ class LSTMResult(TSResult):
     2. 训练参数：学习率、批大小
     """
 
-    def __init__(self, data, lag, model_path):
+    def __init__(self, data, lag, predict_step, model_path):
         super().__init__()
         k = int(0.7 * len(data))
-        data = np.array(data)
         train_data, test_data = data[:k], data[k:]
-        self.train_x = np.array([train_data[i - lag:i] for i in range(lag, len(train_data))])
-        self.train_y = np.array([train_data[i] for i in range(lag, len(train_data))])
-        self.test_x = np.array([test_data[i - lag:i] for i in range(lag, len(test_data) + 1)])
-        self.test_y = np.array([test_data[i] for i in range(lag, len(test_data))])
+        self.train_x = np.array([train_data[i:i + lag]
+                                 for i in range(0, k - lag - predict_step + 1)])
+        self.train_y = np.array([train_data[i + lag:i + lag + predict_step]
+                                 for i in range(0, k - lag - predict_step + 1)])
+        self.test_x = np.array([test_data[i:i + lag]
+                                for i in range(0, len(test_data) - lag - predict_step + 1)])
+        self.test_y = np.array([test_data[i + lag:i + lag + predict_step]
+                                for i in range(0, len(test_data) - lag - predict_step + 1)])
+        self.pre_x = np.expand_dims(np.array(data[-lag:]), 0)
         self.lag = lag
+        self.predict_step = predict_step
         self.model_path = model_path + 'lstm/'
         if os.path.exists(self.model_path) is False:
             os.makedirs(self.model_path)
@@ -314,18 +328,19 @@ class LSTMResult(TSResult):
             # Dropout(dropout1),
             LSTM(activation=activation, units=unit2, return_sequences=False),
             # Dropout(dropout2),
-            Dense(units=1)
+            Dense(units=self.predict_step)
         ])
         optimizer = Adam(learning_rate=learning_rate)
         model.compile(optimizer=optimizer, loss='mse')
         early_stopping = EarlyStopping(monitor="loss", patience=10, min_delta=0.001, verbose=0)
         # reduce_lr = ReduceLROnPlateau(monitor="loss", patience=5, verbose=0)
-        history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x[:-1], self.test_y),
+        history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x, self.test_y),
                             epochs=100, batch_size=batch_size,
                             callbacks=[early_stopping], verbose=0)
-        pre = correct_max_key(history.model.predict(self.test_x[-1:])[0])
+        pre = correct_max_key(model.predict(self.pre_x)[0])
         # ERROR: loss里的mse和实际计算的mse有差距
-        # mse = sum([(pre - true) ** 2 for pre, true in zip(model.predict(self.test_x[:-1]), self.test_y)])[0] / self.test_y.size
+        # mse = sum(sum([(pre - true) ** 2
+        #                for pre, true in zip(model.predict(self.test_x), self.test_y)])) / self.test_y.size
         mse = history.history['val_loss'][-1]
         end_time = time.time()
         if is_plot:
@@ -384,45 +399,54 @@ class GRUResult(TSResult):
     2. 训练参数：学习率、批大小
     """
 
-    def __init__(self, data, lag, model_path):
+    def __init__(self, data, lag, predict_step, model_path):
         super().__init__()
         k = int(0.7 * len(data))
-        data = np.array(data)
         train_data, test_data = data[:k], data[k:]
-        self.train_x = np.array([train_data[i - lag:i] for i in range(lag, len(train_data))])
-        self.train_y = np.array([train_data[i] for i in range(lag, len(train_data))])
-        self.test_x = np.array([test_data[i - lag:i] for i in range(lag, len(test_data) + 1)])
-        self.test_y = np.array([test_data[i] for i in range(lag, len(test_data))])
+        self.train_x = np.array([train_data[i:i + lag]
+                                 for i in range(0, k - lag - predict_step + 1)])
+        self.train_y = np.array([train_data[i + lag:i + lag + predict_step]
+                                 for i in range(0, k - lag - predict_step + 1)])
+        self.test_x = np.array([test_data[i:i + lag]
+                                for i in range(0, len(test_data) - lag - predict_step + 1)])
+        self.test_y = np.array([test_data[i + lag:i + lag + predict_step]
+                                for i in range(0, len(test_data) - lag - predict_step + 1)])
+        self.pre_x = np.expand_dims(np.array(data[-lag:]), 0)
         self.lag = lag
+        self.predict_step = predict_step
         self.model_path = model_path + 'gru/'
         if os.path.exists(self.model_path) is False:
             os.makedirs(self.model_path)
 
     def build(self, activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size, is_plot=False):
+        start_time = time.time()
         model = Sequential([
             GRU(activation=activation, units=unit1, input_shape=(self.lag, 1), return_sequences=True),
             # Dropout(dropout1),
             GRU(activation=activation, units=unit2, return_sequences=False),
             # Dropout(dropout2),
-            Dense(units=1)
+            Dense(units=self.predict_step)
         ])
         optimizer = Adam(learning_rate=learning_rate)
         model.compile(optimizer=optimizer, loss='mse')
         early_stopping = EarlyStopping(monitor="loss", patience=10, min_delta=0.001, verbose=0)
         # reduce_lr = ReduceLROnPlateau(monitor="loss", patience=5, verbose=0)
-        history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x[:-1], self.test_y),
+        history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x, self.test_y),
                             epochs=100, batch_size=batch_size,
                             callbacks=[early_stopping], verbose=0)
-        pre = correct_max_key(history.model.predict(self.test_x[-1:])[0])
+        pre = correct_max_key(model.predict(self.pre_x)[0])
         # ERROR: loss里的mse和实际计算的mse有差距
-        # mse = sum([(pre - true) ** 2 for pre, true in zip(model.predict(self.test_x[:-1]), self.test_y)])[0] / self.test_y.size
+        # mse = sum(sum([(pre - true) ** 2
+        #                for pre, true in zip(model.predict(self.test_x), self.test_y)])) / self.test_y.size
         mse = history.history['val_loss'][-1]
+        end_time = time.time()
         if is_plot:
             plt.plot(history.history['loss'], label='train')
             plt.plot(history.history['val_loss'], label='test')
             plt.savefig(
-                self.model_path + "%s_%s_%s_%s_%s_%s_%s_%s.png" % (
-                    activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size, mse))
+                self.model_path + "%s_%s_%s_%s_%s_%s_%s_%s_%s.png" % (
+                    activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size,
+                    end_time - start_time, mse))
             plt.close()
         return pre, mse
 
@@ -473,12 +497,13 @@ class VARResult(TSResult):
     grid search:
     """
 
-    def __init__(self, data, lag, width, model_path):
+    def __init__(self, data, lag, predict_step, width, model_path):
         super().__init__()
         data = np.array(data)
         k = int(0.7 * len(data))
         self.train_data = data[:k]
         self.test_data = data[k:]
+        self.predict_step = predict_step
         self.lag = lag
         self.width = width
         self.model_path = model_path + 'var/'
@@ -491,18 +516,17 @@ class VARResult(TSResult):
         except ValueError:
             # 数据异常，只能放弃趋势
             model = VAR(self.train_data).fit(maxlags=self.lag, verbose=True, trend='n')
-        pre = list(correct_cdf(model.forecast(self.test_data[-self.lag:], steps=1)[0]))
+        pre = correct_cdf(model.forecast(self.test_data[-self.lag:], steps=self.predict_step))
         # 训练集的mse
-        # mse = sum([sum([err ** 2 for err in
-        #                 (model.forecast(self.data[i:i + self.lag], steps=1) - self.data[i + self.lag]).tolist()[0]])
-        #            for i in range(model.fittedvalues.shape[0])]) / model.fittedvalues.size
-        # mse = sum(sum(model.resid * model.resid)) / model.fittedvalues.size
+        # mse = sum([sum([err ** 2 for l in (model.forecast(self.train_data[i:i + self.lag], steps=self.predict_step)
+        #                                    - self.train_data[i + self.lag]) for err in l])
+        #            for i in range(len(self.train_data) - self.lag)]) / (
+        #               (len(self.train_data) - self.lag) * self.width * self.predict_step)
         # 验证集的mse
-        mse = sum([sum([err ** 2 for err in
-                        (model.forecast(self.test_data[i:i + self.lag], steps=1) - self.test_data[i + self.lag])
-                       .tolist()[0]])
-                   for i in range(self.test_data.shape[0] - self.lag)]) / (
-                      (self.test_data.shape[0] - self.lag) * self.width)
+        mse = sum([sum([err ** 2 for l in (model.forecast(self.test_data[i:i + self.lag], steps=self.predict_step)
+                                           - self.test_data[i + self.lag]) for err in l])
+                   for i in range(len(self.test_data) - self.lag)]) / (
+                      (len(self.test_data) - self.lag) * self.width * self.predict_step)
         if is_plot:
             plt.plot(self.test_data[-1])
             plt.plot(model.forecast(self.test_data[-self.lag:], steps=1))
@@ -687,16 +711,22 @@ class ConvLSTMResult(TSResult):
     2. 训练参数：学习率、批大小
     """
 
-    def __init__(self, data, lag, width, model_path):
+    def __init__(self, data, lag, predict_step, width, model_path):
         super().__init__()
         k = int(0.7 * len(data))
         data = np.expand_dims(np.array(data), -1)
         train_data, test_data = data[:k], data[k:]
-        self.train_x = np.array([train_data[i - lag:i] for i in range(lag, len(train_data))])
-        self.train_y = np.array([train_data[i] for i in range(lag, len(train_data))])
-        self.test_x = np.array([test_data[i - lag:i] for i in range(lag, len(test_data) + 1)])
-        self.test_y = np.array([test_data[i] for i in range(lag, len(test_data))])
+        self.train_x = np.array([train_data[i:i + lag]
+                                 for i in range(0, k - lag - predict_step + 1)])
+        self.train_y = np.array([train_data[i + lag:i + lag + predict_step]
+                                 for i in range(0, k - lag - predict_step + 1)])
+        self.test_x = np.array([test_data[i:i + lag]
+                                for i in range(0, len(test_data) - lag - predict_step + 1)])
+        self.test_y = np.array([test_data[i + lag:i + lag + predict_step]
+                                for i in range(0, len(test_data) - lag - predict_step + 1)])
+        self.pre_x = np.expand_dims(np.array(data[-lag:]), 0)
         self.lag = lag
+        self.predict_step = predict_step
         self.width = width
         self.model_path = model_path + 'convlstm/'
         if os.path.exists(self.model_path) is False:
@@ -712,28 +742,48 @@ class ConvLSTMResult(TSResult):
         return_sequences: 是否返回中间序列，true表示输出所有输出，false表示只输出最后一个时间的输出
         """
         start_time = time.time()
+        # 1. ConvLSTM编码-LSTM+Dense解码
+        # ConvLSTM1D编码，Flatten压扁后RepeatVector重复predict_step次，LSTM给重复次数之间施加时间特征，Dense还原每次的shape
+        # model = Sequential([
+        #     ConvLSTM1D(activation=activation1, filters=filter1, kernel_size=kernal_size, strides=1,
+        #                input_shape=(self.lag, self.width, 1), padding='same', return_sequences=True),
+        #     ConvLSTM1D(activation=activation1, filters=filter1, kernel_size=kernal_size, strides=1,
+        #                padding='same', return_sequences=False),
+        #     # BatchNormalization(),
+        #     Dropout(dropout1),
+        #     Flatten(),
+        #     RepeatVector(self.predict_step),
+        #     LSTM(128, activation=activation2, return_sequences=True),
+        #     TimeDistributed(Dense(self.width))
+        # ])
+
+        # 3. ConvLSTM编码-Reshape+Conv2D解码
         model = Sequential([
             ConvLSTM1D(activation=activation1, filters=filter1, kernel_size=kernal_size, strides=1,
-                       input_shape=(self.lag, self.width, 1), padding='same', return_sequences=True),
+                       input_shape=(self.lag, self.width, 1), padding='same', return_sequences=False),
             # BatchNormalization(),
-            Dropout(dropout1),
+            # Dropout(dropout1),
+            Flatten(),
+            RepeatVector(self.predict_step),
+            Reshape((self.predict_step, self.width, filter1)),
             ConvLSTM1D(activation=activation1, filters=filter2, kernel_size=kernal_size, strides=1,
-                       padding='same', return_sequences=False),
+                       padding='same', return_sequences=True),
             # BatchNormalization(),
-            Dropout(dropout2),
-            Conv1D(activation=activation2, filters=1, kernel_size=kernal_size,
+            # Dropout(dropout2),
+            Conv2D(activation=activation2, filters=1, kernel_size=(kernal_size, kernal_size),
                    padding='same', data_format='channels_last')
         ])
         optimizer = Adam(learning_rate=learning_rate)  # TODO:Adam和nadam
         model.compile(optimizer=optimizer, loss='mse')
         early_stopping = EarlyStopping(monitor="loss", patience=10, min_delta=0.00001, verbose=0)
         # reduce_lr = ReduceLROnPlateau(monitor="loss", patience=5, verbose=0)
-        history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x[:-1], self.test_y),
+        history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x, self.test_y),
                             epochs=100, batch_size=batch_size,
                             callbacks=[early_stopping], verbose=1)
-        pre = list(correct_cdf(model.predict(self.test_x[-1:])[0]))
+        pre = correct_cdf(model.predict(self.pre_x)[0, :, :, 0])
         # ERROR: loss里的mse和实际计算的mse有差距
-        # mse = sum(sum([(pre - true) ** 2 for pre, true in zip(model.predict(self.test_x[:-1]), self.test_y)]))[0] / self.test_y.size
+        # mse = sum(sum(sum([(pre - true) ** 2 for pre, true in
+        #                    zip(model.predict(self.test_x), self.test_y[:, :, :, 0])]))) / self.test_y.size
         mse = history.history['val_loss'][-1]
         end_time = time.time()
         if is_plot:
@@ -747,10 +797,10 @@ class ConvLSTMResult(TSResult):
         return pre, mse
 
     def train(self):
-        return self.build(activation1='tanh', activation2='sigmoid',
+        return self.build(activation1='tanh', activation2='tanh',
                           filter1=16, filter2=32,
-                          dropout1=0.0, dropout2=0.0, kernal_size=3,
-                          learning_rate=0.01, batch_size=4)
+                          dropout1=0.0, dropout2=0.0, kernal_size=9,
+                          learning_rate=0.01, batch_size=64)
 
     def grid_search(self, thread=1, start_num=0):
         # activation1s = ['relu', 'leaky_relu', 'tanh']
@@ -766,11 +816,11 @@ class ConvLSTMResult(TSResult):
         # dropout2s = [0.0, 0.2, 0.4, 0.6, 0.8]
         dropout2s = [0.0]
         # kernal_sizes = [3, 6, 9]
-        kernal_sizes = [3, 6, 9]
+        kernal_sizes = [9]
         # learning_rates = [0.01, 0.001, 0.0001]
-        learning_rates = [0.01, 0.001, 0.0001]
+        learning_rates = [0.01]  # lr0.001对应bs2-4，lr0.01对应bs8-16
         # batch_sizes = [1, 4, 16, 64]
-        batch_sizes = [4, 1, 16, 64]
+        batch_sizes = [16, 8, 4, 2]
         pool = multiprocessing.Pool(processes=thread)
         i = 0
         for activation1 in activation1s:
@@ -793,13 +843,15 @@ class ConvLSTMResult(TSResult):
         self.print_grid_search_result()
 
 
-type_model_dict = {
+ts_model_type = {
     "es": ESResult,
     "sarima": SARIMAResult,
     "rnn": RNNResult,
     "lstm": LSTMResult,
     "gru": GRUResult,
+}
 
+sts_model_type = {
     "var": VARResult,
     "vsarima": VSARIMAResult,
     "fclstm": FCLSTMResult,
@@ -807,46 +859,40 @@ type_model_dict = {
 }
 
 
-def build_cdf(data, cdf_width, key_list):
-    x_len = len(data)
-    x_max_key = x_len - 1
-    cdf = []
-    p = 0
-    for l in range(cdf_width):
-        p = binary_search_less_max_duplicate(data, key_list[l], p, x_max_key)
-        cdf.append(p / x_len)
-    return cdf
-
-
-def correct_cdf(cdf):
+def correct_cdf(cdfs):
     """
     correct the predicted cdf:
     1. normalize into [0.0, 1.0]
     2. transfer into monotonically increasing
     e.g. [0.1, 0.0, 0.1, 0.7, 0.6, 1.0, 0.9] => [0.0, 0.0, 0.1, 0.7, 0.7, 1.0, 1.0]
     """
-    cdf = (cdf - cdf.min()) / (cdf.max() - cdf.min())
-    i = 0
-    cdf_width = len(cdf)
-    cur_v = 0.0
-    while i < cdf_width and cdf[i] != 0.0:
-        cdf[i] = 0.0
-        i += 1
-    while i < cdf_width and cdf[i] < 1.0:
-        if cdf[i] < cur_v:
-            cdf[i] = cur_v
-        else:
-            cur_v = cdf[i]
-        i += 1
-    while i < cdf_width:
-        cdf[i] = 1.0
-        i += 1
-    return cdf
+    result_cdfs = [None] * cdfs.shape[0]
+    j = 0
+    for cdf in cdfs:
+        cdf = (cdf - cdf.min()) / (cdf.max() - cdf.min())
+        i = 0
+        cdf_width = len(cdf)
+        cur_v = 0.0
+        while i < cdf_width and cdf[i] != 0.0:
+            cdf[i] = 0.0
+            i += 1
+        while i < cdf_width and cdf[i] < 1.0:
+            if cdf[i] < cur_v:
+                cdf[i] = cur_v
+            else:
+                cur_v = cdf[i]
+            i += 1
+        while i < cdf_width:
+            cdf[i] = 1.0
+            i += 1
+        result_cdfs[j] = cdf.tolist()
+        j += 1
+    return result_cdfs
 
 
-def correct_max_key(max_key):
+def correct_max_key(max_keys):
     """
     correct the max_key:
     1. max_key >= 0
     """
-    return max(0, round(max_key[0]))
+    return [max(0, round(max_key)) for max_key in max_keys]
