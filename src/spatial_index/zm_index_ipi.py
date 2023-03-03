@@ -25,7 +25,7 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
         super(ZMIndexInPlaceInsert, self).__init__(model_path)
         # 更新所需：
         self.start_time = None
-        self.cur_time_interval = None
+        self.time_id = None
         self.time_interval = None
         self.empty_ratio = None
 
@@ -55,6 +55,8 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
             index.extend([(0, 0, 0, 0, 0) for i in range(diff_right_len)])
         else:
             index = index[:diff_right_len]
+        if diff_left_len != 0:  # the move of left empty locations cost IO
+            self.io_cost += math.ceil(model.output_max / ITEMS_PER_PAGE)
         leaf_node.index = index
         # 4. update the bias and error bound of model
         model.bias = empty_len
@@ -71,7 +73,7 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
                                                                 empty locations]
         """
         self.start_time = start_time
-        self.cur_time_interval = math.ceil((end_time - start_time) / time_interval)
+        self.time_id = math.ceil((end_time - start_time) / time_interval)
         self.time_interval = time_interval
         self.empty_ratio = empty_ratio
         # 1. preserve empty locations for each leaf node
@@ -100,16 +102,21 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
         r_bound = min(pre - min_err, model.output_max) + model.bias
         pre += model.bias
         key = biased_search_less_max_duplicate(leaf_node.index, 2, gh, pre, l_bound, r_bound)
+        # IO1: search key
+        self.io_cost += math.ceil((r_bound - l_bound) / ITEMS_PER_PAGE)
         # 2. insert point at the key
         # move the relative data towards the closest direction
+        # IO2: move data when inserting key
         if key - model.bias >= model.bias + model.output_max - key:
             if model.output_max + model.bias >= len(leaf_node.index) - 1:
+                # IO3: move data when expanding data
                 key += self.expand_leaf_node(leaf_node)
             for i in range(model.output_max + model.bias, key - 1, -1):
                 leaf_node.index[i + 1] = leaf_node.index[i]
             model.output_max += 1
             # insert key into the empty location
             leaf_node.index[key] = point
+            self.io_cost += math.ceil((model.output_max + model.bias - key + 1) / ITEMS_PER_PAGE)
         else:
             if model.bias <= 0:
                 key += self.expand_leaf_node(leaf_node)
@@ -118,6 +125,7 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
             model.bias -= 1
             model.output_max += 1
             leaf_node.index[key - 1] = point
+            self.io_cost += math.ceil((key - model.bias) / ITEMS_PER_PAGE)
 
     def insert(self, points):
         """
@@ -128,10 +136,10 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
         for point in points:
             cur_time = point[2]
             # 1. update once the time of new point cross the time interval
-            cur_time_interval = (cur_time - self.start_time) // self.time_interval
-            if self.cur_time_interval < cur_time_interval:
+            time_id = (cur_time - self.start_time) // self.time_interval
+            if self.time_id < time_id:
                 self.update()
-                self.cur_time_interval = cur_time_interval
+                self.time_id = time_id
             self.insert_single(point)
 
     def update(self):
@@ -158,8 +166,8 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
                 model_key = "retrain_%s" % j
                 tmp_index = NN(self.model_path, model_key, inputs, labels, True, self.weight,
                                self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
-                # tmp_index.train_simple(None)  # retrain with initial model
-                tmp_index.build_simple(model.matrices if model else None)  # retrain with old model
+                tmp_index.build_simple(None)  # retrain with initial model
+                # tmp_index.build_simple(model.matrices if model else None)  # retrain with old model
                 model.matrices = tmp_index.get_matrices()
                 model.min_err = math.floor(tmp_index.min_err)
                 model.max_err = math.ceil(tmp_index.max_err)
@@ -169,7 +177,6 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
                 model.state = 0
                 retrain_model_num += 1
                 retrain_model_epoch += tmp_index.get_epochs()
-                del tmp_index
         self.logging.info("Retrain model num: %s" % retrain_model_num)
         self.logging.info("Retrain model epoch: %s" % retrain_model_epoch)
 
@@ -188,17 +195,11 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
         result = [leaf_node.index[key][4] for key in
                   biased_search_duplicate(leaf_node.index, 2, gh, pre, l_bound, r_bound)]
         self.io_cost += math.ceil((r_bound - l_bound) / ITEMS_PER_PAGE)
-        if leaf_node.delta_index:
-            delta_index_len = len(leaf_node.delta_index)
-            result.extend([leaf_node.delta_index[key][4]
-                           for key in
-                           binary_search_duplicate(leaf_node.delta_index, 2, gh, 0, len(leaf_node.delta_index) - 1)])
-            self.io_cost += delta_index_len // ITEMS_PER_PAGE + 1
         return result
 
     def save(self):
         super(ZMIndexInPlaceInsert, self).save()
-        meta_append = np.array((self.start_time, self.cur_time_interval, self.time_interval, self.empty_ratio),
+        meta_append = np.array((self.start_time, self.time_id, self.time_interval, self.empty_ratio),
                                dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'), ("3", 'f8')])
         np.save(os.path.join(self.model_path, 'meta_append.npy'), meta_append)
 
@@ -206,7 +207,7 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
         super(ZMIndexInPlaceInsert, self).load()
         meta_append = np.load(os.path.join(self.model_path, 'meta_append.npy'), allow_pickle=True).item()
         self.start_time = meta_append[0]
-        self.cur_time_interval = meta_append[1]
+        self.time_id = meta_append[1]
         self.time_interval = meta_append[2]
         self.empty_ratio = meta_append[3]
 

@@ -23,12 +23,12 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
         super(ZMIndexDeltaInsert, self).__init__(model_path)
         # 更新所需：
         self.start_time = None
-        self.cur_time_interval = None
+        self.time_id = None
         self.time_interval = None
 
     def build_append(self, time_interval, start_time, end_time):
         self.start_time = start_time
-        self.cur_time_interval = math.ceil((end_time - start_time) / time_interval)
+        self.time_id = math.ceil((end_time - start_time) / time_interval)
         self.time_interval = time_interval
 
     def insert(self, points):
@@ -40,10 +40,10 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
         for point in points:
             cur_time = point[2]
             # 1. update once the time of new point cross the time interval
-            cur_time_interval = (cur_time - self.start_time) // self.time_interval
-            if self.cur_time_interval < cur_time_interval:
+            time_id = (cur_time - self.start_time) // self.time_interval
+            if self.time_id < time_id:
                 self.update()
-                self.cur_time_interval = cur_time_interval
+                self.time_id = time_id
             self.insert_single(point)
 
     def update(self):
@@ -66,6 +66,8 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
                 else:
                     leaf_node.index = leaf_node.delta_index
                 leaf_node.delta_index = []
+                # IO1: merge data
+                self.io_cost += math.ceil(len(leaf_node.index) / ITEMS_PER_PAGE)
                 # 2. update model
                 inputs = [data[2] for data in leaf_node.index]
                 inputs.insert(0, model.input_min)
@@ -78,21 +80,20 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
                 model_key = "retrain_%s" % j
                 tmp_index = NN(self.model_path, model_key, inputs, labels, True, self.weight,
                                self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
-                # tmp_index.train_simple(None)  # retrain with initial model
-                tmp_index.build_simple(model.matrices if model else None)  # retrain with old model
+                tmp_index.build_simple(None)  # retrain with initial model
+                # tmp_index.build_simple(model.matrices if model else None)  # retrain with old model
                 model.matrices = tmp_index.get_matrices()
                 model.output_max = inputs_num - 3
                 model.min_err = math.floor(tmp_index.min_err)
                 model.max_err = math.ceil(tmp_index.max_err)
                 retrain_model_num += 1
                 retrain_model_epoch += tmp_index.get_epochs()
-                del tmp_index
         self.logging.info("Retrain model num: %s" % retrain_model_num)
         self.logging.info("Retrain model epoch: %s" % retrain_model_epoch)
 
     def save(self):
         super(ZMIndexDeltaInsert, self).save()
-        meta_append = np.array((self.start_time, self.cur_time_interval, self.time_interval),
+        meta_append = np.array((self.start_time, self.time_id, self.time_interval),
                                dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4')])
         np.save(os.path.join(self.model_path, 'meta_append.npy'), meta_append)
 
@@ -100,7 +101,7 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
         super(ZMIndexDeltaInsert, self).load()
         meta_append = np.load(os.path.join(self.model_path, 'meta_append.npy'), allow_pickle=True).item()
         self.start_time = meta_append[0]
-        self.cur_time_interval = meta_append[1]
+        self.time_id = meta_append[1]
         self.time_interval = meta_append[2]
 
     def size(self):

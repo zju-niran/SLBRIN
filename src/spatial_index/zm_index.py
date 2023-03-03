@@ -175,6 +175,8 @@ class ZMIndex(SpatialIndex):
         leaf_node = self.rmi[-1][node_key]
         leaf_node.delta_index.insert(
             binary_search_less_max(leaf_node.delta_index, 2, gh, 0, len(leaf_node.delta_index) - 1) + 1, point)
+        # IO1: search key
+        self.io_cost += math.ceil(len(leaf_node.delta_index) / ITEMS_PER_PAGE)
 
     def insert(self, points):
         points = points.tolist()
@@ -238,7 +240,7 @@ class ZMIndex(SpatialIndex):
             result.extend([leaf_node.delta_index[key][4]
                            for key in
                            binary_search_duplicate(leaf_node.delta_index, 2, gh, 0, len(leaf_node.delta_index) - 1)])
-            self.io_cost += delta_index_len // ITEMS_PER_PAGE + 1
+            self.io_cost += math.ceil(delta_index_len / ITEMS_PER_PAGE)
         return result
 
     def range_query_single(self, window):
@@ -556,6 +558,8 @@ class ZMIndex(SpatialIndex):
     #     tmp_index = NN(self.model_path, model_key,
     #                    self.rmi[stage_id][node_id].index, None, None, None, None, None, None, None, None, None, None)
     #     tmp_index.plot()
+
+
 def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new, is_simple,
              weight, core, train_step, batch_num, learning_rate,
              use_threshold, threshold, retrain_time_limit, mp_list=None):

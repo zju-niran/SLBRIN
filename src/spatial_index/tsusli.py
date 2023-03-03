@@ -9,11 +9,11 @@ import numpy as np
 sys.path.append('/home/zju/wlj/SLBRIN')
 from src.experiment.common_utils import load_data, Distribution, data_precision, data_region
 from src.spatial_index.common_utils import biased_search_duplicate, binary_search_less_max, binary_search_duplicate, \
-    Region
+    Region, binary_search_less_max_duplicate
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.zm_index import Node
 from src.spatial_index.zm_index_optimised import ZMIndexOptimised, NN
-from src.ts_model import TimeSeriesModel, build_cdf
+from src.ts_model import TimeSeriesModel
 
 # 预设pagesize=4096, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
 PAGE_SIZE = 4096
@@ -23,26 +23,28 @@ MODELS_PER_PAGE = int(PAGE_SIZE / MODEL_SIZE)
 ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 
 
-class Mulis(ZMIndexOptimised):
+class TSUSLI(ZMIndexOptimised):
     def __init__(self, model_path=None):
-        super(Mulis, self).__init__(model_path)
+        super(TSUSLI, self).__init__(model_path)
         # 更新所需：
-        self.start_time = None
-        self.cur_time_interval = None
-        self.time_interval = None
-        self.cdf_width = None
-        self.lag = None
+        self.start_time = 0
+        self.time_id = 0
+        self.time_interval = 0  # T
+        self.lag = 0  # l
+        self.predict_step = 0  # f
+        self.cdf_width = 0  # c
 
-    def build_append(self, time_interval, start_time, end_time, cdf_width, lag):
+    def build_append(self, time_interval, start_time, end_time, lag, predict_step, cdf_width):
         """
         1. create delta_model with ts_model
         2. change delta_index from [] into [[]]
         """
         self.start_time = start_time
-        self.cur_time_interval = math.ceil((end_time - start_time) / time_interval)
+        self.time_id = math.ceil((end_time - start_time) / time_interval)
         self.time_interval = time_interval
-        self.cdf_width = cdf_width
         self.lag = lag
+        self.predict_step = predict_step
+        self.cdf_width = cdf_width
         # 1. create delta_model with ts_model
         # for j in range(self.stages[-1]):
         index_lens = [(j, len(self.rmi[-1][j].index)) for j in range(self.stages[-1])]
@@ -53,28 +55,40 @@ class Mulis(ZMIndexOptimised):
             # create the old_cdfs and old_max_keys for delta_model
             min_key = node.model.input_min
             max_key = node.model.input_max
-            key_interval = (max_key - min_key) / self.cdf_width
-            key_list = [int(min_key + k * key_interval) for k in range(self.cdf_width)]
-            old_cdfs = [[] for k in range(self.cur_time_interval)]
+            key_interval = (max_key - min_key) / cdf_width
+            key_list = [int(min_key + k * key_interval) for k in range(cdf_width)]
+            old_cdfs = [[] for k in range(self.time_id)]
             for data in node.index:
                 old_cdfs[(data[3] - self.start_time) // self.time_interval].append(data[2])
             old_max_keys = [max(len(cdf) - 1, 0) for cdf in old_cdfs]
             # for empty and head old_cdfs, remove them
             l = 0
-            while l < self.cur_time_interval and len(old_cdfs[l]) == 0:
+            while l < self.time_id and len(old_cdfs[l]) == 0:
                 l += 1
             old_cdfs = old_cdfs[l:]
             for k in range(len(old_cdfs)):
                 cdf = old_cdfs[k]
                 if cdf:  # for non-empty old_cdfs, create by data
-                    old_cdfs[k] = build_cdf(cdf, self.cdf_width, key_list)
+                    old_cdfs[k] = self.build_cdf(cdf, key_list)
                 else:  # for empty and non-head old_cdfs, copy from their previous
                     old_cdfs[k] = old_cdfs[k - 1]
             # plot_ts(cdfs)
-            node.delta_model = TimeSeriesModel(self.model_path, old_cdfs, None, "convlstm", old_max_keys, None, "sarima", key_list)
-            node.delta_model.build(self.cdf_width, self.lag)
+            node.delta_model = TimeSeriesModel(key_list, self.model_path, self.time_id,
+                                               old_cdfs, "convlstm",
+                                               old_max_keys, "lstm")
+            node.delta_model.build(lag, predict_step, cdf_width)
             # 2. change delta_index from [] into [[]]
-            node.delta_index = +[[] for i in range(node.delta_model.cur_max_key + 1)]
+            node.delta_index = [[] for i in range(node.delta_model.max_keys[node.delta_model.time_id] + 1)]
+
+    def build_cdf(self, data, key_list):
+        x_len = len(data)
+        x_max_key = x_len - 1
+        cdf = []
+        p = 0
+        for l in range(self.cdf_width):
+            p = binary_search_less_max_duplicate(data, key_list[l], p, x_max_key)
+            cdf.append(p / x_len)
+        return cdf
 
     def insert_single(self, point):
         """
@@ -86,7 +100,10 @@ class Mulis(ZMIndexOptimised):
         node_key = self.get_leaf_node(gh)
         # 1. find and insert ie into the target list of delta_index
         tg_list = self.get_delta_index_list(gh, self.rmi[-1][node_key])
-        tg_list.insert(binary_search_less_max(tg_list, 2, gh, 0, len(tg_list) - 1) + 1, point)
+        tg_list_len = len(tg_list)
+        tg_list.insert(binary_search_less_max(tg_list, 2, gh, 0, tg_list_len - 1) + 1, point)
+        # IO1: search key
+        self.io_cost += math.ceil(tg_list_len / ITEMS_PER_PAGE)
 
     def insert(self, points):
         """
@@ -97,10 +114,10 @@ class Mulis(ZMIndexOptimised):
         for point in points:
             cur_time = point[2]
             # update once the time of new point cross the time interval
-            cur_time_interval = (cur_time - self.start_time) // self.time_interval
-            if self.cur_time_interval < cur_time_interval:
+            time_id = (cur_time - self.start_time) // self.time_interval
+            if self.time_id < time_id:
                 self.update()
-                self.cur_time_interval = cur_time_interval
+                self.time_id = time_id
             self.insert_single(point)
 
     def update(self):
@@ -126,6 +143,8 @@ class Mulis(ZMIndexOptimised):
                     leaf_node.index.sort(key=lambda x: x[2])  # 优化：有序数组合并->sorted:2.5->1
                 else:
                     leaf_node.index = delta_index
+                # IO1: merge data
+                self.io_cost += math.ceil(len(leaf_node.index) / ITEMS_PER_PAGE)
                 # 2. update model
                 inputs = [data[2] for data in leaf_node.index]
                 inputs.insert(0, model.input_min)
@@ -138,17 +157,18 @@ class Mulis(ZMIndexOptimised):
                 model_key = "retrain_%s" % j
                 tmp_index = NN(self.model_path, model_key, inputs, labels, True, self.weight,
                                self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
-                # tmp_index.train_simple(None)  # retrain with initial model
-                tmp_index.build_simple(model.matrices if model else None)  # retrain with old model
+                tmp_index.build_simple(None)  # retrain with initial model
+                # tmp_index.build_simple(model.matrices if model else None)  # retrain with old model
                 model.matrices = tmp_index.get_matrices()
                 model.output_max = inputs_num - 3
                 model.min_err = math.floor(tmp_index.min_err)
                 model.max_err = math.ceil(tmp_index.max_err)
                 retrain_model_num += 1
                 retrain_model_epoch += tmp_index.get_epochs()
-                del tmp_index
+                cur_cdf = self.build_cdf([data[2] for data in delta_index], leaf_node.delta_model.key_list)
+                cur_max_key = len(delta_index) - 1
                 # 3. update delta model
-                leaf_node.delta_model.update([data[2] for data in delta_index], self.cdf_width, self.lag)
+                leaf_node.delta_model.update(cur_cdf, cur_max_key, self.lag, self.predict_step, self.cdf_width)
                 leaf_node.delta_index = [[] for i in range(leaf_node.delta_model.cur_max_key + 1)]
         self.logging.info("Retrain model num: %s" % retrain_model_num)
         self.logging.info("Retrain model epoch: %s" % retrain_model_epoch)
@@ -179,10 +199,13 @@ class Mulis(ZMIndexOptimised):
         r_bound = min(pre - min_err, leaf_node.model.output_max)
         result = [leaf_node.index[key][4] for key in
                   biased_search_duplicate(leaf_node.index, 2, gh, pre, l_bound, r_bound)]
+        self.io_cost += math.ceil((r_bound - l_bound) / ITEMS_PER_PAGE)
         # 1. find the target list of delta_index which contains the target ie
         if leaf_node.delta_index:
             tg_list = self.get_delta_index_list(gh, leaf_node)
-            result.extend([tg_list[key][4] for key in binary_search_duplicate(tg_list, 2, gh, 0, len(tg_list) - 1)])
+            tg_list_len = len(tg_list)
+            result.extend([tg_list[key][4] for key in binary_search_duplicate(tg_list, 2, gh, 0, tg_list_len - 1)])
+            self.io_cost += math.ceil(tg_list_len / ITEMS_PER_PAGE)
         return result
 
     def save(self):
@@ -198,10 +221,10 @@ class Mulis(ZMIndexOptimised):
                                ("1", 'f8'), ("2", 'f8'), ("3", 'f8'), ("4", 'f8'),
                                ("5", 'f4'), ("6", 'i2'), ("7", 'i2'), ("8", 'f4')])
         np.save(os.path.join(self.model_path, 'meta.npy'), meta)
-        meta_append = np.array((self.start_time, self.cur_time_interval, self.time_interval,
-                                self.lag, self.cdf_width),
+        meta_append = np.array((self.start_time, self.time_id, self.time_interval,
+                                self.lag, self.predict_step, self.cdf_width),
                                dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'),
-                                      ("13", 'i1'), ("14", 'i1')])
+                                      ("13", 'i1'), ("14", 'i1'), ("15", 'i1')])
         np.save(os.path.join(self.model_path, 'meta_append.npy'), meta_append)
         np.save(os.path.join(self.model_path, 'stages.npy'), self.stages)
         np.save(os.path.join(self.model_path, 'cores.npy'), self.cores)
@@ -248,10 +271,11 @@ class Mulis(ZMIndexOptimised):
         self.learning_rate = meta[8]
         meta_append = np.load(os.path.join(self.model_path, 'meta_append.npy'), allow_pickle=True).item()
         self.start_time = meta_append[0]
-        self.cur_time_interval = meta_append[1]
+        self.time_id = meta_append[1]
         self.time_interval = meta_append[2]
         self.lag = meta_append[3]
-        self.cdf_width = meta_append[4]
+        self.predict_step = meta_append[4]
+        self.cdf_width = meta_append[5]
         models = np.load(os.path.join(self.model_path, 'models.npy'), allow_pickle=True)
         indexes = np.load(os.path.join(self.model_path, 'indexes.npy'), allow_pickle=True).tolist()
         index_lens = np.load(os.path.join(self.model_path, 'index_lens.npy'), allow_pickle=True).tolist()
@@ -295,7 +319,7 @@ class Mulis(ZMIndexOptimised):
                 self.rmi.append(leaf_nodes)
 
     def size(self):
-        structure_size, ie_size = super(Mulis, self).size()
+        structure_size, ie_size = super(TSUSLI, self).size()
         structure_size += os.path.getsize(os.path.join(self.model_path, "meta_append.npy")) - 128
         ie_size += os.path.getsize(os.path.join(self.model_path, "delta_models.npy")) - 128
         return structure_size, ie_size
@@ -310,14 +334,14 @@ def main():
     load_index_from_json = True
     load_index_from_json2 = False
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    model_path = "model/mulis_nyct/"
+    model_path = "model/tsusli_nyct/"
     data_distribution = Distribution.NYCT_SORTED
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
-    index = Mulis(model_path=model_path)
+    index = TSUSLI(model_path=model_path)
     index_name = index.name
     if load_index_from_json:
-        super(Mulis, index).load()
+        super(TSUSLI, index).load()
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
@@ -350,8 +374,9 @@ def main():
         index.build_append(time_interval=60 * 60,
                            start_time=1356998400,
                            end_time=1359676799,
-                           cdf_width=100,
-                           lag=24)
+                           lag=24,
+                           predict_step=3,
+                           cdf_width=100)
         index.save()
         end_time = time.time()
         build_time = end_time - start_time
