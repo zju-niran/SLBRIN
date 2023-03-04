@@ -49,7 +49,7 @@ class BRINSpatial(SpatialIndex):
         # blknum: pages偏移 = id * pagesperrange，为便于检索，直接存id
         # value: 改动：blk的MBR
         self.block_ranges = block_ranges
-        # 统计所需：
+        # for compute
         self.io_cost = 0
 
     def insert_single(self, point):

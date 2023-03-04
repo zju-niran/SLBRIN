@@ -217,7 +217,7 @@ class KDTree(SpatialIndex):
                             format="%(asctime)s - %(levelname)s - %(message)s",
                             datefmt="%Y/%m/%d %H:%M:%S %p")
         self.logging = logging.getLogger(self.name)
-        # 统计所需：
+        # for compute
         self.io_cost = 0
 
     def insert_single(self, point):

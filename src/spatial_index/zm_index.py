@@ -40,13 +40,13 @@ class ZMIndex(SpatialIndex):
                             format="%(asctime)s - %(levelname)s - %(message)s",
                             datefmt="%Y/%m/%d %H:%M:%S %p")
         self.logging = logging.getLogger(self.name)
-        # 训练所需：
+        # for train
         self.weight = None
         self.cores = None
         self.train_step = None
         self.batch_num = None
         self.learning_rate = None
-        # 统计所需：
+        # for compute
         self.io_cost = 0
 
     def build(self, data_list, is_sorted, data_precision, region, is_new, is_simple, weight,

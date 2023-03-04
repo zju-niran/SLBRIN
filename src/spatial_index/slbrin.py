@@ -61,7 +61,7 @@ class SLBRIN(SpatialIndex):
         # number: 新增：range范围内索引项的数据量
         # state: 新增：状态，1=full, 2=outdated
         self.current_ranges = None
-        # 训练所需：
+        # for train
         self.weight = None
         self.cores = None
         self.train_step = None
@@ -72,7 +72,7 @@ class SLBRIN(SpatialIndex):
         self.merge_outdated_cr_time = 0.0
         self.retrain_inefficient_model_time = 0.0
         self.retrain_inefficient_model_num = 0
-        # 统计所需：
+        # for compute
         self.io_cost = 0
 
     def build(self, data_list, is_sorted, threshold_number, data_precision, region, threshold_err,

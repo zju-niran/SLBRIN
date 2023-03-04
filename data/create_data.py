@@ -175,20 +175,6 @@ def create_distinct_data(input_path, output_path):
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    headers = ['medallion',
-               'hack_license',
-               'vendor_id',
-               'rate_code',
-               'store_and_fwd_flag',
-               'pickup_datetime',
-               'dropoff_datetime',
-               'passenger_count',
-               'trip_time_in_secs',
-               'trip_distance',
-               'pickup_longitude',
-               'pickup_latitude',
-               'dropoff_longitude',
-               'dropoff_latitude']
     # 1. 把csv转npy
     # 数据来源：从http://www.andresmh.com/nyctaxitrips/下载trip_data.7z，拿到其中的一月份和二月份数据csv，转成npy
     # npy是外存结构，size=128Byte的头文件大小+数据大小，csv的内容都是string
