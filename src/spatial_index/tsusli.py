@@ -1,3 +1,4 @@
+import copy
 import logging
 import math
 import os
@@ -7,7 +8,7 @@ import time
 import numpy as np
 
 sys.path.append('/home/zju/wlj/SLBRIN')
-from src.experiment.common_utils import load_data, Distribution, data_precision, data_region
+from src.experiment.common_utils import load_data, Distribution, data_precision, data_region, load_query
 from src.spatial_index.common_utils import biased_search_duplicate, binary_search_less_max, binary_search_duplicate, \
     Region, binary_search_less_max_duplicate
 from src.spatial_index.geohash_utils import Geohash
@@ -25,16 +26,21 @@ ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 
 class TSUSLI(ZMIndexOptimised):
     def __init__(self, model_path=None):
-        super(TSUSLI, self).__init__(model_path)
-        # 更新所需：
+        super().__init__(model_path)
+        # for update
         self.start_time = 0
         self.time_id = 0
         self.time_interval = 0  # T
         self.lag = 0  # l
         self.predict_step = 0  # f
         self.cdf_width = 0  # c
+        # for compute
+        self.is_retrain = None
+        self.is_save = None
+        # insert_key time and io, merge_data time and io, retrain_model time, retrain_ts_model time
+        self.statistic_list = [0, 0, 0, 0, 0, 0]
 
-    def build_append(self, time_interval, start_time, end_time, lag, predict_step, cdf_width):
+    def build_append(self, time_interval, start_time, end_time, is_retrain, is_save, lag, predict_step, cdf_width):
         """
         1. create delta_model with ts_model
         2. change delta_index from [] into [[]]
@@ -42,15 +48,18 @@ class TSUSLI(ZMIndexOptimised):
         self.start_time = start_time
         self.time_id = math.ceil((end_time - start_time) / time_interval)
         self.time_interval = time_interval
+        self.is_retrain = is_retrain
+        self.is_save = is_save
         self.lag = lag
         self.predict_step = predict_step
         self.cdf_width = cdf_width
+        retrain_ts_model_mse = [0, 0]
         # 1. create delta_model with ts_model
-        # for j in range(self.stages[-1]):
-        index_lens = [(j, len(self.rmi[-1][j].index)) for j in range(self.stages[-1])]
-        index_lens.sort(key=lambda x: x[-1])
-        max_len_index = index_lens[-1][0]
-        for j in [max_len_index]:
+        for j in range(self.stages[-1]):
+        # index_lens = [(j, len(self.rmi[-1][j].index)) for j in range(self.stages[-1])]
+        # index_lens.sort(key=lambda x: x[-1])
+        # max_len_index = index_lens[-1][0]
+        # for j in [max_len_index]:
             node = self.rmi[-1][j]
             # create the old_cdfs and old_max_keys for delta_model
             min_key = node.model.input_min
@@ -74,11 +83,14 @@ class TSUSLI(ZMIndexOptimised):
                     old_cdfs[k] = old_cdfs[k - 1]
             # plot_ts(cdfs)
             node.delta_model = TimeSeriesModel(key_list, self.model_path, self.time_id,
-                                               old_cdfs, "convlstm",
-                                               old_max_keys, "lstm")
-            node.delta_model.build(lag, predict_step, cdf_width)
+                                               old_cdfs, "var",
+                                               old_max_keys, "es")
+            mse_cdf, mse_max_key = node.delta_model.build(lag, predict_step, cdf_width)
+            retrain_ts_model_mse[0] += mse_cdf
+            retrain_ts_model_mse[1] += mse_max_key
             # 2. change delta_index from [] into [[]]
             node.delta_index = [[] for i in range(node.delta_model.max_keys[node.delta_model.time_id] + 1)]
+        self.logging.info("Build ts model mse: %s" % retrain_ts_model_mse)
 
     def build_cdf(self, data, key_list):
         x_len = len(data)
@@ -116,9 +128,13 @@ class TSUSLI(ZMIndexOptimised):
             # update once the time of new point cross the time interval
             time_id = (cur_time - self.start_time) // self.time_interval
             if self.time_id < time_id:
-                self.update()
                 self.time_id = time_id
+                self.update()
+            start_time = time.time()
+            io_cost = self.io_cost
             self.insert_single(point)
+            self.statistic_list[0] += time.time() - start_time
+            self.statistic_list[1] += self.io_cost - io_cost
 
     def update(self):
         """
@@ -130,6 +146,10 @@ class TSUSLI(ZMIndexOptimised):
         leaf_nodes = self.rmi[-1]
         retrain_model_num = 0
         retrain_model_epoch = 0
+        retrain_model_time = self.statistic_list[4]
+        retrain_ts_model_num = 0
+        retrain_ts_model_mse = [0, 0]
+        retrain_ts_model_time = self.statistic_list[5]
         for j in range(0, self.stages[-1]):
             leaf_node = leaf_nodes[j]
             delta_index = []
@@ -138,40 +158,72 @@ class TSUSLI(ZMIndexOptimised):
             model = leaf_node.model
             if delta_index:
                 # 1. merge delta index into index
+                start_time = time.time()
+                io_cost = self.io_cost
                 if leaf_node.index:
                     leaf_node.index.extend(delta_index)
                     leaf_node.index.sort(key=lambda x: x[2])  # 优化：有序数组合并->sorted:2.5->1
                 else:
                     leaf_node.index = delta_index
+                self.statistic_list[2] += time.time() - start_time
                 # IO1: merge data
                 self.io_cost += math.ceil(len(leaf_node.index) / ITEMS_PER_PAGE)
+                self.statistic_list[3] += self.io_cost - io_cost
                 # 2. update model
-                inputs = [data[2] for data in leaf_node.index]
-                inputs.insert(0, model.input_min)
-                inputs.append(model.input_max)
-                inputs_num = len(inputs)
-                labels = list(range(0, inputs_num))
-                batch_size = 2 ** math.ceil(math.log(inputs_num / self.batch_num, 2))
-                if batch_size < 1:
-                    batch_size = 1
-                model_key = "retrain_%s" % j
-                tmp_index = NN(self.model_path, model_key, inputs, labels, True, self.weight,
-                               self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
-                tmp_index.build_simple(None)  # retrain with initial model
-                # tmp_index.build_simple(model.matrices if model else None)  # retrain with old model
-                model.matrices = tmp_index.get_matrices()
-                model.output_max = inputs_num - 3
-                model.min_err = math.floor(tmp_index.min_err)
-                model.max_err = math.ceil(tmp_index.max_err)
-                retrain_model_num += 1
-                retrain_model_epoch += tmp_index.get_epochs()
+                if self.is_retrain:
+                    start_time = time.time()
+                    inputs = [data[2] for data in leaf_node.index]
+                    inputs.insert(0, model.input_min)
+                    inputs.append(model.input_max)
+                    inputs_num = len(inputs)
+                    labels = list(range(0, inputs_num))
+                    batch_size = 2 ** math.ceil(math.log(inputs_num / self.batch_num, 2))
+                    if batch_size < 1:
+                        batch_size = 1
+                    model_key = "retrain_%s" % j
+                    tmp_index = NN(self.model_path, model_key, inputs, labels, True, self.weight,
+                                   self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
+                    tmp_index.build_simple(None)  # retrain with initial model
+                    # tmp_index.build_simple(model.matrices if model else None)  # retrain with old model
+                    model.matrices = tmp_index.get_matrices()
+                    model.output_max = inputs_num - 3
+                    model.min_err = math.floor(tmp_index.min_err)
+                    model.max_err = math.ceil(tmp_index.max_err)
+                    end_time = time.time()
+                    retrain_model_num += 1
+                    retrain_model_epoch += tmp_index.get_epochs()
+                    self.statistic_list[4] += end_time - start_time
+                else:
+                    time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id))
+                    index = ZMIndexOptimised(model_path=time_model_path)
+                    index.load()
+                    leaf_node.model = index.rmi[-1][j].model
+                # 3. update delta model
+                start_time = time.time()
                 cur_cdf = self.build_cdf([data[2] for data in delta_index], leaf_node.delta_model.key_list)
                 cur_max_key = len(delta_index) - 1
-                # 3. update delta model
-                leaf_node.delta_model.update(cur_cdf, cur_max_key, self.lag, self.predict_step, self.cdf_width)
+                num, mse_cdf, mse_max_key = leaf_node.delta_model.update(cur_cdf, cur_max_key, self.lag,
+                                                                         self.predict_step, self.cdf_width)
                 leaf_node.delta_index = [[] for i in range(leaf_node.delta_model.cur_max_key + 1)]
-        self.logging.info("Retrain model num: %s" % retrain_model_num)
-        self.logging.info("Retrain model epoch: %s" % retrain_model_epoch)
+                end_time = time.time()
+                retrain_ts_model_num += num
+                retrain_ts_model_mse[0] += mse_cdf
+                retrain_ts_model_mse[1] += mse_max_key
+                self.statistic_list[5] += end_time - start_time
+        if self.is_retrain:
+            self.logging.info("Retrain model num: %s" % retrain_model_num)
+            self.logging.info("Retrain model epoch: %s" % retrain_model_epoch)
+            self.logging.info("Retrain model time: %s" % (self.statistic_list[4] - retrain_model_time))
+        self.logging.info("Retrain ts model num: %s" % retrain_ts_model_num)
+        self.logging.info("Retrain ts model mse: %s" % retrain_ts_model_mse)
+        self.logging.info("Retrain ts model time: %s" % (self.statistic_list[5] - retrain_ts_model_time))
+        if self.is_save:
+            time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id))
+            if os.path.exists(time_model_path) is False:
+                os.makedirs(time_model_path)
+            index = copy.deepcopy(self)
+            index.model_path = time_model_path
+            index.save()
 
     def get_delta_index_list(self, key, leaf_node):
         """
@@ -324,17 +376,13 @@ class TSUSLI(ZMIndexOptimised):
         ie_size += os.path.getsize(os.path.join(self.model_path, "delta_models.npy")) - 128
         return structure_size, ie_size
 
-    def ts_err(self):
-        mse_cdfs = [node.delta_model.mse_cdf for node in self.rmi[-1]]
-        mse_max_keys = [node.delta_model.mse_max_key for node in self.rmi[-1]]
-        return mse_cdfs, mse_max_keys, sum(mse_cdfs), sum(mse_max_keys)
-
 
 def main():
     load_index_from_json = True
     load_index_from_json2 = False
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    model_path = "model/tsusli_nyct/"
+    # model_path = "model/tsusli_nyct/"
+    model_path = "model/tsusli_10w_nyct/"
     data_distribution = Distribution.NYCT_SORTED
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
@@ -374,6 +422,8 @@ def main():
         index.build_append(time_interval=60 * 60,
                            start_time=1356998400,
                            end_time=1359676799,
+                           is_retrain=False,
+                           is_save=False,
                            lag=24,
                            predict_step=3,
                            cdf_width=100)
@@ -381,36 +431,35 @@ def main():
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
-        logging.info("TS model err: %s, %s, %s, %s" % index.ts_err())
-    # structure_size, ie_size = index.size()
-    # logging.info("Structure size: %s" % structure_size)
-    # logging.info("Index entry size: %s" % ie_size)
-    # io_cost = 0
-    # logging.info("Model precision avg: %s" % index.model_err())
-    # point_query_list = load_query(data_distribution, 0).tolist()
-    # start_time = time.time()
-    # results = index.point_query(point_query_list)
-    # end_time = time.time()
-    # search_time = (end_time - start_time) / len(point_query_list)
-    # logging.info("Point query time: %s" % search_time)
-    # logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
-    # io_cost = index.io_cost
-    # np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    # update_data_list = load_data(Distribution.NYCT_10W, 1)[:10000]
-    # start_time = time.time()
-    # index.insert(update_data_list)
-    # end_time = time.time()
-    # logging.info("Update time: %s" % (end_time - start_time))
-    # logging.info("TS model err: %s, %s" % index.ts_err())
-    # point_query_list = load_query(data_distribution, 0).tolist()
-    # start_time = time.time()
-    # results = index.point_query(point_query_list)
-    # end_time = time.time()
-    # search_time = (end_time - start_time) / len(point_query_list)
-    # logging.info("Point query time: %s" % search_time)
-    # logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
-    # io_cost = index.io_cost
-    # np.savetxt(model_path + 'point_query_result1.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    structure_size, ie_size = index.size()
+    logging.info("Structure size: %s" % structure_size)
+    logging.info("Index entry size: %s" % ie_size)
+    io_cost = 0
+    logging.info("Model precision avg: %s" % index.model_err())
+    point_query_list = load_query(data_distribution, 0).tolist()
+    start_time = time.time()
+    results = index.point_query(point_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(point_query_list)
+    logging.info("Point query time: %s" % search_time)
+    logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
+    io_cost = index.io_cost
+    np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    update_data_list = load_data(Distribution.NYCT_10W, 1)
+    start_time = time.time()
+    index.insert(update_data_list)
+    end_time = time.time()
+    logging.info("Update time: %s" % (end_time - start_time))
+    logging.info("Statis list: %s" % index.statistic_list)
+    point_query_list = load_query(data_distribution, 0).tolist()
+    start_time = time.time()
+    results = index.point_query(point_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(point_query_list)
+    logging.info("Point query time: %s" % search_time)
+    logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
+    io_cost = index.io_cost
+    np.savetxt(model_path + 'point_query_result1.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
 
 
 if __name__ == '__main__':

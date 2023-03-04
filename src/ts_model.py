@@ -31,35 +31,44 @@ class TimeSeriesModel:
         # for ts of cdf
         self.cdfs = cdfs
         self.model_cdf = sts_model_type[type_cdf]
-        self.mse_cdf = 0
         # for ts of max key
         self.max_keys = max_keys
         self.model_max_key = ts_model_type[type_max_key]
-        self.mse_max_key = 0
 
     def build(self, lag, predict_step, cdf_width):
         if self.time_id == 0:  # if cdfs is []
             pre_cdfs = [[0.0] * cdf_width for i in range(predict_step)]
             pre_max_keys = [0 for i in range(predict_step)]
+            mse_cdf = 0
+            mse_max_key = 0
         elif self.time_id < lag:  # if cdfs are not enough for ts_model in quantity
             pre_cdfs = [self.cdfs[-1] for i in range(predict_step)]
             pre_max_keys = [self.max_keys[-1] for i in range(predict_step)]
+            mse_cdf = 0
+            mse_max_key = 0
         else:
             ts = self.model_cdf(self.cdfs[:self.time_id], lag, predict_step, cdf_width, self.model_path)
-            ts.grid_search(thread=4, start_num=0)
-            pre_cdfs, self.mse_cdf = ts.train()
+            # ts.grid_search(thread=4, start_num=0)
+            pre_cdfs, mse_cdf = ts.train()
             ts = self.model_max_key(self.max_keys[:self.time_id], lag, predict_step, self.model_path)
             # ts.grid_search(thread=3, start_num=0)
-            pre_max_keys, self.mse_max_key = ts.train()
+            pre_max_keys, mse_max_key = ts.train()
         self.cdfs.extend(pre_cdfs)
         self.max_keys.extend(pre_max_keys)
+        return mse_cdf, mse_max_key
 
     def update(self, cur_cdf, cur_max_key, lag, predict_step, cdf_width):
+        """
+        update with new data and retrain ts model when outdated
+        return: retraining nums and mse
+        """
         self.cdfs[self.time_id] = cur_cdf
         self.max_keys[self.time_id] = cur_max_key
         self.time_id += 1
         if self.time_id > len(self.max_keys):
-            self.build(lag, predict_step, cdf_width)
+            mse_cdf, mse_max_key = self.build(lag, predict_step, cdf_width)
+            return 1, mse_cdf, mse_max_key
+        return 0, 0, 0
 
 
 class TSResult:
@@ -810,17 +819,17 @@ class ConvLSTMResult(TSResult):
         # filter1s = [8, 16, 32, 64]
         filter1s = [16]
         # filter2s = [8, 16, 32, 64]
-        filter2s = [16]
+        filter2s = [32]
         # dropout1s = [0.0, 0.2, 0.4, 0.6, 0.8]
         dropout1s = [0.0]
         # dropout2s = [0.0, 0.2, 0.4, 0.6, 0.8]
         dropout2s = [0.0]
-        # kernal_sizes = [3, 6, 9]
+        # kernal_sizes = [3, 6, 9, 12, 15]
         kernal_sizes = [9]
         # learning_rates = [0.01, 0.001, 0.0001]
         learning_rates = [0.01]  # lr0.001对应bs2-4，lr0.01对应bs8-16
         # batch_sizes = [1, 4, 16, 64]
-        batch_sizes = [16, 8, 4, 2]
+        batch_sizes = [16]
         pool = multiprocessing.Pool(processes=thread)
         i = 0
         for activation1 in activation1s:

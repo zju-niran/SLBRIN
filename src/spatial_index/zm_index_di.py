@@ -1,5 +1,7 @@
+import copy
 import logging
 import math
+import multiprocessing
 import os
 import sys
 import time
@@ -21,15 +23,21 @@ ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 class ZMIndexDeltaInsert(ZMIndexOptimised):
     def __init__(self, model_path=None):
         super(ZMIndexDeltaInsert, self).__init__(model_path)
-        # 更新所需：
+        # for update
         self.start_time = None
         self.time_id = None
         self.time_interval = None
+        # for compute
+        self.is_retrain = None
+        self.is_save = None
+        self.statistic_list = [0, 0, 0, 0, 0]  # insert_key time and io, merge_data time and io, retrain_model time
 
-    def build_append(self, time_interval, start_time, end_time):
+    def build_append(self, time_interval, start_time, end_time, is_retrain, is_save):
         self.start_time = start_time
         self.time_id = math.ceil((end_time - start_time) / time_interval)
         self.time_interval = time_interval
+        self.is_retrain = is_retrain
+        self.is_save = is_save
 
     def insert(self, points):
         """
@@ -42,9 +50,13 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
             # 1. update once the time of new point cross the time interval
             time_id = (cur_time - self.start_time) // self.time_interval
             if self.time_id < time_id:
-                self.update()
                 self.time_id = time_id
+                self.update()
+            start_time = time.time()
+            io_cost = self.io_cost
             self.insert_single(point)
+            self.statistic_list[0] += time.time() - start_time
+            self.statistic_list[1] += self.io_cost - io_cost
 
     def update(self):
         """
@@ -52,44 +64,61 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
          1. merge delta index into index
          2. update model
          """
-        leaf_nodes = self.rmi[-1]
         retrain_model_num = 0
         retrain_model_epoch = 0
-        for j in range(0, self.stages[-1]):
-            leaf_node = leaf_nodes[j]
-            model = leaf_node.model
+        retrain_model_time = self.statistic_list[4]
+        # 1. merge delta index into index
+        update_list = [0] * self.stages[-1]
+        for j in range(self.stages[-1]):
+            leaf_node = self.rmi[-1][j]
             if leaf_node.delta_index:
-                # 1. merge delta index into index
+                update_list[j] = 1
+                start_time = time.time()
+                io_cost = self.io_cost
                 if leaf_node.index:
                     leaf_node.index.extend(leaf_node.delta_index)
                     leaf_node.index.sort(key=lambda x: x[2])  # 优化：有序数组合并->sorted:2.5->1
                 else:
                     leaf_node.index = leaf_node.delta_index
                 leaf_node.delta_index = []
+                self.statistic_list[2] += time.time() - start_time
                 # IO1: merge data
                 self.io_cost += math.ceil(len(leaf_node.index) / ITEMS_PER_PAGE)
-                # 2. update model
-                inputs = [data[2] for data in leaf_node.index]
-                inputs.insert(0, model.input_min)
-                inputs.append(model.input_max)
-                inputs_num = len(inputs)
-                labels = list(range(0, inputs_num))
-                batch_size = 2 ** math.ceil(math.log(inputs_num / self.batch_num, 2))
-                if batch_size < 1:
-                    batch_size = 1
-                model_key = "retrain_%s" % j
-                tmp_index = NN(self.model_path, model_key, inputs, labels, True, self.weight,
-                               self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
-                tmp_index.build_simple(None)  # retrain with initial model
-                # tmp_index.build_simple(model.matrices if model else None)  # retrain with old model
-                model.matrices = tmp_index.get_matrices()
-                model.output_max = inputs_num - 3
-                model.min_err = math.floor(tmp_index.min_err)
-                model.max_err = math.ceil(tmp_index.max_err)
-                retrain_model_num += 1
-                retrain_model_epoch += tmp_index.get_epochs()
-        self.logging.info("Retrain model num: %s" % retrain_model_num)
-        self.logging.info("Retrain model epoch: %s" % retrain_model_epoch)
+                self.statistic_list[3] += self.io_cost - io_cost
+        # 2. update model
+        if self.is_retrain and self.time_id > 763:
+            start_time = time.time()
+            pool = multiprocessing.Pool(processes=4)
+            mp_dict = multiprocessing.Manager().dict()
+            for j in range(0, self.stages[-1]):
+                if update_list[j] == 1:
+                    leaf_node = self.rmi[-1][j]
+                    pool.apply_async(update_leaf_node,
+                                     (self.model_path, j, leaf_node.index, leaf_node.model, self.weight, self.cores, self.train_step,
+                                      self.batch_num, self.learning_rate, mp_dict))
+            pool.close()
+            pool.join()
+            for (key, value) in mp_dict.items():
+                self.rmi[-1][key].model = value[0]
+                retrain_model_num += value[1]
+                retrain_model_epoch += value[2]
+            self.logging.info("Retrain model num: %s" % retrain_model_num)
+            self.logging.info("Retrain model epoch: %s" % retrain_model_epoch)
+            self.logging.info("Retrain model time: %s" % (time.time() - start_time))
+        else:
+            time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id))
+            index = ZMIndexOptimised(model_path=time_model_path)
+            index.load()
+            for j in range(0, self.stages[-1]):
+                if update_list[j] == 1:
+                    self.rmi[-1][j].model = index.rmi[-1][j].model
+        if self.is_save:
+            time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id))
+            if os.path.exists(time_model_path) is False:
+                os.makedirs(time_model_path)
+            index = copy.deepcopy(self)
+            index.model_path = time_model_path
+            index.save()
 
     def save(self):
         super(ZMIndexDeltaInsert, self).save()
@@ -110,7 +139,29 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
         return structure_size, ie_size
 
 
+def update_leaf_node(model_path, model_key, inputs, model, weight, cores, train_step, batch_num,
+                     learning_rate, mp_dict):
+    inputs = [data[2] for data in inputs]
+    inputs.insert(0, model.input_min)
+    inputs.append(model.input_max)
+    inputs_num = len(inputs)
+    labels = list(range(0, inputs_num))
+    batch_size = 2 ** math.ceil(math.log(inputs_num / batch_num, 2))
+    if batch_size < 1:
+        batch_size = 1
+    tmp_index = NN(model_path, model_key, inputs, labels, True, weight,
+                   cores, train_step, batch_size, learning_rate, False, None, None)
+    # tmp_index.build_simple(None)  # retrain with initial model
+    tmp_index.build_simple(model.matrices if model else None)  # retrain with old model
+    model.matrices = tmp_index.get_matrices()
+    model.output_max = inputs_num - 3
+    model.max_err = math.ceil(tmp_index.max_err)
+    mp_dict[model_key] = (model, 1, tmp_index.get_epochs())
+
+
 def main():
+    load_index_from_json = True
+    load_index_from_json2 = False
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     model_path = "model/zmdi_10w_nyct/"
     data_distribution = Distribution.NYCT_10W_SORTED
@@ -118,9 +169,8 @@ def main():
         os.makedirs(model_path)
     index = ZMIndexDeltaInsert(model_path=model_path)
     index_name = index.name
-    load_index_from_json = True
     if load_index_from_json:
-        index.load()
+        super(ZMIndexDeltaInsert, index).load()
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
@@ -141,9 +191,20 @@ def main():
                     thresholds=[5, 20],
                     retrain_time_limits=[4, 2],
                     thread_pool_size=6)
+        index.save()
+        end_time = time.time()
+        build_time = end_time - start_time
+        index.logging.info("Build time: %s" % build_time)
+    if load_index_from_json2:
+        index.load()
+    else:
+        index.logging.info("*************start %s************" % index_name)
+        start_time = time.time()
         index.build_append(time_interval=60 * 60 * 24,
                            start_time=1356998400,
-                           end_time=1359676799)
+                           end_time=1359676799,
+                           is_retrain=True,
+                           is_save=False)
         index.save()
         end_time = time.time()
         build_time = end_time - start_time
@@ -167,6 +228,7 @@ def main():
     index.insert(update_data_list)
     end_time = time.time()
     logging.info("Update time: %s" % (end_time - start_time))
+    logging.info("Statis list: %s" % index.statistic_list)
     point_query_list = load_query(data_distribution, 0).tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)

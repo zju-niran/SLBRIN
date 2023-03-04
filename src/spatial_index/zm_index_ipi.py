@@ -1,3 +1,4 @@
+import copy
 import logging
 import math
 import os
@@ -7,8 +8,7 @@ import time
 import numpy as np
 
 sys.path.append('/home/zju/wlj/SLBRIN')
-from src.spatial_index.common_utils import biased_search_less_max_duplicate, biased_search_duplicate, \
-    binary_search_duplicate
+from src.spatial_index.common_utils import biased_search_less_max_duplicate, biased_search_duplicate
 from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
 from src.spatial_index.zm_index_optimised import ZMIndexOptimised, NN
 
@@ -23,11 +23,15 @@ ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 class ZMIndexInPlaceInsert(ZMIndexOptimised):
     def __init__(self, model_path=None):
         super(ZMIndexInPlaceInsert, self).__init__(model_path)
-        # 更新所需：
+        # for update
         self.start_time = None
         self.time_id = None
         self.time_interval = None
         self.empty_ratio = None
+        # for compute
+        self.is_retrain = None
+        self.is_save = None
+        self.statistic_list = [0, 0, 0, 0, 0]  # insert_key time and io, merge_data time and io, retrain_model time
 
     def expand_leaf_node(self, leaf_node):
         """
@@ -64,7 +68,7 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
         model.max_err += empty_len
         return diff_left_len
 
-    def build_append(self, time_interval, start_time, end_time, empty_ratio):
+    def build_append(self, time_interval, start_time, end_time, is_retrain, is_save, empty_ratio):
         """
         1. preserve empty locations for each leaf node
         state: need to update when state = 1
@@ -76,6 +80,8 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
         self.time_id = math.ceil((end_time - start_time) / time_interval)
         self.time_interval = time_interval
         self.empty_ratio = empty_ratio
+        self.is_retrain = is_retrain
+        self.is_save = is_save
         # 1. preserve empty locations for each leaf node
         for leaf_node in self.rmi[-1]:
             leaf_node.model.state = 0  # state: need to update when state = 1
@@ -138,9 +144,13 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
             # 1. update once the time of new point cross the time interval
             time_id = (cur_time - self.start_time) // self.time_interval
             if self.time_id < time_id:
-                self.update()
                 self.time_id = time_id
+                self.update()
+            start_time = time.time()
+            io_cost = self.io_cost
             self.insert_single(point)
+            self.statistic_list[0] += time.time() - start_time
+            self.statistic_list[1] += self.io_cost - io_cost
 
     def update(self):
         """
@@ -150,35 +160,59 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
         leaf_nodes = self.rmi[-1]
         retrain_model_num = 0
         retrain_model_epoch = 0
+        retrain_model_time = self.statistic_list[4]
         for j in range(0, self.stages[-1]):
             leaf_node = leaf_nodes[j]
             model = leaf_node.model
             if model.state != 0:
                 # 1. update model
-                inputs = [data[2] for data in leaf_node.index[model.bias:model.bias + model.output_max + 1]]
-                inputs.insert(0, model.input_min)
-                inputs.append(model.input_max)
-                inputs_num = len(inputs)
-                labels = list(range(0, inputs_num))
-                batch_size = 2 ** math.ceil(math.log(inputs_num / self.batch_num, 2))
-                if batch_size < 1:
-                    batch_size = 1
-                model_key = "retrain_%s" % j
-                tmp_index = NN(self.model_path, model_key, inputs, labels, True, self.weight,
-                               self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
-                tmp_index.build_simple(None)  # retrain with initial model
-                # tmp_index.build_simple(model.matrices if model else None)  # retrain with old model
-                model.matrices = tmp_index.get_matrices()
-                model.min_err = math.floor(tmp_index.min_err)
-                model.max_err = math.ceil(tmp_index.max_err)
+                if self.is_retrain:
+                    start_time = time.time()
+                    inputs = [data[2] for data in leaf_node.index[model.bias:model.bias + model.output_max + 1]]
+                    inputs.insert(0, model.input_min)
+                    inputs.append(model.input_max)
+                    inputs_num = len(inputs)
+                    labels = list(range(0, inputs_num))
+                    batch_size = 2 ** math.ceil(math.log(inputs_num / self.batch_num, 2))
+                    if batch_size < 1:
+                        batch_size = 1
+                    model_key = "retrain_%s" % j
+                    tmp_index = NN(self.model_path, model_key, inputs, labels, True, self.weight,
+                                   self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
+                    tmp_index.build_simple(None)  # retrain with initial model
+                    # tmp_index.build_simple(model.matrices if model else None)  # retrain with old model
+                    model.matrices = tmp_index.get_matrices()
+                    model.min_err = math.floor(tmp_index.min_err)
+                    model.max_err = math.ceil(tmp_index.max_err)
+                    retrain_model_num += 1
+                    retrain_model_epoch += tmp_index.get_epochs()
+                    self.statistic_list[4] += time.time() - start_time
+                else:
+                    time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id))
+                    index = ZMIndexOptimised(model_path=time_model_path)
+                    index.load()
+                    leaf_node.model = index.rmi[-1][j].model
+                    leaf_node.model.state = model.state
+                    leaf_node.model.bias = model.bias
                 # 2. ensure the len of empty locations is enough
+                start_time = time.time()
+                io_cost = self.io_cost
                 self.expand_leaf_node(leaf_node)
+                self.statistic_list[2] += time.time() - start_time
+                self.statistic_list[3] += self.io_cost - io_cost
                 # 3. reset the state of model
-                model.state = 0
-                retrain_model_num += 1
-                retrain_model_epoch += tmp_index.get_epochs()
-        self.logging.info("Retrain model num: %s" % retrain_model_num)
-        self.logging.info("Retrain model epoch: %s" % retrain_model_epoch)
+                leaf_node.model.state = 0
+        if self.is_retrain:
+            self.logging.info("Retrain model num: %s" % retrain_model_num)
+            self.logging.info("Retrain model epoch: %s" % retrain_model_epoch)
+            self.logging.info("Retrain model time: %s" % (self.statistic_list[4] - retrain_model_time))
+        if self.is_save:
+            time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id))
+            if os.path.exists(time_model_path) is False:
+                os.makedirs(time_model_path)
+            index = copy.deepcopy(self)
+            index.model_path = time_model_path
+            index.save()
 
     def point_query_single(self, point):
         """
@@ -222,6 +256,8 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
 
 
 def main():
+    load_index_from_json = True
+    load_index_from_json2 = False
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     model_path = "model/zmipi_10w_nyct/"
     data_distribution = Distribution.NYCT_10W_SORTED
@@ -229,9 +265,8 @@ def main():
         os.makedirs(model_path)
     index = ZMIndexInPlaceInsert(model_path=model_path)
     index_name = index.name
-    load_index_from_json = True
     if load_index_from_json:
-        index.load()
+        super(ZMIndexInPlaceInsert, index).load()
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
@@ -251,10 +286,21 @@ def main():
                     use_thresholds=[False, False],
                     thresholds=[5, 20],
                     retrain_time_limits=[4, 2],
-                    thread_pool_size=4)
+                    thread_pool_size=6)
+        index.save()
+        end_time = time.time()
+        build_time = end_time - start_time
+        index.logging.info("Build time: %s" % build_time)
+    if load_index_from_json2:
+        index.load()
+    else:
+        index.logging.info("*************start %s************" % index_name)
+        start_time = time.time()
         index.build_append(time_interval=60 * 60 * 24,
                            start_time=1356998400,
                            end_time=1359676799,
+                           is_retrain=False,
+                           is_save=False,
                            empty_ratio=0.5)
         index.save()
         end_time = time.time()
@@ -279,6 +325,7 @@ def main():
     index.insert(update_data_list)
     end_time = time.time()
     logging.info("Update time: %s" % (end_time - start_time))
+    logging.info("Statis list: %s" % index.statistic_list)
     point_query_list = load_query(data_distribution, 0).tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)
