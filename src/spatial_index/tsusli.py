@@ -98,7 +98,7 @@ class TSUSLI(ZMIndexOptimised):
                 else:  # for empty and non-head old_cdfs, copy from their previous
                     old_cdfs[k] = old_cdfs[k - 1]
             # plot_ts(cdfs)
-            node.delta_model = TimeSeriesModel(key_list, self.model_path, self.time_id,
+            node.delta_model = TimeSeriesModel(key_list, self.model_path,
                                                old_cdfs, "var",
                                                old_max_keys, "es")
             mse_cdf, mse_max_key = node.delta_model.build(lag, predict_step, cdf_width)
@@ -251,7 +251,8 @@ class TSUSLI(ZMIndexOptimised):
             self.logging.info("Retrain delta model mse: %s" % retrain_delta_model_mse)
             self.logging.info("Retrain delta model time: %s" % (end_time - start_time))
         else:
-            time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id), 'delta_models.npy')
+            time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id),
+                                           'delta_models_%s_%s_%s.npy' % (self.lag, self.predict_step, self.cdf_width))
             delta_models = np.load(time_model_path, allow_pickle=True)
             model_cur = 0
             for i in range(len(self.stages)):
@@ -265,7 +266,9 @@ class TSUSLI(ZMIndexOptimised):
             delta_models = []
             for stage in self.rmi:
                 delta_models.extend([node.delta_model for node in stage])
-            np.save(os.path.join(time_model_path, 'delta_models.npy'), delta_models)
+            np.save(os.path.join(time_model_path,
+                                 'delta_models_%s_%s_%s.npy' %
+                                 (self.lag, self.predict_step, self.cdf_width)), delta_models)
 
     def get_delta_index_list(self, key, leaf_node):
         """
@@ -429,21 +432,6 @@ class TSUSLI(ZMIndexOptimised):
                     delta_index_cur += delta_index_lens[j]
                 self.rmi.append(leaf_nodes)
 
-    def save_delta_model(self):
-        delta_models = []
-        for stage in self.rmi:
-            delta_models.extend([node.delta_model for node in stage])
-        np.save(os.path.join(self.model_path, 'delta_models.npy'), delta_models)
-
-    def load_delta_model(self, stages):
-        delta_models = np.load(os.path.join(self.model_path, 'delta_models.npy'), allow_pickle=True)
-        model_cur = 0
-        self.rmi = []
-        for i in range(len(stages)):
-            self.rmi.append(
-                [Node(None, None, None, delta_model) for delta_model in delta_models[model_cur:model_cur + stages[i]]])
-            model_cur += stages[i]
-
     def size(self):
         structure_size, ie_size = super(TSUSLI, self).size()
         structure_size += os.path.getsize(os.path.join(self.model_path, "meta_append.npy")) - 128
@@ -498,11 +486,11 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        index.build_append(time_interval=60 * 60,
+        index.build_append(time_interval=60 * 60 * 24,
                            start_time=1356998400,
                            end_time=1359676799,
-                           lag=24,
-                           predict_step=3,
+                           lag=7,
+                           predict_step=1,
                            cdf_width=100,
                            is_retrain=False,
                            time_retrain=-1,
