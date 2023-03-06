@@ -1,6 +1,6 @@
-import copy
 import logging
 import math
+import multiprocessing
 import os
 import sys
 import time
@@ -13,7 +13,8 @@ from src.spatial_index.common_utils import biased_search_duplicate, binary_searc
     Region, binary_search_less_max_duplicate
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.zm_index import Node
-from src.spatial_index.zm_index_optimised import ZMIndexOptimised, NN
+from src.spatial_index.zm_index_optimised import ZMIndexOptimised
+from src.spatial_index.zm_index_di import retrain_model
 from src.ts_model import TimeSeriesModel
 
 # 预设pagesize=4096, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
@@ -35,12 +36,21 @@ class TSUSLI(ZMIndexOptimised):
         self.predict_step = 0  # f
         self.cdf_width = 0  # c
         # for compute
-        self.is_retrain = None
-        self.is_save = None
-        # insert_key time and io, merge_data time and io, retrain_model time, retrain_ts_model time
+        self.is_retrain = True
+        self.time_retrain = -1
+        self.thread_retrain = 1
+        self.is_save = True
+        self.is_retrain_delta = True
+        self.thread_retrain_delta = 1
+        self.time_retrain_delta = -1
+        self.is_save_delta = True
+        # insert_key time and io, merge_data time and io, retrain_model time, retrain_delta_model time
         self.statistic_list = [0, 0, 0, 0, 0, 0]
 
-    def build_append(self, time_interval, start_time, end_time, is_retrain, is_save, lag, predict_step, cdf_width):
+    def build_append(self, time_interval, start_time, end_time,
+                     lag, predict_step, cdf_width,
+                     is_retrain, time_retrain, thread_retrain, is_save,
+                     is_retrain_delta, time_retrain_delta, thread_retrain_delta, is_save_delta):
         """
         1. create delta_model with ts_model
         2. change delta_index from [] into [[]]
@@ -48,12 +58,18 @@ class TSUSLI(ZMIndexOptimised):
         self.start_time = start_time
         self.time_id = math.ceil((end_time - start_time) / time_interval)
         self.time_interval = time_interval
-        self.is_retrain = is_retrain
-        self.is_save = is_save
         self.lag = lag
         self.predict_step = predict_step
         self.cdf_width = cdf_width
-        retrain_ts_model_mse = [0, 0]
+        self.is_retrain = is_retrain
+        self.time_retrain = time_retrain
+        self.thread_retrain = thread_retrain
+        self.is_save = is_save
+        self.is_retrain_delta = is_retrain_delta
+        self.time_retrain_delta = time_retrain_delta
+        self.thread_retrain_delta = thread_retrain_delta
+        self.is_save_delta = is_save_delta
+        retrain_delta_model_mse = [0, 0]
         # 1. create delta_model with ts_model
         for j in range(self.stages[-1]):
         # index_lens = [(j, len(self.rmi[-1][j].index)) for j in range(self.stages[-1])]
@@ -86,11 +102,11 @@ class TSUSLI(ZMIndexOptimised):
                                                old_cdfs, "var",
                                                old_max_keys, "es")
             mse_cdf, mse_max_key = node.delta_model.build(lag, predict_step, cdf_width)
-            retrain_ts_model_mse[0] += mse_cdf
-            retrain_ts_model_mse[1] += mse_max_key
+            retrain_delta_model_mse[0] += mse_cdf
+            retrain_delta_model_mse[1] += mse_max_key
             # 2. change delta_index from [] into [[]]
             node.delta_index = [[] for i in range(node.delta_model.max_keys[node.delta_model.time_id] + 1)]
-        self.logging.info("Build ts model mse: %s" % retrain_ts_model_mse)
+        self.logging.info("Build ts model mse: %s" % retrain_delta_model_mse)
 
     def build_cdf(self, data, key_list):
         x_len = len(data)
@@ -128,6 +144,7 @@ class TSUSLI(ZMIndexOptimised):
             # update once the time of new point cross the time interval
             time_id = (cur_time - self.start_time) // self.time_interval
             if self.time_id < time_id:
+                self.logging.info("Update time id: %s" % time_id)
                 self.time_id = time_id
                 self.update()
             start_time = time.time()
@@ -146,18 +163,17 @@ class TSUSLI(ZMIndexOptimised):
         leaf_nodes = self.rmi[-1]
         retrain_model_num = 0
         retrain_model_epoch = 0
-        retrain_model_time = self.statistic_list[4]
-        retrain_ts_model_num = 0
-        retrain_ts_model_mse = [0, 0]
-        retrain_ts_model_time = self.statistic_list[5]
+        retrain_delta_model_num = 0
+        retrain_delta_model_mse = [0, 0]
+        # 1. merge delta index into index
+        update_list = [0] * self.stages[-1]
         for j in range(0, self.stages[-1]):
             leaf_node = leaf_nodes[j]
             delta_index = []
             for tmp in leaf_node.delta_index:
                 delta_index.extend(tmp)
-            model = leaf_node.model
+            update_list[j] = delta_index
             if delta_index:
-                # 1. merge delta index into index
                 start_time = time.time()
                 io_cost = self.io_cost
                 if leaf_node.index:
@@ -169,61 +185,87 @@ class TSUSLI(ZMIndexOptimised):
                 # IO1: merge data
                 self.io_cost += math.ceil(len(leaf_node.index) / ITEMS_PER_PAGE)
                 self.statistic_list[3] += self.io_cost - io_cost
-                # 2. update model
-                if self.is_retrain:
-                    start_time = time.time()
-                    inputs = [data[2] for data in leaf_node.index]
-                    inputs.insert(0, model.input_min)
-                    inputs.append(model.input_max)
-                    inputs_num = len(inputs)
-                    labels = list(range(0, inputs_num))
-                    batch_size = 2 ** math.ceil(math.log(inputs_num / self.batch_num, 2))
-                    if batch_size < 1:
-                        batch_size = 1
-                    model_key = "retrain_%s" % j
-                    tmp_index = NN(self.model_path, model_key, inputs, labels, True, self.weight,
-                                   self.cores, self.train_step, batch_size, self.learning_rate, False, None, None)
-                    tmp_index.build_simple(None)  # retrain with initial model
-                    # tmp_index.build_simple(model.matrices if model else None)  # retrain with old model
-                    model.matrices = tmp_index.get_matrices()
-                    model.output_max = inputs_num - 3
-                    model.min_err = math.floor(tmp_index.min_err)
-                    model.max_err = math.ceil(tmp_index.max_err)
-                    end_time = time.time()
-                    retrain_model_num += 1
-                    retrain_model_epoch += tmp_index.get_epochs()
-                    self.statistic_list[4] += end_time - start_time
-                else:
-                    time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id))
-                    index = ZMIndexOptimised(model_path=time_model_path)
-                    index.load()
-                    leaf_node.model = index.rmi[-1][j].model
-                # 3. update delta model
-                start_time = time.time()
-                cur_cdf = self.build_cdf([data[2] for data in delta_index], leaf_node.delta_model.key_list)
-                cur_max_key = len(delta_index) - 1
-                num, mse_cdf, mse_max_key = leaf_node.delta_model.update(cur_cdf, cur_max_key, self.lag,
-                                                                         self.predict_step, self.cdf_width)
-                leaf_node.delta_index = [[] for i in range(leaf_node.delta_model.cur_max_key + 1)]
-                end_time = time.time()
-                retrain_ts_model_num += num
-                retrain_ts_model_mse[0] += mse_cdf
-                retrain_ts_model_mse[1] += mse_max_key
-                self.statistic_list[5] += end_time - start_time
-        if self.is_retrain:
+        # 2. update model
+        if self.is_retrain and self.time_id > self.time_retrain:
+            start_time = time.time()
+            pool = multiprocessing.Pool(processes=self.thread_retrain)
+            mp_dict = multiprocessing.Manager().dict()
+            for j in range(0, self.stages[-1]):
+                if update_list[j]:
+                    leaf_node = self.rmi[-1][j]
+                    pool.apply_async(retrain_model,
+                                     (self.model_path, j, leaf_node.index, leaf_node.model, self.weight, self.cores,
+                                      self.train_step, self.batch_num, self.learning_rate, mp_dict))
+            pool.close()
+            pool.join()
+            for (key, value) in mp_dict.items():
+                self.rmi[-1][key].model = value[0]
+                retrain_model_num += value[1]
+                retrain_model_epoch += value[2]
+            end_time = time.time()
+            self.statistic_list[4] += end_time - start_time
             self.logging.info("Retrain model num: %s" % retrain_model_num)
             self.logging.info("Retrain model epoch: %s" % retrain_model_epoch)
-            self.logging.info("Retrain model time: %s" % (self.statistic_list[4] - retrain_model_time))
-        self.logging.info("Retrain ts model num: %s" % retrain_ts_model_num)
-        self.logging.info("Retrain ts model mse: %s" % retrain_ts_model_mse)
-        self.logging.info("Retrain ts model time: %s" % (self.statistic_list[5] - retrain_ts_model_time))
+            self.logging.info("Retrain model time: %s" % (end_time - start_time))
+        else:
+            time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id), 'models.npy')
+            models = np.load(time_model_path, allow_pickle=True)
+            model_cur = 0
+            for i in range(len(self.stages)):
+                for j in range(self.stages[i]):
+                    self.rmi[i][j].model = models[model_cur]
+                    model_cur += 1
         if self.is_save:
             time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id))
             if os.path.exists(time_model_path) is False:
                 os.makedirs(time_model_path)
-            index = copy.deepcopy(self)
-            index.model_path = time_model_path
-            index.save()
+            models = []
+            for stage in self.rmi:
+                models.extend([node.model for node in stage])
+            np.save(os.path.join(time_model_path, 'models.npy'), models)
+        # 3. update delta model
+        if self.is_retrain_delta and self.time_id > self.time_retrain_delta:
+            start_time = time.time()
+            pool = multiprocessing.Pool(processes=self.thread_retrain_delta)
+            mp_dict = multiprocessing.Manager().dict()
+            for j in range(0, self.stages[-1]):
+                if update_list[j]:
+                    leaf_node = self.rmi[-1][j]
+                    cur_cdf = self.build_cdf([data[2] for data in update_list[j]], leaf_node.delta_model.key_list)
+                    cur_max_key = len(update_list[j]) - 1
+                    pool.apply_async(retrain_delta_model,
+                                     (j, leaf_node.delta_model, cur_cdf, cur_max_key, self.lag, self.predict_step,
+                                      self.cdf_width, mp_dict))
+            pool.close()
+            pool.join()
+            for (key, value) in mp_dict.items():
+                leaf_node = self.rmi[-1][key]
+                leaf_node.delta_model = value[0]
+                leaf_node.delta_index = [[] for i in range(leaf_node.delta_model.cur_max_key + 1)]
+                retrain_delta_model_num += value[1]
+                retrain_delta_model_mse[0] += value[2]
+                retrain_delta_model_mse[1] += value[3]
+            end_time = time.time()
+            self.statistic_list[5] += end_time - start_time
+            self.logging.info("Retrain delta model num: %s" % retrain_delta_model_num)
+            self.logging.info("Retrain delta model mse: %s" % retrain_delta_model_mse)
+            self.logging.info("Retrain delta model time: %s" % (end_time - start_time))
+        else:
+            time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id), 'delta_models.npy')
+            delta_models = np.load(time_model_path, allow_pickle=True)
+            model_cur = 0
+            for i in range(len(self.stages)):
+                for j in range(self.stages[i]):
+                    self.rmi[i][j].delta_model = delta_models[model_cur]
+                    model_cur += 1
+        if self.is_save_delta:
+            time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id))
+            if os.path.exists(time_model_path) is False:
+                os.makedirs(time_model_path)
+            delta_models = []
+            for stage in self.rmi:
+                delta_models.extend([node.delta_model for node in stage])
+            np.save(os.path.join(time_model_path, 'delta_models.npy'), delta_models)
 
     def get_delta_index_list(self, key, leaf_node):
         """
@@ -278,17 +320,25 @@ class TSUSLI(ZMIndexOptimised):
                                dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'),
                                       ("13", 'i1'), ("14", 'i1'), ("15", 'i1')])
         np.save(os.path.join(self.model_path, 'meta_append.npy'), meta_append)
+        compute = np.array((self.is_retrain, self.time_retrain, self.thread_retrain, self.is_save,
+                            self.is_retrain_delta, self.time_retrain_delta, self.thread_retrain_delta,
+                            self.is_save_delta),
+                           dtype=[("0", 'i1'), ("1", 'i2'), ("2", 'i1'), ("3", 'i1'),
+                                  ("4", 'i1'), ("5", 'i2'), ("6", 'i1'), ("7", 'i1')])
+        np.save(os.path.join(self.model_path, 'compute.npy'), compute)
         np.save(os.path.join(self.model_path, 'stages.npy'), self.stages)
         np.save(os.path.join(self.model_path, 'cores.npy'), self.cores)
         models = []
+        delta_models = []
         for stage in self.rmi:
             models.extend([node.model for node in stage])
+            delta_models.extend([node.delta_model for node in stage])
         np.save(os.path.join(self.model_path, 'models.npy'), models)
+        np.save(os.path.join(self.model_path, 'delta_models.npy'), delta_models)
         indexes = []
         index_lens = []
         delta_indexes = []
         delta_index_lens = []
-        delta_models = []
         for node in self.rmi[-1]:
             indexes.extend(node.index)
             index_lens.append(len(node.index))
@@ -297,14 +347,12 @@ class TSUSLI(ZMIndexOptimised):
                 delta_index.extend(tmp)
             delta_indexes.extend(delta_index)
             delta_index_lens.append(len(delta_index))
-            delta_models.append(node.delta_model)
         np.save(os.path.join(self.model_path, 'indexes.npy'),
                 np.array(indexes, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4'), ("4", 'i4')]))
         np.save(os.path.join(self.model_path, 'index_lens.npy'), index_lens)
         np.save(os.path.join(self.model_path, 'delta_indexes.npy'),
                 np.array(delta_indexes, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4'), ("4", 'i4')]))
         np.save(os.path.join(self.model_path, 'delta_index_lens.npy'), delta_index_lens)
-        np.save(os.path.join(self.model_path, 'delta_models.npy'), delta_models)
 
     def load(self):
         """
@@ -328,6 +376,15 @@ class TSUSLI(ZMIndexOptimised):
         self.lag = meta_append[3]
         self.predict_step = meta_append[4]
         self.cdf_width = meta_append[5]
+        compute = np.load(os.path.join(self.model_path, 'compute.npy'), allow_pickle=True).item()
+        self.is_retrain = bool(compute[0])
+        self.time_retrain = compute[1]
+        self.thread_retrain = compute[2]
+        self.is_save = bool(compute[3])
+        self.is_retrain_delta = bool(compute[4])
+        self.thread_retrain_delta = compute[5]
+        self.time_retrain_delta = compute[6]
+        self.is_save_delta = bool(compute[7])
         models = np.load(os.path.join(self.model_path, 'models.npy'), allow_pickle=True)
         indexes = np.load(os.path.join(self.model_path, 'indexes.npy'), allow_pickle=True).tolist()
         index_lens = np.load(os.path.join(self.model_path, 'index_lens.npy'), allow_pickle=True).tolist()
@@ -339,8 +396,10 @@ class TSUSLI(ZMIndexOptimised):
         self.rmi = []
         for i in range(len(self.stages)):
             if i < self.non_leaf_stage_len:
+                models_tmp = models[model_cur:model_cur + self.stages[i]]
+                delta_models_tmp = delta_models[model_cur:model_cur + self.stages[i]]
                 self.rmi.append(
-                    [Node(None, model, None, None) for model in models[model_cur:model_cur + self.stages[i]]])
+                    [Node(None, model, None, delta_model) for model, delta_model in zip(models_tmp, delta_models_tmp)])
                 model_cur += self.stages[i]
             else:
                 index_cur = 0
@@ -349,20 +408,20 @@ class TSUSLI(ZMIndexOptimised):
                 for j in range(self.stages[i]):
                     model = models[model_cur]
                     delta_index = delta_indexes[delta_index_cur:delta_index_cur + delta_index_lens[j]]
-                    delta_model = delta_models[j]
+                    delta_model = delta_models[model_cur]
                     delta_index_lists = [[] for i in range(delta_model.cur_max_key + 1)]
                     for tmp in delta_index:
                         pos = (tmp[2] - model.input_min) / (model.input_max - model.input_min) * self.cdf_width
                         pos_int = int(pos)
                         left_p = delta_model.cur_cdf[pos_int]
-                        if pos >= self.cdf_width - 1:  # if point is at the top of cdf(1.0), insert into the tail of delta_index
+                        if pos >= self.cdf_width - 1:
                             key = delta_model.cur_max_key
                         else:
                             right_p = delta_model.cur_cdf[pos_int + 1]
                             key = int((left_p + (right_p - left_p) * (pos - pos_int)) * delta_model.cur_max_key)
                         delta_index_lists[key].append(tmp)
                     leaf_nodes.append(Node(indexes[index_cur:index_cur + index_lens[j]],
-                                           models[model_cur],
+                                           model,
                                            delta_index_lists,
                                            delta_model))
                     model_cur += 1
@@ -370,11 +429,31 @@ class TSUSLI(ZMIndexOptimised):
                     delta_index_cur += delta_index_lens[j]
                 self.rmi.append(leaf_nodes)
 
+    def save_delta_model(self):
+        delta_models = []
+        for stage in self.rmi:
+            delta_models.extend([node.delta_model for node in stage])
+        np.save(os.path.join(self.model_path, 'delta_models.npy'), delta_models)
+
+    def load_delta_model(self, stages):
+        delta_models = np.load(os.path.join(self.model_path, 'delta_models.npy'), allow_pickle=True)
+        model_cur = 0
+        self.rmi = []
+        for i in range(len(stages)):
+            self.rmi.append(
+                [Node(None, None, None, delta_model) for delta_model in delta_models[model_cur:model_cur + stages[i]]])
+            model_cur += stages[i]
+
     def size(self):
         structure_size, ie_size = super(TSUSLI, self).size()
         structure_size += os.path.getsize(os.path.join(self.model_path, "meta_append.npy")) - 128
         ie_size += os.path.getsize(os.path.join(self.model_path, "delta_models.npy")) - 128
         return structure_size, ie_size
+
+
+def retrain_delta_model(model_key, delta_model, cur_cdf, cur_max_key, lag, predict_step, cdf_width, mp_dict):
+    num, mse_cdf, mse_max_key = delta_model.update(cur_cdf, cur_max_key, lag, predict_step, cdf_width)
+    mp_dict[model_key] = (delta_model, num, mse_cdf, mse_max_key)
 
 
 def main():
@@ -422,11 +501,17 @@ def main():
         index.build_append(time_interval=60 * 60,
                            start_time=1356998400,
                            end_time=1359676799,
-                           is_retrain=False,
-                           is_save=False,
                            lag=24,
                            predict_step=3,
-                           cdf_width=100)
+                           cdf_width=100,
+                           is_retrain=False,
+                           time_retrain=-1,
+                           thread_retrain=3,
+                           is_save=False,
+                           is_retrain_delta=True,
+                           time_retrain_delta=-1,
+                           thread_retrain_delta=3,
+                           is_save_delta=True)
         index.save()
         end_time = time.time()
         build_time = end_time - start_time
