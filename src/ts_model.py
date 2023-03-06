@@ -784,7 +784,7 @@ class ConvLSTMResult(TSResult):
         ])
         optimizer = Adam(learning_rate=learning_rate)  # TODO:Adam和nadam
         model.compile(optimizer=optimizer, loss='mse')
-        early_stopping = EarlyStopping(monitor="loss", patience=10, min_delta=0.00001, verbose=0)
+        early_stopping = EarlyStopping(monitor="loss", patience=10, min_delta=0.0005, verbose=0)
         # reduce_lr = ReduceLROnPlateau(monitor="loss", patience=5, verbose=0)
         history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x, self.test_y),
                             epochs=100, batch_size=batch_size,
@@ -807,9 +807,9 @@ class ConvLSTMResult(TSResult):
 
     def train(self):
         return self.build(activation1='tanh', activation2='tanh',
-                          filter1=16, filter2=32,
+                          filter1=16, filter2=16,
                           dropout1=0.0, dropout2=0.0, kernal_size=9,
-                          learning_rate=0.01, batch_size=64)
+                          learning_rate=0.01, batch_size=32)
 
     def grid_search(self, thread=1, start_num=0):
         # activation1s = ['relu', 'leaky_relu', 'tanh']
@@ -827,9 +827,9 @@ class ConvLSTMResult(TSResult):
         # kernal_sizes = [3, 6, 9, 12, 15]
         kernal_sizes = [9]
         # learning_rates = [0.01, 0.001, 0.0001]
-        learning_rates = [0.01]  # lr0.001对应bs2-4，lr0.01对应bs8-16
+        learning_rates = [0.01]  # lr0.001对应bs2-4，lr0.01对应bs16-32
         # batch_sizes = [1, 4, 16, 64]
-        batch_sizes = [16]
+        batch_sizes = [32]
         pool = multiprocessing.Pool(processes=thread)
         i = 0
         for activation1 in activation1s:

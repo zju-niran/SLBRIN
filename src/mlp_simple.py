@@ -46,7 +46,7 @@ class MLPSimple:
         optimizer = tf.keras.optimizers.Adam(learning_rate=self.learning_rate)
         self.model.compile(optimizer=optimizer, loss=self.mse)
 
-    def train_simple(self, matrices):
+    def build_simple(self, matrices):
         self.init()
         if matrices:
             self.set_matrices(matrices)

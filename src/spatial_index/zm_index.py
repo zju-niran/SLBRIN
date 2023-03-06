@@ -1,4 +1,3 @@
-import gc
 import logging
 import math
 import multiprocessing
@@ -569,18 +568,17 @@ def build_nn(model_path, curr_stage, current_stage_step, inputs, labels, is_new,
         batch_size = 1
     if is_simple:
         tmp_index = NNSimple(inputs, labels, weight, core, train_step, batch_size, learning_rate)
+        tmp_index.build_simple()
     else:
         model_key = "%s_%s" % (curr_stage, current_stage_step)
         tmp_index = NN(model_path, model_key, inputs, labels, is_new,
                        weight, core, train_step, batch_size, learning_rate,
                        use_threshold, threshold, retrain_time_limit)
-    tmp_index.build()
+        tmp_index.build()
     abstract_index = AbstractNN(tmp_index.get_matrices(), len(core) - 1,
                                 int(tmp_index.train_x_min), int(tmp_index.train_x_max),
                                 int(tmp_index.train_y_min), int(tmp_index.train_y_max),
                                 math.floor(tmp_index.min_err), math.ceil(tmp_index.max_err))
-    del tmp_index
-    gc.collect(generation=0)
     mp_list[current_stage_step] = abstract_index
 
 
