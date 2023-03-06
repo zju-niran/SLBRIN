@@ -202,12 +202,14 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
             self.logging.info("Retrain model time: %s" % (end_time - start_time))
         else:
             time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id), 'models.npy')
-            models = np.load(time_model_path, allow_pickle=True)
-            model_cur = 0
-            for i in range(len(self.stages)):
-                for j in range(self.stages[i]):
-                    self.rmi[i][j].model = models[model_cur]
-                    model_cur += 1
+            models = np.load(time_model_path, allow_pickle=True)[-self.stages[-1]:]
+            for j in range(self.stages[-1]):
+                node = self.rmi[-1][j]
+                state = node.model.state
+                bias = node.model.bias
+                node.model = models[j]
+                node.model.state = state
+                node.model.bias = bias
         if self.is_save:
             time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id))
             if os.path.exists(time_model_path) is False:
@@ -319,7 +321,7 @@ def main():
                     thresholds=[5, 20],
                     retrain_time_limits=[4, 2],
                     thread_pool_size=6)
-        index.save()
+        # index.save()
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
