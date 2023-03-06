@@ -187,14 +187,6 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
                 leaf_node.model = value[0]
                 retrain_model_num += value[1]
                 retrain_model_epoch += value[2]
-                # 2. ensure the len of empty locations is enough
-                start_time = time.time()
-                io_cost = self.io_cost
-                self.expand_leaf_node(leaf_node)
-                self.statistic_list[2] += time.time() - start_time
-                self.statistic_list[3] += self.io_cost - io_cost
-                # 3. reset the state of model
-                leaf_node.model.state = 0
             end_time = time.time()
             self.statistic_list[4] += end_time - start_time
             self.logging.info("Retrain model num: %s" % retrain_model_num)
@@ -216,8 +208,23 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
                 os.makedirs(time_model_path)
             models = []
             for stage in self.rmi:
-                models.extend([node.model for node in stage])
+                for node in stage:
+                    model = node.model
+                    del model.state
+                    del model.bias
+                    models.append(model)
             np.save(os.path.join(time_model_path, 'models.npy'), models)
+        for j in range(0, self.stages[-1]):
+            leaf_node = leaf_nodes[j]
+            if leaf_node.model.state != 0:
+                # 2. ensure the len of empty locations is enough
+                start_time = time.time()
+                io_cost = self.io_cost
+                self.expand_leaf_node(leaf_node)
+                self.statistic_list[2] += time.time() - start_time
+                self.statistic_list[3] += self.io_cost - io_cost
+                # 3. reset the state of model
+                leaf_node.model.state = 0
 
     def point_query_single(self, point):
         """
@@ -291,7 +298,7 @@ def retrain_model(model_path, model_key, inputs, model, weight, cores, train_ste
 
 def main():
     load_index_from_json = True
-    load_index_from_json2 = False
+    load_index_from_json2 = True
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     model_path = "model/zmipi_10w_nyct/"
     data_distribution = Distribution.NYCT_10W_SORTED
@@ -321,7 +328,7 @@ def main():
                     thresholds=[5, 20],
                     retrain_time_limits=[4, 2],
                     thread_pool_size=6)
-        # index.save()
+        index.save()
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)

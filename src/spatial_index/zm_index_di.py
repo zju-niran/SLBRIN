@@ -178,7 +178,7 @@ def retrain_model(model_path, model_key, inputs, model, weight, cores, train_ste
 
 def main():
     load_index_from_json = True
-    load_index_from_json2 = False
+    load_index_from_json2 = True
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     model_path = "model/zmdi_10w_nyct/"
     data_distribution = Distribution.NYCT_10W_SORTED
