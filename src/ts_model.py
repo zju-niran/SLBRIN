@@ -65,7 +65,7 @@ class TimeSeriesModel:
         self.cdfs[self.time_id] = cur_cdf
         self.max_keys[self.time_id] = cur_max_key
         self.time_id += 1
-        if self.time_id > len(self.max_keys):
+        if self.time_id >= len(self.max_keys):
             mse_cdf, mse_max_key = self.build(lag, predict_step, cdf_width)
             return 1, mse_cdf, mse_max_key
         return 0, 0, 0
@@ -103,6 +103,9 @@ class ESResult(TSResult):
 
     def __init__(self, data, lag, predict_step, model_path):
         super().__init__()
+        # ES规定数据必须包含不低于两个周期
+        if len(data) < 2 * lag:
+            data.extend(data[-lag:])
         self.data = data
         self.lag = lag
         self.predict_step = predict_step
@@ -510,8 +513,12 @@ class VARResult(TSResult):
         super().__init__()
         data = np.array(data)
         k = int(0.7 * len(data))
-        self.train_data = data[:k]
-        self.test_data = data[k:]
+        if len(data) - k >= lag + predict_step:  # if data is enough
+            self.train_data = data[:k]
+            self.test_data = data[k:]
+        else:
+            self.train_data = data
+            self.test_data = data
         self.predict_step = predict_step
         self.lag = lag
         self.width = width
@@ -566,12 +573,16 @@ class VSARIMAResult(TSResult):
     grid search:
     """
 
-    def __init__(self, data, lag, width, model_path):
+    def __init__(self, data, lag, predict_step, width, model_path):
         super().__init__()
         data = np.array(data)
         k = int(0.7 * len(data))
-        self.train_data = data[:k]
-        self.test_data = data[k:]
+        if len(data) - k >= lag + predict_step:  # if data is enough
+            self.train_data = data[:k]
+            self.test_data = data[k:]
+        else:
+            self.train_data = data
+            self.test_data = data
         self.lag = lag
         self.width = width
         self.model_path = model_path + 'vsarima/'
