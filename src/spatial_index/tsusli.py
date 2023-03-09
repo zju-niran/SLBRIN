@@ -72,10 +72,10 @@ class TSUSLI(ZMIndexOptimised):
         retrain_delta_model_mse = [0, 0]
         # 1. create delta_model with ts_model
         for j in range(self.stages[-1]):
-        # index_lens = [(j, len(self.rmi[-1][j].index)) for j in range(self.stages[-1])]
-        # index_lens.sort(key=lambda x: x[-1])
-        # max_len_index = index_lens[-1][0]
-        # for j in [max_len_index]:
+            # index_lens = [(j, len(self.rmi[-1][j].index)) for j in range(self.stages[-1])]
+            # index_lens.sort(key=lambda x: x[-1])
+            # max_len_index = index_lens[-1][0]
+            # for j in [max_len_index]:
             node = self.rmi[-1][j]
             # create the old_cdfs and old_max_keys for delta_model
             min_key = node.model.input_min
@@ -91,12 +91,14 @@ class TSUSLI(ZMIndexOptimised):
             while l < self.time_id and len(old_cdfs[l]) == 0:
                 l += 1
             old_cdfs = old_cdfs[l:]
+            old_max_keys = old_max_keys[l:]
             for k in range(len(old_cdfs)):
                 cdf = old_cdfs[k]
                 if cdf:  # for non-empty old_cdfs, create by data
                     old_cdfs[k] = self.build_cdf(cdf, key_list)
                 else:  # for empty and non-head old_cdfs, copy from their previous
                     old_cdfs[k] = old_cdfs[k - 1]
+                    old_max_keys[k] = old_max_keys[k - 1]
             # plot_ts(cdfs)
             node.delta_model = TimeSeriesModel(key_list, self.model_path,
                                                old_cdfs, "var",
@@ -106,6 +108,8 @@ class TSUSLI(ZMIndexOptimised):
             retrain_delta_model_mse[1] += mse_max_key
             # 2. change delta_index from [] into [[]]
             node.delta_index = [[] for i in range(node.delta_model.max_keys[node.delta_model.time_id] + 1)]
+        retrain_delta_model_mse[0] = retrain_delta_model_mse[0] / self.stages[-1]
+        retrain_delta_model_mse[1] = retrain_delta_model_mse[1] / self.stages[-1]
         self.logging.info("Build ts model mse: %s" % retrain_delta_model_mse)
 
     def build_cdf(self, data, key_list):
@@ -241,11 +245,14 @@ class TSUSLI(ZMIndexOptimised):
             for (key, value) in mp_dict.items():
                 leaf_node = self.rmi[-1][key]
                 leaf_node.delta_model = value[0]
-                leaf_node.delta_index = [[] for i in range(leaf_node.delta_model.cur_max_key + 1)]
+                leaf_node.delta_index = [[] for i in range(
+                    leaf_node.delta_model.max_keys[leaf_node.delta_model.time_id] + 1)]
                 retrain_delta_model_num += value[1]
                 retrain_delta_model_mse[0] += value[2]
                 retrain_delta_model_mse[1] += value[3]
             end_time = time.time()
+            retrain_delta_model_mse[0] = retrain_delta_model_mse[0] / len(mp_dict.items())
+            retrain_delta_model_mse[1] = retrain_delta_model_mse[1] / len(mp_dict.items())
             self.statistic_list[5] += end_time - start_time
             self.logging.info("Retrain delta model num: %s" % retrain_delta_model_num)
             self.logging.info("Retrain delta model mse: %s" % retrain_delta_model_mse)
@@ -274,15 +281,16 @@ class TSUSLI(ZMIndexOptimised):
         """
         get the delta_index list which contains the key
         """
-        pos = (key - leaf_node.model.input_min) / (
-                leaf_node.model.input_max - leaf_node.model.input_min) * self.cdf_width
+        model = leaf_node.model
+        delta_model = leaf_node.delta_model
+        pos = (key - model.input_min) / (model.input_max - model.input_min) * self.cdf_width
         pos_int = int(pos)
-        left_p = leaf_node.delta_model.cur_cdf[pos_int]
+        left_p = delta_model.cdfs[delta_model.time_id][pos_int]
         if pos >= self.cdf_width - 1:  # if point is at the top of cdf(1.0), insert into the tail of delta_index
-            key = leaf_node.delta_model.cur_max_key
+            key = delta_model.max_keys[delta_model.time_id]
         else:
-            right_p = leaf_node.delta_model.cur_cdf[pos_int + 1]
-            key = int((left_p + (right_p - left_p) * (pos - pos_int)) * leaf_node.delta_model.cur_max_key)
+            right_p = delta_model.cdfs[delta_model.time_id][pos_int + 1]
+            key = int((left_p + (right_p - left_p) * (pos - pos_int)) * delta_model.max_keys[delta_model.time_id])
         return leaf_node.delta_index[key]
 
     def point_query_single(self, point):
@@ -412,16 +420,17 @@ class TSUSLI(ZMIndexOptimised):
                     model = models[model_cur]
                     delta_index = delta_indexes[delta_index_cur:delta_index_cur + delta_index_lens[j]]
                     delta_model = delta_models[model_cur]
-                    delta_index_lists = [[] for i in range(delta_model.cur_max_key + 1)]
+                    delta_index_lists = [[] for i in range(delta_model.max_keys[delta_model.time_id] + 1)]
                     for tmp in delta_index:
                         pos = (tmp[2] - model.input_min) / (model.input_max - model.input_min) * self.cdf_width
                         pos_int = int(pos)
-                        left_p = delta_model.cur_cdf[pos_int]
+                        left_p = delta_model.cdfs[delta_model.time_id][pos_int]
                         if pos >= self.cdf_width - 1:
-                            key = delta_model.cur_max_key
+                            key = delta_model.max_keys[delta_model.time_id]
                         else:
-                            right_p = delta_model.cur_cdf[pos_int + 1]
-                            key = int((left_p + (right_p - left_p) * (pos - pos_int)) * delta_model.cur_max_key)
+                            right_p = delta_model.cdfs[delta_model.time_id][pos_int + 1]
+                            key = int((left_p + (right_p - left_p) * (pos - pos_int))
+                                      * delta_model.max_keys[delta_model.time_id])
                         delta_index_lists[key].append(tmp)
                     leaf_nodes.append(Node(indexes[index_cur:index_cur + index_lens[j]],
                                            model,
@@ -500,7 +509,7 @@ def main():
                            time_retrain_delta=-1,
                            thread_retrain_delta=3,
                            is_save_delta=True)
-        index.save()
+        # index.save()
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)

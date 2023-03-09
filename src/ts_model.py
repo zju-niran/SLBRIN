@@ -21,13 +21,13 @@ warnings.simplefilter('ignore', RuntimeWarning)
 
 
 class TimeSeriesModel:
-    def __init__(self, key_list, model_path, time_id, cdfs, type_cdf, max_keys, type_max_key):
+    def __init__(self, key_list, model_path, cdfs, type_cdf, max_keys, type_max_key):
         # for compute
         self.key_list = key_list
         # common
         self.name = "Time Series Model"
         self.model_path = model_path
-        self.time_id = time_id
+        self.time_id = len(cdfs)
         # for ts of cdf
         self.cdfs = cdfs
         self.model_cdf = sts_model_type[type_cdf]
@@ -41,7 +41,7 @@ class TimeSeriesModel:
             pre_max_keys = [0 for i in range(predict_step)]
             mse_cdf = 0
             mse_max_key = 0
-        elif self.time_id < lag:  # if cdfs are not enough for ts_model in quantity
+        elif self.time_id <= lag + predict_step:  # if cdfs are not enough
             pre_cdfs = [self.cdfs[-1] for i in range(predict_step)]
             pre_max_keys = [self.max_keys[-1] for i in range(predict_step)]
             mse_cdf = 0
@@ -807,7 +807,7 @@ class ConvLSTMResult(TSResult):
 
     def train(self):
         return self.build(activation1='tanh', activation2='tanh',
-                          filter1=16, filter2=16,
+                          filter1=8, filter2=8,
                           dropout1=0.0, dropout2=0.0, kernal_size=9,
                           learning_rate=0.01, batch_size=32)
 
@@ -817,9 +817,9 @@ class ConvLSTMResult(TSResult):
         # activation2s = ['relu', 'leaky_relu', 'tanh']
         activation2s = ['tanh']
         # filter1s = [8, 16, 32, 64]
-        filter1s = [16]
+        filter1s = [8]
         # filter2s = [8, 16, 32, 64]
-        filter2s = [32]
+        filter2s = [8]
         # dropout1s = [0.0, 0.2, 0.4, 0.6, 0.8]
         dropout1s = [0.0]
         # dropout2s = [0.0, 0.2, 0.4, 0.6, 0.8]
