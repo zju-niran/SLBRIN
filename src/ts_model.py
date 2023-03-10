@@ -21,9 +21,10 @@ warnings.simplefilter('ignore', RuntimeWarning)
 
 
 class TimeSeriesModel:
-    def __init__(self, key_list, model_path, cdfs, type_cdf, max_keys, type_max_key):
+    def __init__(self, key_list, model_path, cdfs, type_cdf, max_keys, type_max_key, data_len):
         # for compute
         self.key_list = key_list
+        self.data_len = data_len
         # common
         self.name = "Time Series Model"
         self.model_path = model_path

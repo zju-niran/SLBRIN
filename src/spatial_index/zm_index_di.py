@@ -10,6 +10,7 @@ import numpy as np
 sys.path.append('/home/zju/wlj/SLBRIN')
 from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
 from src.spatial_index.zm_index_optimised import ZMIndexOptimised, NN
+from src.spatial_index.zm_index import Array
 
 # 预设pagesize=4096, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
 PAGE_SIZE = 4096
@@ -26,22 +27,29 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
         self.start_time = None
         self.time_id = None
         self.time_interval = None
+        self.initial_length = 0
         # for compute
         self.is_retrain = True
         self.time_retrain = -1
         self.thread_retrain = 1
         self.is_save = True
-        self.statistic_list = [0, 0, 0, 0, 0]  # insert_key time and io, merge_data time and io, retrain_model time
+        self.insert_time = 0
+        self.insert_io = 0
+        self.last_insert_time = 0
+        self.last_insert_io = 0
 
-    def build_append(self, time_interval, start_time, end_time,
+    def build_append(self, time_interval, start_time, end_time, initial_length,
                      is_retrain, time_retrain, thread_retrain, is_save):
         self.start_time = start_time
         self.time_id = math.ceil((end_time - start_time) / time_interval)
         self.time_interval = time_interval
+        self.initial_length = initial_length
         self.is_retrain = is_retrain
         self.time_retrain = time_retrain
         self.thread_retrain = thread_retrain
         self.is_save = is_save
+        for leaf_node in self.rmi[-1]:
+            leaf_node.delta_index = Array(self.initial_length)
 
     def insert(self, points):
         """
@@ -54,14 +62,13 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
             # 1. update once the time of new point cross the time interval
             time_id = (cur_time - self.start_time) // self.time_interval
             if self.time_id < time_id:
-                self.logging.info("Update time id: %s" % time_id)
                 self.time_id = time_id
                 self.update()
             start_time = time.time()
             io_cost = self.io_cost
             self.insert_single(point)
-            self.statistic_list[0] += time.time() - start_time
-            self.statistic_list[1] += self.io_cost - io_cost
+            self.insert_time += time.time() - start_time
+            self.insert_io += self.io_cost - io_cost
 
     def update(self):
         """
@@ -69,28 +76,35 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
          1. merge delta index into index
          2. update model
          """
-        retrain_model_num = 0
-        retrain_model_epoch = 0
+        self.logging.info("Update time id: %s" % self.time_id)
+        self.logging.info("Insert key time: %s" % (self.insert_time - self.last_insert_time))
+        self.logging.info("Insert key io: %s" % (self.insert_io - self.last_insert_io))
+        self.last_insert_time = self.insert_time
+        self.last_insert_io = self.insert_io
+        index_len = 0
         # 1. merge delta index into index
         update_list = [0] * self.stages[-1]
+        start_io = self.io_cost
+        start_time = time.time()
         for j in range(self.stages[-1]):
             leaf_node = self.rmi[-1][j]
-            if leaf_node.delta_index:
+            if leaf_node.delta_index.max_key >= 0:
                 update_list[j] = 1
-                start_time = time.time()
-                io_cost = self.io_cost
                 if leaf_node.index:
-                    leaf_node.index.extend(leaf_node.delta_index)
+                    leaf_node.index.extend(leaf_node.delta_index.index[:leaf_node.delta_index.max_key + 1])
                     leaf_node.index.sort(key=lambda x: x[2])  # 优化：有序数组合并->sorted:2.5->1
                 else:
-                    leaf_node.index = leaf_node.delta_index
-                leaf_node.delta_index = []
-                self.statistic_list[2] += time.time() - start_time
+                    leaf_node.index = leaf_node.delta_index.index[:leaf_node.delta_index.max_key + 1]
+                leaf_node.delta_index = Array(self.initial_length)
                 # IO1: merge data
                 self.io_cost += math.ceil(len(leaf_node.index) / ITEMS_PER_PAGE)
-                self.statistic_list[3] += self.io_cost - io_cost
+            index_len += len(leaf_node.index) + leaf_node.delta_index.size
+        self.logging.info("Merge data time: %s" % (time.time() - start_time))
+        self.logging.info("Merge data io: %s" % (self.io_cost - start_io))
         # 2. update model
         if self.is_retrain and self.time_id > self.time_retrain:
+            retrain_model_num = 0
+            retrain_model_epoch = 0
             start_time = time.time()
             pool = multiprocessing.Pool(processes=self.thread_retrain)
             mp_dict = multiprocessing.Manager().dict()
@@ -106,11 +120,10 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
                 self.rmi[-1][key].model = value[0]
                 retrain_model_num += value[1]
                 retrain_model_epoch += value[2]
-            end_time = time.time()
-            self.statistic_list[4] += end_time - start_time
             self.logging.info("Retrain model num: %s" % retrain_model_num)
             self.logging.info("Retrain model epoch: %s" % retrain_model_epoch)
-            self.logging.info("Retrain model time: %s" % (end_time - start_time))
+            self.logging.info("Retrain model time: %s" % (time.time() - start_time))
+            self.logging.info("Retrain model io: %s" % (self.io_cost - start_io))
         else:
             time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id), 'models.npy')
             models = np.load(time_model_path, allow_pickle=True)
@@ -127,6 +140,8 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
             for stage in self.rmi:
                 models.extend([node.model for node in stage])
             np.save(os.path.join(time_model_path, 'models.npy'), models)
+        self.logging.info("Index entry size: %s" % (index_len * ITEM_SIZE))
+        self.logging.info("Model precision avg: %s" % self.model_err())
 
     def save(self):
         super(ZMIndexDeltaInsert, self).save()
@@ -150,6 +165,10 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
         self.is_save = bool(compute[3])
 
     def size(self):
+        """
+        structure_size += meta_append.npy
+        ie_size
+        """
         structure_size, ie_size = super(ZMIndexDeltaInsert, self).size()
         structure_size += os.path.getsize(os.path.join(self.model_path, "meta_append.npy")) - 128
         return structure_size, ie_size
@@ -178,9 +197,9 @@ def retrain_model(model_path, model_key, inputs, model, weight, cores, train_ste
 
 def main():
     load_index_from_json = True
-    load_index_from_json2 = True
+    load_index_from_json2 = False
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    model_path = "model/zmdi_10w_nyct/"
+    model_path = "model/dusli_10w_nyct/"
     data_distribution = Distribution.NYCT_10W_SORTED
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
@@ -220,10 +239,11 @@ def main():
         index.build_append(time_interval=60 * 60 * 24,
                            start_time=1356998400,
                            end_time=1359676799,
-                           is_retrain=True,
+                           initial_length=ITEMS_PER_PAGE,
+                           is_retrain=False,
                            time_retrain=-1,
                            thread_retrain=3,
-                           is_save=True)
+                           is_save=False)
         index.save()
         end_time = time.time()
         build_time = end_time - start_time
@@ -247,7 +267,6 @@ def main():
     index.insert(update_data_list)
     end_time = time.time()
     logging.info("Update time: %s" % (end_time - start_time))
-    logging.info("Statis list: %s" % index.statistic_list)
     point_query_list = load_query(data_distribution, 0).tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)

@@ -11,7 +11,7 @@ from src.mlp import MLP
 from src.mlp_simple import MLPSimple
 from src.experiment.common_utils import load_data, Distribution, load_query, data_precision, data_region
 from src.spatial_index.geohash_utils import Geohash
-from src.spatial_index.zm_index import ZMIndex, Node, build_nn
+from src.spatial_index.zm_index import ZMIndex, Node, build_nn, Array
 
 # 预设pagesize=4096, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
 PAGE_SIZE = 4096
@@ -125,7 +125,7 @@ class ZMIndexOptimised(ZMIndex):
                                                 use_threshold, threshold, retrain_time_limit, mp_list))
                 pool.close()
                 pool.join()
-                nodes = [Node(train_input[j], mp_list[j], []) for j in range(task_size)]
+                nodes = [Node(train_input[j], mp_list[j], Array()) for j in range(task_size)]
                 for node in nodes:
                     node.model.output_max -= 2  # remove the key bound
             self.rmi[i] = nodes
@@ -199,7 +199,7 @@ def main():
         os.makedirs(model_path)
     index = ZMIndexOptimised(model_path=model_path)
     index_name = index.name
-    load_index_from_json = True
+    load_index_from_json = False
     if load_index_from_json:
         index.load()
     else:

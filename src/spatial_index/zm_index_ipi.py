@@ -33,7 +33,10 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
         self.time_retrain = -1
         self.thread_retrain = 1
         self.is_save = True
-        self.statistic_list = [0, 0, 0, 0, 0]  # insert_key time and io, merge_data time and io, retrain_model time
+        self.insert_time = 0
+        self.insert_io = 0
+        self.last_insert_time = 0
+        self.last_insert_io = 0
 
     def expand_leaf_node(self, leaf_node):
         """
@@ -119,7 +122,7 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
         # move the relative data towards the closest direction
         # IO2: move data when inserting key
         if key - model.bias >= model.bias + model.output_max - key:
-            if model.output_max + model.bias >= len(leaf_node.index) - 1:
+            if model.bias + model.output_max >= len(leaf_node.index) - 1:
                 # IO3: move data when expanding data
                 key += self.expand_leaf_node(leaf_node)
             for i in range(model.output_max + model.bias, key - 1, -1):
@@ -149,34 +152,39 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
             # 1. update once the time of new point cross the time interval
             time_id = (cur_time - self.start_time) // self.time_interval
             if self.time_id < time_id:
-                self.logging.info("Update time id: %s" % time_id)
                 self.time_id = time_id
                 self.update()
             start_time = time.time()
             io_cost = self.io_cost
             self.insert_single(point)
-            self.statistic_list[0] += time.time() - start_time
-            self.statistic_list[1] += self.io_cost - io_cost
+            self.insert_time += time.time() - start_time
+            self.insert_io += self.io_cost - io_cost
 
     def update(self):
         """
         update the whole index
         1. update model
         """
-        leaf_nodes = self.rmi[-1]
+        self.logging.info("Update time id: %s" % self.time_id)
+        self.logging.info("Insert key time: %s" % (self.insert_time - self.last_insert_time))
+        self.logging.info("Insert key io: %s" % (self.insert_io - self.last_insert_io))
+        self.last_insert_time = self.insert_time
+        self.last_insert_io = self.insert_io
+        # 1. update model
         retrain_model_num = 0
         retrain_model_epoch = 0
-        # 1. update model
+        retrain_model_time = 0
+        retrain_model_io = 0
         if self.is_retrain and self.time_id > self.time_retrain:
             start_time = time.time()
             pool = multiprocessing.Pool(processes=self.thread_retrain)
             mp_dict = multiprocessing.Manager().dict()
             for j in range(0, self.stages[-1]):
-                leaf_node = leaf_nodes[j]
+                leaf_node = self.rmi[-1][j]
                 model = leaf_node.model
                 if model.state != 0:
-                    start_time = time.time()
                     inputs = leaf_node.index[model.bias:model.bias + model.output_max + 1]
+                    retrain_model_io += math.ceil(len(inputs) / ITEMS_PER_PAGE)
                     pool.apply_async(retrain_model,
                                      (self.model_path, j, inputs, model, self.weight, self.cores,
                                       self.train_step, self.batch_num, self.learning_rate, mp_dict))
@@ -184,24 +192,24 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
             pool.join()
             for (key, value) in mp_dict.items():
                 leaf_node = self.rmi[-1][key]
+                state = leaf_node.model.state
+                bias = leaf_node.model.bias
                 leaf_node.model = value[0]
+                leaf_node.model.state = state
+                leaf_node.model.bias = bias
                 retrain_model_num += value[1]
                 retrain_model_epoch += value[2]
-            end_time = time.time()
-            self.statistic_list[4] += end_time - start_time
-            self.logging.info("Retrain model num: %s" % retrain_model_num)
-            self.logging.info("Retrain model epoch: %s" % retrain_model_epoch)
-            self.logging.info("Retrain model time: %s" % (end_time - start_time))
+            retrain_model_time = time.time() - start_time
         else:
             time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id), 'models.npy')
             models = np.load(time_model_path, allow_pickle=True)[-self.stages[-1]:]
             for j in range(self.stages[-1]):
-                node = self.rmi[-1][j]
-                state = node.model.state
-                bias = node.model.bias
-                node.model = models[j]
-                node.model.state = state
-                node.model.bias = bias
+                leaf_node = self.rmi[-1][j]
+                state = leaf_node.model.state
+                bias = leaf_node.model.bias
+                leaf_node.model = models[j]
+                leaf_node.model.state = state
+                leaf_node.model.bias = bias
         if self.is_save:
             time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id))
             if os.path.exists(time_model_path) is False:
@@ -214,17 +222,26 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
                     del model.bias
                     models.append(model)
             np.save(os.path.join(time_model_path, 'models.npy'), models)
+        start_io = self.io_cost
+        start_time = time.time()
+        index_len = 0
         for j in range(0, self.stages[-1]):
-            leaf_node = leaf_nodes[j]
+            leaf_node = self.rmi[-1][j]
             if leaf_node.model.state != 0:
                 # 2. ensure the len of empty locations is enough
-                start_time = time.time()
-                io_cost = self.io_cost
                 self.expand_leaf_node(leaf_node)
-                self.statistic_list[2] += time.time() - start_time
-                self.statistic_list[3] += self.io_cost - io_cost
                 # 3. reset the state of model
                 leaf_node.model.state = 0
+            index_len += len(leaf_node.index)
+        self.logging.info("Merge data time: %s" % (time.time() - start_time))
+        self.logging.info("Merge data io: %s" % (self.io_cost - start_io))
+        if self.is_retrain and self.time_id > self.time_retrain:
+            self.logging.info("Retrain model num: %s" % retrain_model_num)
+            self.logging.info("Retrain model epoch: %s" % retrain_model_epoch)
+            self.logging.info("Retrain model time: %s" % retrain_model_time)
+            self.logging.info("Retrain model io: %s" % retrain_model_io)
+        self.logging.info("Index entry size: %s" % (index_len * ITEM_SIZE))
+        self.logging.info("Model precision avg: %s" % self.model_err())
 
     def point_query_single(self, point):
         """
@@ -266,13 +283,19 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
         self.is_save = bool(compute[3])
 
     def size(self):
+        """
+        structure_size += meta_append.npy
+        ie_size = index
+        """
+        index_len = 0
+        for leaf_node in self.rmi[-1]:
+            index_len += len(leaf_node.index)
         return os.path.getsize(os.path.join(self.model_path, "meta.npy")) - 128 - 64 * 2 + \
                os.path.getsize(os.path.join(self.model_path, "meta_append.npy")) - 128 + \
                os.path.getsize(os.path.join(self.model_path, "stages.npy")) - 128 + \
                os.path.getsize(os.path.join(self.model_path, "cores.npy")) - 128 + \
                os.path.getsize(os.path.join(self.model_path, "models.npy")) - 128, \
-               os.path.getsize(os.path.join(self.model_path, "index_lens.npy")) - 128 + \
-               os.path.getsize(os.path.join(self.model_path, "indexes.npy")) - 128
+               index_len * ITEM_SIZE
 
 
 def retrain_model(model_path, model_key, inputs, model, weight, cores, train_step, batch_num,
@@ -298,9 +321,9 @@ def retrain_model(model_path, model_key, inputs, model, weight, cores, train_ste
 
 def main():
     load_index_from_json = True
-    load_index_from_json2 = True
+    load_index_from_json2 = False
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    model_path = "model/zmipi_10w_nyct/"
+    model_path = "model/ipusli_10w_nyct/"
     data_distribution = Distribution.NYCT_10W_SORTED
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
@@ -345,7 +368,7 @@ def main():
                            time_retrain=-1,
                            thread_retrain=3,
                            is_save=False)
-        index.save()
+        # index.save()
         end_time = time.time()
         build_time = end_time - start_time
         index.logging.info("Build time: %s" % build_time)
@@ -368,7 +391,6 @@ def main():
     index.insert(update_data_list)
     end_time = time.time()
     logging.info("Update time: %s" % (end_time - start_time))
-    logging.info("Statis list: %s" % index.statistic_list)
     point_query_list = load_query(data_distribution, 0).tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)

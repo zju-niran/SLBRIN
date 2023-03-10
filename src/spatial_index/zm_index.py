@@ -140,7 +140,7 @@ class ZMIndex(SpatialIndex):
                                                 use_threshold, threshold, retrain_time_limit, mp_list))
                 pool.close()
                 pool.join()
-                nodes = [Node(train_input[j], mp_list[j], []) for j in range(task_size)]
+                nodes = [Node(train_input[j], mp_list[j], Array()) for j in range(task_size)]
             self.rmi[i] = nodes
             # clear the data already used
             train_inputs[i] = None
@@ -171,11 +171,10 @@ class ZMIndex(SpatialIndex):
         # 3. predict the leaf_node by rmi
         node_key = self.get_leaf_node(gh)
         # 4. insert ie into delta index
-        leaf_node = self.rmi[-1][node_key]
-        leaf_node.delta_index.insert(
-            binary_search_less_max(leaf_node.delta_index, 2, gh, 0, len(leaf_node.delta_index) - 1) + 1, point)
+        delta_index = self.rmi[-1][node_key].delta_index
+        delta_index.insert(binary_search_less_max(delta_index.index, 2, gh, 0, delta_index.max_key) + 1, point)
         # IO1: search key
-        self.io_cost += math.ceil(len(leaf_node.delta_index) / ITEMS_PER_PAGE)
+        self.io_cost += math.ceil((delta_index.max_key + 1) / ITEMS_PER_PAGE)
 
     def insert(self, points):
         points = points.tolist()
@@ -234,12 +233,12 @@ class ZMIndex(SpatialIndex):
                   biased_search_duplicate(leaf_node.index, 2, gh, pre, l_bound, r_bound)]
         self.io_cost += math.ceil((r_bound - l_bound) / ITEMS_PER_PAGE)
         # 4. filter in delta index
-        if leaf_node.delta_index:
-            delta_index_len = len(leaf_node.delta_index)
-            result.extend([leaf_node.delta_index[key][4]
+        delta_index = leaf_node.delta_index
+        if delta_index.max_key >= 0:
+            result.extend([delta_index.index[key][4]
                            for key in
-                           binary_search_duplicate(leaf_node.delta_index, 2, gh, 0, len(leaf_node.delta_index) - 1)])
-            self.io_cost += math.ceil(delta_index_len / ITEMS_PER_PAGE)
+                           binary_search_duplicate(delta_index.index, 2, gh, 0, delta_index.max_key)])
+            self.io_cost += math.ceil((delta_index.max_key + 1) / ITEMS_PER_PAGE)
         return result
 
     def range_query_single(self, window):
@@ -276,14 +275,13 @@ class ZMIndex(SpatialIndex):
             self.io_cost += math.ceil((r_bound2 - l_bound1) / ITEMS_PER_PAGE)
             # filter delta index
             delta_index = leaf_node1.delta_index
-            if delta_index:
-                delta_index_len = len(delta_index)
-                left_key = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
-                right_key = binary_search_less_max(delta_index, 2, gh2, left_key, delta_index_len - 1)
+            if delta_index.max_key >= 0:
+                left_key = binary_search_less_max(delta_index.index, 2, gh1, 0, delta_index.max_key)
+                right_key = binary_search_less_max(delta_index.index, 2, gh2, left_key, delta_index.max_key)
                 result.extend([ie[4]
-                               for ie in delta_index[left_key:right_key + 1]
+                               for ie in delta_index.index[left_key:right_key + 1]
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-                self.io_cost += math.ceil(delta_index_len / ITEMS_PER_PAGE)
+                self.io_cost += math.ceil((delta_index.max_key + 1) / ITEMS_PER_PAGE)
         else:
             # filter index
             io_index_len = len(leaf_node1.index) + r_bound2 - l_bound1
@@ -304,27 +302,25 @@ class ZMIndex(SpatialIndex):
             # filter delta index
             delta_index = leaf_node1.delta_index
             io_index_len = 0
-            if delta_index:
-                delta_index_len = len(delta_index)
-                io_index_len += delta_index_len
-                left_key = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
+            if delta_index.max_key >= 0:
+                io_index_len += delta_index.max_key + 1
+                left_key = binary_search_less_max(delta_index.index, 2, gh1, 0, delta_index.max_key)
                 result.extend([ie[4]
-                               for ie in delta_index[left_key:]
+                               for ie in delta_index.index[left_key:]
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
             if leaf_key2 - leaf_key1 > 1:
                 result.extend([ie[4]
                                for leaf_key in range(leaf_key1 + 1, leaf_key2)
-                               for ie in self.rmi[-1][leaf_key].delta_index
+                               for ie in self.rmi[-1][leaf_key].delta_index.index
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
                 for leaf_key in range(leaf_key1 + 1, leaf_key2):
-                    io_index_len += len(self.rmi[-1][leaf_key].delta_index)
+                    io_index_len += len(self.rmi[-1][leaf_key].delta_index.index)
             delta_index = leaf_node2.delta_index
-            if delta_index:
-                delta_index_len = len(delta_index)
-                io_index_len += delta_index_len
-                right_key = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_len - 1)
+            if delta_index.max_key >= 0:
+                io_index_len += delta_index.max_key + 1
+                right_key = binary_search_less_max(delta_index.index, 2, gh1, 0, delta_index.max_key)
                 result.extend([ie[4]
-                               for ie in delta_index[:right_key + 1]
+                               for ie in delta_index.index[:right_key + 1]
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
             self.io_cost += math.ceil(io_index_len / ITEMS_PER_PAGE)
         return result
@@ -369,11 +365,11 @@ class ZMIndex(SpatialIndex):
                            if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
                 io_index_len += right_key - left_key
                 delta_index = leaf_node1.delta_index
-                if delta_index:
-                    delta_index_max_key = len(delta_index) - 1
-                    delta_left_key = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_max_key)
-                    delta_right_key = binary_search_less_max(delta_index, 2, gh2, delta_left_key, delta_index_max_key)
-                    tp_list.extend([ie for ie in delta_index[delta_left_key:delta_right_key]
+                if delta_index.max_key >= 0:
+                    delta_left_key = binary_search_less_max(delta_index.index, 2, gh1, 0, delta_index.max_key)
+                    delta_right_key = binary_search_less_max(delta_index.index, 2, gh2, delta_left_key,
+                                                             delta_index.max_key)
+                    tp_list.extend([ie for ie in delta_index.index[delta_left_key:delta_right_key]
                                     if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
                     io_delta_index_len += delta_right_key - delta_left_key
             else:
@@ -381,20 +377,18 @@ class ZMIndex(SpatialIndex):
                            if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
                 io_index_len += len(leaf_node1.index) - left_key
                 delta_index = leaf_node1.delta_index
-                if delta_index:
-                    delta_index_max_key = len(delta_index) - 1
-                    delta_left_key = binary_search_less_max(delta_index, 2, gh1, 0, delta_index_max_key)
-                    tp_list.extend([ie for ie in delta_index[delta_left_key:]
+                if delta_index.max_key >= 0:
+                    delta_left_key = binary_search_less_max(delta_index.index, 2, gh1, 0, delta_index.max_key)
+                    tp_list.extend([ie for ie in delta_index.index[delta_left_key:]
                                     if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-                    io_delta_index_len += delta_index_max_key - delta_left_key + 1
+                    io_delta_index_len += delta_index.max_key - delta_left_key + 1
                 tp_list.extend([ie for ie in leaf_node2.index[:right_key]
                                 if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
                 io_index_len += len(leaf_node1.index) + right_key
                 delta_index = leaf_node2.delta_index
-                if delta_index:
-                    delta_index_max_key = len(delta_index) - 1
-                    delta_right_key = binary_search_less_max(delta_index, 2, gh2, 0, delta_index_max_key)
-                    tp_list.extend([ie for ie in delta_index[:delta_right_key]
+                if delta_index.max_key >= 0:
+                    delta_right_key = binary_search_less_max(delta_index.index, 2, gh2, 0, delta_index.max_key)
+                    tp_list.extend([ie for ie in delta_index.index[:delta_right_key]
                                     if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
                     io_delta_index_len += delta_right_key
                 tp_list.extend([ie for leaf_key in range(leaf_key1 + 1, leaf_key2)
@@ -402,10 +396,10 @@ class ZMIndex(SpatialIndex):
                                 if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
                 io_index_len += sum([len(self.rmi[-1][leaf_key].index) for leaf_key in range(leaf_key1 + 1, leaf_key2)])
                 tp_list.extend([ie for leaf_key in range(leaf_key1 + 1, leaf_key2)
-                                for ie in self.rmi[-1][leaf_key].delta_index
+                                for ie in self.rmi[-1][leaf_key].delta_index.index
                                 if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
                 io_delta_index_len += sum(
-                    [len(self.rmi[-1][leaf_key].delta_index) for leaf_key in range(leaf_key1 + 1, leaf_key2)])
+                    [len(self.rmi[-1][leaf_key].delta_index.index) for leaf_key in range(leaf_key1 + 1, leaf_key2)])
             # 3. if target points is not enough, set window = 2 * window
             if len(tp_list) < k:
                 window_radius *= 2
@@ -443,8 +437,9 @@ class ZMIndex(SpatialIndex):
         for node in self.rmi[-1]:
             indexes.extend(node.index)
             index_lens.append(len(node.index))
-            delta_indexes.extend(node.delta_index)
-            delta_index_lens.append(len(node.delta_index))
+            delta_indexes.extend(node.delta_index.index)
+            delta_index_lens.append(node.delta_index.size)
+            delta_index_lens.append(node.delta_index.max_key)
         np.save(os.path.join(self.model_path, 'indexes.npy'),
                 np.array(indexes, dtype=[("0", 'f8'), ("1", 'f8'), ("2", 'i8'), ("3", 'i4'), ("4", 'i4')]))
         np.save(os.path.join(self.model_path, 'index_lens.npy'), index_lens)
@@ -478,29 +473,34 @@ class ZMIndex(SpatialIndex):
             else:
                 index_cur = 0
                 delta_index_cur = 0
+                delta_index_len_cur = 0
                 leaf_nodes = []
                 for j in range(self.stages[i]):
+                    size = delta_index_lens[delta_index_len_cur]
+                    max_key = delta_index_lens[delta_index_len_cur + 1]
+                    index = delta_indexes[delta_index_cur:delta_index_cur + size]
                     leaf_nodes.append(Node(indexes[index_cur:index_cur + index_lens[j]],
                                            models[model_cur],
-                                           delta_indexes[delta_index_cur:delta_index_cur + delta_index_lens[j]]))
+                                           Array(size, max_key, index)))
                     model_cur += 1
                     index_cur += index_lens[j]
-                    delta_index_cur += delta_index_lens[j]
+                    delta_index_cur += size
+                    delta_index_len_cur += 2
                 self.rmi.append(leaf_nodes)
 
     def size(self):
         """
         structure_size = meta.npy + stages.npy + cores.npy + models.npy
-        ie_size = index_lens.npy + indexes.npy + delta_index_lens.npy + delta_indexes.npy
+        ie_size = index + delta_index
         """
+        index_len = 0
+        for leaf_node in self.rmi[-1]:
+            index_len += len(leaf_node.index) + leaf_node.delta_index.size
         return os.path.getsize(os.path.join(self.model_path, "meta.npy")) - 128 - 64 * 2 + \
                os.path.getsize(os.path.join(self.model_path, "stages.npy")) - 128 + \
                os.path.getsize(os.path.join(self.model_path, "cores.npy")) - 128 + \
                os.path.getsize(os.path.join(self.model_path, "models.npy")) - 128, \
-               os.path.getsize(os.path.join(self.model_path, "index_lens.npy")) - 128 + \
-               os.path.getsize(os.path.join(self.model_path, "indexes.npy")) - 128 + \
-               os.path.getsize(os.path.join(self.model_path, "delta_index_lens.npy")) - 128 + \
-               os.path.getsize(os.path.join(self.model_path, "delta_indexes.npy")) - 128
+               index_len * ITEM_SIZE
 
     def model_err(self):
         model_precisions = [(node.model.max_err - node.model.min_err) for node in self.rmi[-1] if node.model]
@@ -532,9 +532,9 @@ class ZMIndex(SpatialIndex):
                              range(stage2_model_num)]
         data_io = sum(data_node_io_list) / sum(data_num_list)
         # io when load update data
-        update_data_num = sum([len(node.delta_index) for node in self.rmi[-1]])
-        update_data_io_list = [math.ceil(len(node.delta_index) / ITEMS_PER_PAGE) * len(node.delta_index) for node in
-                               self.rmi[-1]]
+        update_data_num = sum([len(node.delta_index.index[:node.delta_index.max_key + 1]) for node in self.rmi[-1]])
+        update_data_io_list = [math.ceil((node.delta_index.max_key + 1) / ITEMS_PER_PAGE) *
+                               (node.delta_index.max_key + 1) for node in self.rmi[-1]]
         update_data_io = sum(update_data_io_list) / update_data_num if update_data_num else 0
         return data_io + update_data_io
 
@@ -647,6 +647,35 @@ class AbstractNN:
         return (np.dot(y2, self.matrices[-2]) - np.dot(y1, self.matrices[-2]))[0, 0] / delta
 
 
+class Array:
+    """
+    模拟python数组：
+    1. 初始化：1个Page
+    2. 扩容：每次扩容增大原来的1/8
+    3. 插入：检查是否需要扩容，右移插入点后的所有数据，返回移动的数据数量
+    """
+
+    def __init__(self, size=ITEMS_PER_PAGE, max_key=-1, index=None):
+        self.size = size
+        self.max_key = max_key
+        self.index = [(0, 0, 0, 0, 0) for i in range(size)] if index is None else index
+
+    def expand(self, size=None):
+        if size is None:
+            size = max(int(self.size / 8), 1)
+        self.index.extend([(0, 0, 0, 0, 0) for i in range(size)])
+        self.size += size
+
+    def insert(self, key, value):
+        self.max_key += 1
+        if self.max_key == self.size:
+            self.expand()
+        for i in range(self.max_key, key, -1):
+            self.index[i] = self.index[i - 1]
+        self.index[key] = value
+        return self.max_key - key + 1
+
+
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     model_path = "model/zm_index_10w/"
@@ -666,7 +695,7 @@ def main():
                     is_sorted=True,
                     data_precision=data_precision[data_distribution],
                     region=data_region[data_distribution],
-                    is_new=True,
+                    is_new=False,
                     is_simple=False,
                     weight=1,
                     stages=[1, 100],

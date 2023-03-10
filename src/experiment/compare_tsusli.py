@@ -28,10 +28,13 @@ if __name__ == '__main__':
                         level=logging.INFO,
                         format="%(message)s")
     index_infos = [
-        ("dusli", True, -1, 3, True),
+        # ("dusli", True, -1, 3, True),
+        ("dusli", False, -1, 3, False, 146),
         ("ipusli", False, -1, 3, False, 0.2),
         ("ipusli2", False, -1, 3, False, 0.8),
-        ("tsusli", False, -1, 3, False, True, -1, 3, True, 24, 3, 100),
+        ("tsusli", False, -1, 3, False, True, -1, 3, True, 24, 3, 100, 1, "var", "es"),
+        ("tsusli", False, -1, 3, False, False, -1, 3, False, 24, 3, 100, 1, "var", "es"),
+        ("tsusli", False, -1, 3, False, False, -1, 3, False, 24, 3, 100, 146, "var", "es"),
     ]
     data_distributions = [Distribution.UNIFORM_SORTED, Distribution.NORMAL_SORTED, Distribution.NYCT_SORTED]
     # data_distributions = [Distribution.UNIFORM_10W, Distribution.NORMAL_10W, Distribution.NYCT_10W]
@@ -52,6 +55,7 @@ if __name__ == '__main__':
                 index.build_append(time_interval=60 * 60,
                                    start_time=1356998400,
                                    end_time=1359676799,
+                                   initial_length=index_info[5],
                                    is_retrain=index_info[1],
                                    time_retrain=index_info[2],
                                    thread_retrain=index_info[3],
@@ -65,6 +69,9 @@ if __name__ == '__main__':
                                    lag=index_info[9],
                                    predict_step=index_info[10],
                                    cdf_width=index_info[11],
+                                   child_length=index_info[12],
+                                   cdf_model=index_info[13],
+                                   max_key_model=index_info[14],
                                    is_retrain=index_info[1],
                                    time_retrain=index_info[2],
                                    thread_retrain=index_info[3],
@@ -91,23 +98,24 @@ if __name__ == '__main__':
             structure_size, ie_size = index.size()
             logging.info("Structure size: %s" % structure_size)
             logging.info("Index entry size: %s" % ie_size)
-            io_cost = 0
             logging.info("Model precision avg: %s" % index.model_err())
             point_query_list = load_query(data_distribution, 0).tolist()
+            io_cost = index.io_cost
             start_time = time.time()
             index.test_point_query(point_query_list)
             end_time = time.time()
             search_time = (end_time - start_time) / len(point_query_list)
             logging.info("Point query time: %s" % search_time)
             logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
-            io_cost = index.io_cost
             update_data_list = load_data(data_distribution, 1)
+            io_cost = index.io_cost
             start_time = time.time()
             index.insert(update_data_list)
             end_time = time.time()
             logging.info("Update time: %s" % (end_time - start_time))
-            logging.info("Statis list: %s" % index.statistic_list)
+            logging.info("Update io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
             point_query_list = load_query(data_distribution, 0).tolist()
+            io_cost = index.io_cost
             start_time = time.time()
             index.test_point_query(point_query_list)
             end_time = time.time()
