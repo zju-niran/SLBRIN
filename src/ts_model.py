@@ -31,10 +31,10 @@ class TimeSeriesModel:
         self.time_id = len(cdfs)
         # for ts of cdf
         self.cdfs = cdfs
-        self.model_cdf = sts_model_type[type_cdf]
+        self.model_cdf = type_cdf
         # for ts of max key
         self.max_keys = max_keys
-        self.model_max_key = ts_model_type[type_max_key]
+        self.model_max_key = type_max_key
 
     def build(self, lag, predict_step, cdf_width):
         if self.time_id == 0:  # if cdfs is []
@@ -48,10 +48,10 @@ class TimeSeriesModel:
             mse_cdf = 0
             mse_max_key = 0
         else:
-            ts = self.model_cdf(self.cdfs[:self.time_id], lag, predict_step, cdf_width, self.model_path)
+            ts = sts_model_type[self.model_cdf](self.cdfs[:self.time_id], lag, predict_step, cdf_width, self.model_path)
             # ts.grid_search(thread=4, start_num=0)
             pre_cdfs, mse_cdf = ts.train()
-            ts = self.model_max_key(self.max_keys[:self.time_id], lag, predict_step, self.model_path)
+            ts = ts_model_type[self.model_max_key](self.max_keys[:self.time_id], lag, predict_step, self.model_path)
             # ts.grid_search(thread=3, start_num=0)
             pre_max_keys, mse_max_key = ts.train()
         self.cdfs.extend(pre_cdfs)
@@ -111,14 +111,14 @@ class ESResult(TSResult):
         self.lag = lag
         self.predict_step = predict_step
         self.model_path = model_path + 'es/'
-        if os.path.exists(self.model_path) is False:
-            os.makedirs(self.model_path)
 
     def build(self, trend, seasonal, is_plot=False):
         model = ExponentialSmoothing(self.data, seasonal_periods=self.lag, trend=trend, seasonal=seasonal).fit()
         pre = correct_max_key(model.forecast(steps=self.predict_step))
         mse = model.sse / model.model.nobs
         if is_plot:
+            if os.path.exists(self.model_path) is False:
+                os.makedirs(self.model_path)
             plt.plot(self.data)
             plt.plot(model.predict(0, len(self.data) - 1))
             plt.savefig(
@@ -161,8 +161,6 @@ class SARIMAResult(TSResult):
         self.lag = lag
         self.predict_step = predict_step
         self.model_path = model_path + 'sarima/'
-        if os.path.exists(self.model_path) is False:
-            os.makedirs(self.model_path)
 
     def build(self, p, d, q, P, Q, D, is_plot=False):
         model = SARIMAX(self.data, order=(p, d, q), seasonal_order=(P, D, Q, self.lag),
@@ -172,6 +170,8 @@ class SARIMAResult(TSResult):
         mse = model.mse
         # sum([data ** 2 for data in model.predict(0, self.data.size - 1) - self.data]) / self.data.size
         if is_plot:
+            if os.path.exists(self.model_path) is False:
+                os.makedirs(self.model_path)
             plt.plot(self.data)
             plt.plot(model.predict(0, self.data.size - 1))
             plt.savefig(
@@ -233,8 +233,6 @@ class RNNResult(TSResult):
         self.lag = lag
         self.predict_step = predict_step
         self.model_path = model_path + 'rnn/'
-        if os.path.exists(self.model_path) is False:
-            os.makedirs(self.model_path)
 
     def build(self, activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size, is_plot=False):
         start_time = time.time()
@@ -259,6 +257,8 @@ class RNNResult(TSResult):
         mse = history.history['val_loss'][-1]
         end_time = time.time()
         if is_plot:
+            if os.path.exists(self.model_path) is False:
+                os.makedirs(self.model_path)
             plt.plot(history.history['loss'], label='train')
             plt.plot(history.history['val_loss'], label='test')
             plt.savefig(
@@ -331,8 +331,6 @@ class LSTMResult(TSResult):
         self.lag = lag
         self.predict_step = predict_step
         self.model_path = model_path + 'lstm/'
-        if os.path.exists(self.model_path) is False:
-            os.makedirs(self.model_path)
 
     def build(self, activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size, is_plot=False):
         start_time = time.time()
@@ -357,6 +355,8 @@ class LSTMResult(TSResult):
         mse = history.history['val_loss'][-1]
         end_time = time.time()
         if is_plot:
+            if os.path.exists(self.model_path) is False:
+                os.makedirs(self.model_path)
             plt.plot(history.history['loss'], label='train')
             plt.plot(history.history['val_loss'], label='test')
             plt.savefig(
@@ -378,13 +378,13 @@ class LSTMResult(TSResult):
         # unit1s = [32, 64, 128, 256, 516]
         unit2s = [64, 128, 256, 516]
         # dropout1s = [0.0, 0.2, 0.4, 0.6, 0.8]
-        dropout1s = [0.0, 0.2]
+        dropout1s = [0.0]
         # dropout2s = [0.0, 0.2, 0.4, 0.6, 0.8]
         dropout2s = [0.0]
         # learning_rates = [0.01, 0.001, 0.0001]
-        learning_rates = [0.1, 0.01]
+        learning_rates = [0.1]
         # batch_sizes = [1, 4, 16, 64]
-        batch_sizes = [2, 4, 8, 16]
+        batch_sizes = [4]
         pool = multiprocessing.Pool(processes=thread)
         i = 0
         for activation in activations:
@@ -428,8 +428,6 @@ class GRUResult(TSResult):
         self.lag = lag
         self.predict_step = predict_step
         self.model_path = model_path + 'gru/'
-        if os.path.exists(self.model_path) is False:
-            os.makedirs(self.model_path)
 
     def build(self, activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size, is_plot=False):
         start_time = time.time()
@@ -454,6 +452,8 @@ class GRUResult(TSResult):
         mse = history.history['val_loss'][-1]
         end_time = time.time()
         if is_plot:
+            if os.path.exists(self.model_path) is False:
+                os.makedirs(self.model_path)
             plt.plot(history.history['loss'], label='train')
             plt.plot(history.history['val_loss'], label='test')
             plt.savefig(
@@ -524,8 +524,6 @@ class VARResult(TSResult):
         self.lag = lag
         self.width = width
         self.model_path = model_path + 'var/'
-        if os.path.exists(self.model_path) is False:
-            os.makedirs(self.model_path)
 
     def build(self, p, is_plot=False):
         try:
@@ -535,16 +533,22 @@ class VARResult(TSResult):
             model = VAR(self.train_data).fit(maxlags=self.lag, verbose=True, trend='n')
         pre = correct_cdf(model.forecast(self.test_data[-self.lag:], steps=self.predict_step))
         # 训练集的mse
-        # mse = sum([sum([err ** 2 for l in (model.forecast(self.train_data[i:i + self.lag], steps=self.predict_step)
-        #                                    - self.train_data[i + self.lag]) for err in l])
-        #            for i in range(len(self.train_data) - self.lag)]) / (
-        #               (len(self.train_data) - self.lag) * self.width * self.predict_step)
+        # train_group_num = len(self.train_data) - self.lag - self.predict_step + 1
+        # mse = sum([sum([err ** 2
+        #                 for l in (model.forecast(self.train_data[i:i + self.lag], steps=self.predict_step)
+        #                           - self.train_data[self.lag: i + self.lag + self.predict_step])
+        #                 for err in l])
+        #            for i in range(train_group_num)]) / (train_group_num * self.width * self.predict_step)
         # 验证集的mse
-        mse = sum([sum([err ** 2 for l in (model.forecast(self.test_data[i:i + self.lag], steps=self.predict_step)
-                                           - self.test_data[i + self.lag]) for err in l])
-                   for i in range(len(self.test_data) - self.lag)]) / (
-                      (len(self.test_data) - self.lag) * self.width * self.predict_step)
+        test_group_num = len(self.test_data) - self.lag - self.predict_step + 1
+        mse = sum([sum([err ** 2
+                        for l in (model.forecast(self.test_data[i:i + self.lag], steps=self.predict_step)
+                                  - self.test_data[i + self.lag: i + self.lag + self.predict_step])
+                        for err in l])
+                   for i in range(test_group_num)]) / (test_group_num * self.width * self.predict_step)
         if is_plot:
+            if os.path.exists(self.model_path) is False:
+                os.makedirs(self.model_path)
             plt.plot(self.test_data[-1])
             plt.plot(model.forecast(self.test_data[-self.lag:], steps=1))
             plt.savefig(
@@ -584,31 +588,35 @@ class VSARIMAResult(TSResult):
         else:
             self.train_data = data
             self.test_data = data
+        self.predict_step = predict_step
         self.lag = lag
         self.width = width
         self.model_path = model_path + 'vsarima/'
-        if os.path.exists(self.model_path) is False:
-            os.makedirs(self.model_path)
 
     def build(self, p, q, is_plot=False):
-        # TODO
         model = VARMAX(self.train_data, order=(p, q),
                        error_cov_type='error_cov_type',
                        enforce_stationarity=False,
                        enforce_invertibility=False).fit(disp=False)
         pre = list(correct_cdf(model.forecast(self.test_data[-self.lag:], steps=1)[0]))
         # 训练集的mse
-        # mse = sum([sum([err ** 2 for err in
-        #                 (model.forecast(self.data[i:i + self.lag], steps=1) - self.data[i + self.lag]).tolist()[0]])
-        #            for i in range(model.fittedvalues.shape[0])]) / model.fittedvalues.size
-        mse = model.mse
+        # train_group_num = len(self.train_data) - self.lag - self.predict_step + 1
+        # mse = sum([sum([err ** 2
+        #                 for l in (model.forecast(self.train_data[i:i + self.lag], steps=self.predict_step)
+        #                           - self.train_data[self.lag: i + self.lag + self.predict_step])
+        #                 for err in l])
+        #            for i in range(train_group_num)]) / (train_group_num * self.width * self.predict_step)
+        # mse = model.mse
         # 验证集的mse
-        # mse = sum([sum([err ** 2 for err in
-        #                 (model.forecast(self.test_data[i:i + self.lag], steps=1) - self.test_data[i + self.lag])
-        #                .tolist()[0]])
-        #            for i in range(self.test_data.shape[0] - self.lag)]) / (
-        #               (self.test_data.shape[0] - self.lag) * self.width)
+        test_group_num = len(self.test_data) - self.lag - self.predict_step + 1
+        mse = sum([sum([err ** 2
+                        for l in (model.forecast(self.test_data[i:i + self.lag], steps=self.predict_step)
+                                  - self.test_data[i + self.lag: i + self.lag + self.predict_step])
+                        for err in l])
+                   for i in range(test_group_num)]) / (test_group_num * self.width * self.predict_step)
         if is_plot:
+            if os.path.exists(self.model_path) is False:
+                os.makedirs(self.model_path)
             plt.plot(self.test_data[-1])
             plt.plot(model.forecast(self.test_data[-self.lag:], steps=1))
             plt.savefig(
@@ -620,7 +628,6 @@ class VSARIMAResult(TSResult):
         return self.build(p=2, q=0)
 
     def grid_search(self, thread=1, start_num=0):
-        # TODO
         ps = qs = [0, 1, 2, 3]
         pool = multiprocessing.Pool(processes=thread)
         i = 0
@@ -642,20 +649,25 @@ class FCLSTMResult(TSResult):
     2. 训练参数：学习率、批大小
     """
 
-    def __init__(self, data, lag, width, model_path):
+    def __init__(self, data, lag, predict_step, width, model_path):
         super().__init__()
         k = int(0.7 * len(data))
-        data = np.expand_dims(np.array(data), -1)
         train_data, test_data = data[:k], data[k:]
-        self.train_x = np.array([train_data[i - lag:i] for i in range(lag, len(train_data))])
-        self.train_y = np.array([train_data[i] for i in range(lag, len(train_data))])
-        self.test_x = np.array([test_data[i - lag:i] for i in range(lag, len(test_data) + 1)])
-        self.test_y = np.array([test_data[i] for i in range(lag, len(test_data))])
+        self.train_x = np.array([train_data[i:i + lag]
+                                 for i in range(0, k - lag - predict_step + 1)])
+        self.train_y = np.array([train_data[i + lag:i + lag + predict_step]
+                                 for i in range(0, k - lag - predict_step + 1)])
+        self.train_y = self.train_y.reshape(self.train_y.shape[0], predict_step * width)
+        self.test_x = np.array([test_data[i:i + lag]
+                                for i in range(0, len(test_data) - lag - predict_step + 1)])
+        self.test_y = np.array([test_data[i + lag:i + lag + predict_step]
+                                for i in range(0, len(test_data) - lag - predict_step + 1)])
+        self.test_y = self.test_y.reshape(self.test_y.shape[0], predict_step * width)
+        self.pre_x = np.expand_dims(np.array(data[-lag:]), 0)
         self.lag = lag
+        self.predict_step = predict_step
         self.width = width
         self.model_path = model_path + 'fclstm/'
-        if os.path.exists(self.model_path) is False:
-            os.makedirs(self.model_path)
 
     def build(self, activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size, is_plot=False):
         model = Sequential([
@@ -663,20 +675,23 @@ class FCLSTMResult(TSResult):
             # Dropout(dropout1),
             LSTM(activation=activation, units=unit2, return_sequences=False),
             # Dropout(dropout2),
-            Dense(units=1)
+            Dense(units=self.predict_step * self.width)
         ])
         optimizer = Adam(learning_rate=learning_rate)
         model.compile(optimizer=optimizer, loss='mse')
-        early_stopping = EarlyStopping(monitor="loss", patience=10, min_delta=0.00001, verbose=0)
+        early_stopping = EarlyStopping(monitor="loss", patience=10, min_delta=0.0005, verbose=0)
         # reduce_lr = ReduceLROnPlateau(monitor="loss", patience=5, verbose=0)
-        history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x[:-1], self.test_y),
+        history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x, self.test_y),
                             epochs=100, batch_size=batch_size,
                             callbacks=[early_stopping], verbose=0)
-        pre = correct_max_key(history.model.predict(self.test_x[-1:])[0])
+        pre = correct_cdf(model.predict(self.pre_x).reshape(self.predict_step, self.width))
         # ERROR: loss里的mse和实际计算的mse有差距
-        # mse = sum(sum([(pre - true) ** 2 for pre, true in zip(model.predict(self.test_x[:-1]), self.test_y)]))[0] / self.test_y.size
+        # mse = sum(sum(sum([(pre - true) ** 2 for pre, true in
+        #                    zip(model.predict(self.test_x), self.test_y[:, :, :, 0])]))) / self.test_y.size
         mse = history.history['val_loss'][-1]
         if is_plot:
+            if os.path.exists(self.model_path) is False:
+                os.makedirs(self.model_path)
             plt.plot(history.history['loss'], label='train')
             plt.plot(history.history['val_loss'], label='test')
             plt.savefig(
@@ -690,7 +705,6 @@ class FCLSTMResult(TSResult):
                           learning_rate=0.01, batch_size=4)
 
     def grid_search(self, thread=1, start_num=0):
-        # TODO
         # activations = ['relu', 'leaky_relu', 'tanh']
         activations = ['relu']
         # unit1s = [32, 64, 128, 256, 516]
@@ -701,8 +715,8 @@ class FCLSTMResult(TSResult):
         dropout1s = [0.0, 0.2]
         # dropout2s = [0.0, 0.2, 0.4, 0.6, 0.8]
         dropout2s = [0.0]
-        # learning_rates = [0.01, 0.001, 0.0001]
-        learning_rates = [0.1, 0.01]
+        # learning_rates = [0.1, 0.01, 0.001, 0.0001]
+        learning_rates = [0.01]
         # batch_sizes = [1, 4, 16, 64]
         batch_sizes = [2, 4, 8, 16]
         pool = multiprocessing.Pool(processes=thread)
@@ -750,8 +764,6 @@ class ConvLSTMResult(TSResult):
         self.predict_step = predict_step
         self.width = width
         self.model_path = model_path + 'convlstm/'
-        if os.path.exists(self.model_path) is False:
-            os.makedirs(self.model_path)
 
     def build(self, activation1, activation2, filter1, filter2, dropout1, dropout2, kernal_size,
               learning_rate, batch_size, is_plot=False):
@@ -794,7 +806,7 @@ class ConvLSTMResult(TSResult):
             Conv2D(activation=activation2, filters=1, kernel_size=(kernal_size, kernal_size),
                    padding='same', data_format='channels_last')
         ])
-        optimizer = Adam(learning_rate=learning_rate)  # TODO:Adam和nadam
+        optimizer = Adam(learning_rate=learning_rate)
         model.compile(optimizer=optimizer, loss='mse')
         early_stopping = EarlyStopping(monitor="loss", patience=10, min_delta=0.0005, verbose=0)
         # reduce_lr = ReduceLROnPlateau(monitor="loss", patience=5, verbose=0)
@@ -808,6 +820,8 @@ class ConvLSTMResult(TSResult):
         mse = history.history['val_loss'][-1]
         end_time = time.time()
         if is_plot:
+            if os.path.exists(self.model_path) is False:
+                os.makedirs(self.model_path)
             plt.plot(history.history['loss'], label='train')
             plt.plot(history.history['val_loss'], label='test')
             plt.savefig(
