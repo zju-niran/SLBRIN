@@ -119,7 +119,7 @@ class TSUSLI(ZMIndexOptimised):
                                 for i in range(node.delta_model.max_keys[node.delta_model.time_id] + 1)]
         retrain_delta_model_mse[0] = retrain_delta_model_mse[0] / self.stages[-1]
         retrain_delta_model_mse[1] = retrain_delta_model_mse[1] / self.stages[-1]
-        self.logging.info("Build ts model mse: %s" % retrain_delta_model_mse)
+        self.logging.info("Build delta model mse: %s" % retrain_delta_model_mse)
 
     def build_cdf(self, data, key_list):
         x_len = len(data)
@@ -175,6 +175,17 @@ class TSUSLI(ZMIndexOptimised):
         self.logging.info("Update time id: %s" % self.time_id)
         self.logging.info("Insert key time: %s" % (self.insert_time - self.last_insert_time))
         self.logging.info("Insert key io: %s" % (self.insert_io - self.last_insert_io))
+        delta_model_mse = [0, 0]
+        tg_array_num = 0
+        for leaf_node in self.rmi[-1]:
+            cur_max_key = leaf_node.delta_model.max_keys[leaf_node.delta_model.time_id]
+            tg_array_num += cur_max_key + 1
+            for tg_array in leaf_node.delta_index:
+                delta_model_mse[0] += tg_array.max_key ** 2
+            delta_model_mse[1] += (leaf_node.delta_model.data_len - cur_max_key - 1) ** 2
+        delta_model_mse[0] = delta_model_mse[0] / tg_array_num
+        delta_model_mse[1] = delta_model_mse[1] / self.stages[-1]
+        self.logging.info("Delta model mse: %s" % delta_model_mse)
         self.last_insert_time = self.insert_time
         self.last_insert_io = self.insert_io
         # 1. merge delta index into index
@@ -271,8 +282,9 @@ class TSUSLI(ZMIndexOptimised):
             self.logging.info("Retrain delta model time: %s" % (time.time() - start_time))
             self.logging.info("Retrain delta model io: %s" % retrain_delta_model_io)
         else:
-            time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id),
-                                           'delta_models_%s_%s_%s.npy' % (self.lag, self.predict_step, self.cdf_width))
+            time_model_path = os.path.join(
+                self.model_path, "../zm_time_model", str(self.time_id), 'delta_models_%s_%s_%s_%s_%s.npy' % (
+                    self.lag, self.predict_step, self.cdf_width, self.cdf_model, self.max_key_model))
             delta_models = np.load(time_model_path, allow_pickle=True)
             model_cur = 0
             for i in range(len(self.stages)):
@@ -289,9 +301,8 @@ class TSUSLI(ZMIndexOptimised):
             delta_models = []
             for stage in self.rmi:
                 delta_models.extend([node.delta_model for node in stage])
-            np.save(os.path.join(time_model_path,
-                                 'delta_models_%s_%s_%s.npy' %
-                                 (self.lag, self.predict_step, self.cdf_width)), delta_models)
+            np.save(os.path.join(time_model_path, 'delta_models_%s_%s_%s_%s_%s.npy' % (
+                self.lag, self.predict_step, self.cdf_width, self.cdf_model, self.max_key_model)), delta_models)
         index_len = 0
         for leaf_node in self.rmi[-1]:
             index_len += len(leaf_node.index) + len(leaf_node.delta_index) * self.child_length
@@ -525,7 +536,7 @@ def main():
                            start_time=1356998400,
                            end_time=1359676799,
                            lag=7,
-                           predict_step=1,
+                           predict_step=3,
                            cdf_width=100,
                            child_length=ITEMS_PER_PAGE,
                            cdf_model="var",

@@ -199,7 +199,7 @@ def main():
     load_index_from_json = True
     load_index_from_json2 = False
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    model_path = "model/dusli_10w_nyct/"
+    model_path = "model/dtusli_10w_nyct/"
     data_distribution = Distribution.NYCT_10W_SORTED
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
