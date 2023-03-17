@@ -77,13 +77,15 @@ class TSUSLI(ZMIndexOptimised):
         self.time_retrain_delta = time_retrain_delta
         self.thread_retrain_delta = thread_retrain_delta
         self.is_save_delta = is_save_delta
-        retrain_delta_model_mse = [0, 0]
+        retrain_delta_model_mae1 = 0
+        retrain_delta_model_mae2 = 0
         # 1. create delta_model with ts_model
         for j in range(self.stages[-1]):
             # index_lens = [(j, len(self.rmi[-1][j].index)) for j in range(self.stages[-1])]
             # index_lens.sort(key=lambda x: x[-1])
             # max_len_index = index_lens[-1][0]
             # for j in [max_len_index]:
+            s = time.time()
             node = self.rmi[-1][j]
             # create the old_cdfs and old_max_keys for delta_model
             min_key = node.model.input_min
@@ -106,20 +108,19 @@ class TSUSLI(ZMIndexOptimised):
                     old_cdfs[k] = self.build_cdf(cdf, key_list)
                 else:  # for empty and non-head old_cdfs, copy from their previous
                     old_cdfs[k] = old_cdfs[k - 1]
-                    old_max_keys[k] = old_max_keys[k - 1]
             # plot_ts(cdfs)
             node.delta_model = TimeSeriesModel(key_list, self.model_path,
                                                old_cdfs, self.cdf_model,
                                                old_max_keys, self.max_key_model, 0)
-            mse_cdf, mse_max_key = node.delta_model.build(lag, predict_step, cdf_width)
-            retrain_delta_model_mse[0] += mse_cdf
-            retrain_delta_model_mse[1] += mse_max_key
+            node.delta_model.build(lag, predict_step, cdf_width)
+            retrain_delta_model_mae1 += node.delta_model.cdf_verify_mae
+            retrain_delta_model_mae2 += node.delta_model.max_key_verify_mae
+            self.logging.info("%s %s" % (j, time.time() - s))
             # 2. change delta_index from [] into [[]]
             node.delta_index = [Array(self.child_length)
                                 for i in range(node.delta_model.max_keys[node.delta_model.time_id] + 1)]
-        retrain_delta_model_mse[0] = retrain_delta_model_mse[0] / self.stages[-1]
-        retrain_delta_model_mse[1] = retrain_delta_model_mse[1] / self.stages[-1]
-        self.logging.info("Build delta model mse: %s" % retrain_delta_model_mse)
+        self.logging.info("Build delta model cdf mae: %s" % (retrain_delta_model_mae1 / self.stages[-1]))
+        self.logging.info("Build delta model max_key mae: %s" % (retrain_delta_model_mae2 / self.stages[-1]))
 
     def build_cdf(self, data, key_list):
         x_len = len(data)
@@ -175,17 +176,25 @@ class TSUSLI(ZMIndexOptimised):
         self.logging.info("Update time id: %s" % self.time_id)
         self.logging.info("Insert key time: %s" % (self.insert_time - self.last_insert_time))
         self.logging.info("Insert key io: %s" % (self.insert_io - self.last_insert_io))
-        delta_model_mse = [0, 0]
-        tg_array_num = 0
+        delta_model_mae1 = 0
+        delta_model_mae2 = 0
         for leaf_node in self.rmi[-1]:
-            cur_max_key = leaf_node.delta_model.max_keys[leaf_node.delta_model.time_id]
-            tg_array_num += cur_max_key + 1
-            for tg_array in leaf_node.delta_index:
-                delta_model_mse[0] += tg_array.max_key ** 2
-            delta_model_mse[1] += (leaf_node.delta_model.data_len - cur_max_key - 1) ** 2
-        delta_model_mse[0] = delta_model_mse[0] / tg_array_num
-        delta_model_mse[1] = delta_model_mse[1] / self.stages[-1]
-        self.logging.info("Delta model mse: %s" % delta_model_mse)
+            data_len = leaf_node.delta_model.data_len
+            pre_data_len = leaf_node.delta_model.max_keys[leaf_node.delta_model.time_id] + 1
+            if data_len:
+                cur_mae1 = 0
+                for tg_array in leaf_node.delta_index:
+                    cur_mae1 += abs((tg_array.max_key + 1) / data_len - 1 / pre_data_len)
+                cur_mae1 = cur_mae1 / pre_data_len
+                delta_model_mae1 += cur_mae1
+                leaf_node.delta_model.cdf_real_mae = cur_mae1
+            cur_mae2 = abs(data_len - pre_data_len)
+            delta_model_mae2 += cur_mae2
+            leaf_node.delta_model.max_key_real_mae = cur_mae2
+        delta_model_mae1 = delta_model_mae1 / self.stages[-1]
+        delta_model_mae2 = delta_model_mae2 / self.stages[-1]
+        self.logging.info("Delta model cdf mae: %s" % delta_model_mae1)
+        self.logging.info("Delta model max_key mae: %s" % delta_model_mae2)
         self.last_insert_time = self.insert_time
         self.last_insert_io = self.insert_io
         # 1. merge delta index into index
@@ -195,6 +204,7 @@ class TSUSLI(ZMIndexOptimised):
         for j in range(0, self.stages[-1]):
             leaf_node = self.rmi[-1][j]
             if leaf_node.delta_model.data_len:
+                leaf_node.delta_model.data_len = 0
                 delta_index = []
                 for tmp in leaf_node.delta_index:
                     delta_index.extend(tmp.index[:tmp.max_key + 1])
@@ -248,10 +258,12 @@ class TSUSLI(ZMIndexOptimised):
                 models.extend([node.model for node in stage])
             np.save(os.path.join(time_model_path, 'models.npy'), models)
         # 3. update delta model
+        retrain_delta_model_num = 0
+        retrain_delta_model_mae1 = 0
+        retrain_delta_model_mae2 = 0
+        retrain_delta_model_time = 0
+        retrain_delta_model_io = 0
         if self.is_retrain_delta and self.time_id > self.time_retrain_delta:
-            retrain_delta_model_num = 0
-            retrain_delta_model_mse = [0, 0]
-            retrain_delta_model_io = 0
             start_time = time.time()
             pool = multiprocessing.Pool(processes=self.thread_retrain_delta)
             mp_dict = multiprocessing.Manager().dict()
@@ -271,16 +283,17 @@ class TSUSLI(ZMIndexOptimised):
                 leaf_node.delta_index = [Array(self.child_length) for i in range(
                     leaf_node.delta_model.max_keys[leaf_node.delta_model.time_id] + 1)]
                 retrain_delta_model_num += value[1]
-                retrain_delta_model_mse[0] += value[2]
-                retrain_delta_model_mse[1] += value[3]
-                retrain_delta_model_io += len(leaf_node.delta_model.max_keys)
-            retrain_delta_model_mse[0] = retrain_delta_model_mse[0] / len(mp_dict.items())
-            retrain_delta_model_mse[1] = retrain_delta_model_mse[1] / len(mp_dict.items())
+                if value[1]:
+                    retrain_delta_model_io += len(leaf_node.delta_model.max_keys)
+                else:
+                    retrain_delta_model_io += 1
+            for leaf_node in self.rmi[-1]:
+                retrain_delta_model_mae1 += leaf_node.delta_model.cdf_verify_mae
+                retrain_delta_model_mae2 += leaf_node.delta_model.max_key_verify_mae
+            retrain_delta_model_time = (time.time() - start_time)
             retrain_delta_model_io = retrain_delta_model_io * (self.cdf_width + 1) * 8 / PAGE_SIZE
-            self.logging.info("Retrain delta model num: %s" % retrain_delta_model_num)
-            self.logging.info("Retrain delta model mse: %s" % retrain_delta_model_mse)
-            self.logging.info("Retrain delta model time: %s" % (time.time() - start_time))
-            self.logging.info("Retrain delta model io: %s" % retrain_delta_model_io)
+            retrain_delta_model_mae1 = retrain_delta_model_mae1 / self.stages[-1]
+            retrain_delta_model_mae2 = retrain_delta_model_mae2 / self.stages[-1]
         else:
             time_model_path = os.path.join(
                 self.model_path, "../zm_time_model", str(self.time_id), 'delta_models_%s_%s_%s_%s_%s.npy' % (
@@ -290,10 +303,14 @@ class TSUSLI(ZMIndexOptimised):
             for i in range(len(self.stages)):
                 for j in range(self.stages[i]):
                     if delta_models[model_cur]:
+                        retrain_delta_model_mae1 += delta_models[model_cur].cdf_verify_mae
+                        retrain_delta_model_mae2 += delta_models[model_cur].max_key_verify_mae
                         self.rmi[i][j].delta_model = delta_models[model_cur]
                         self.rmi[i][j].delta_index = [Array(self.child_length) for i in range(
                             delta_models[model_cur].max_keys[delta_models[model_cur].time_id] + 1)]
                     model_cur += 1
+            retrain_delta_model_mae1 = retrain_delta_model_mae1 / self.stages[-1]
+            retrain_delta_model_mae2 = retrain_delta_model_mae2 / self.stages[-1]
         if self.is_save_delta:
             time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id))
             if os.path.exists(time_model_path) is False:
@@ -306,6 +323,11 @@ class TSUSLI(ZMIndexOptimised):
         index_len = 0
         for leaf_node in self.rmi[-1]:
             index_len += len(leaf_node.index) + len(leaf_node.delta_index) * self.child_length
+        self.logging.info("Retrain delta model num: %s" % retrain_delta_model_num)
+        self.logging.info("Retrain delta model cdf mae: %s" % retrain_delta_model_mae1)
+        self.logging.info("Retrain delta model max_key mae: %s" % retrain_delta_model_mae2)
+        self.logging.info("Retrain delta model time: %s" % retrain_delta_model_time)
+        self.logging.info("Retrain delta model io: %s" % retrain_delta_model_io)
         self.logging.info("Index entry size: %s" % (index_len * ITEM_SIZE))
         self.logging.info("Model precision avg: %s" % self.model_err())
 
@@ -486,8 +508,8 @@ class TSUSLI(ZMIndexOptimised):
 
 
 def retrain_delta_model(model_key, delta_model, cur_cdf, cur_max_key, lag, predict_step, cdf_width, mp_dict):
-    num, mse_cdf, mse_max_key = delta_model.update(cur_cdf, cur_max_key, lag, predict_step, cdf_width)
-    mp_dict[model_key] = (delta_model, num, mse_cdf, mse_max_key)
+    num = delta_model.update(cur_cdf, cur_max_key, lag, predict_step, cdf_width)
+    mp_dict[model_key] = delta_model, num
 
 
 def main():

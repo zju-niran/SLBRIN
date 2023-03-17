@@ -9,6 +9,7 @@ from keras.callbacks import EarlyStopping
 from keras.layers import LSTM, Dense, ConvLSTM1D, SimpleRNN, GRU, Flatten, RepeatVector, Conv2D, Reshape
 from keras.optimizer_v2.adam import Adam
 from matplotlib import pyplot as plt
+from numpy.linalg import LinAlgError
 from statsmodels.tools.sm_exceptions import ConvergenceWarning
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from statsmodels.tsa.statespace.sarimax import SARIMAX
@@ -25,6 +26,10 @@ class TimeSeriesModel:
         # for compute
         self.key_list = key_list
         self.data_len = data_len
+        self.cdf_verify_mae = 0
+        self.cdf_real_mae = 0
+        self.max_key_verify_mae = 0
+        self.max_key_real_mae = 0
         # common
         self.name = "Time Series Model"
         self.model_path = model_path
@@ -40,36 +45,37 @@ class TimeSeriesModel:
         if self.time_id == 0:  # if cdfs is []
             pre_cdfs = [[0.0] * cdf_width for i in range(predict_step)]
             pre_max_keys = [0 for i in range(predict_step)]
-            mse_cdf = 0
-            mse_max_key = 0
+            mae_cdf = 0
+            mae_max_key = 0
         elif self.time_id <= lag + predict_step:  # if cdfs are not enough
             pre_cdfs = [self.cdfs[-1] for i in range(predict_step)]
             pre_max_keys = [self.max_keys[-1] for i in range(predict_step)]
-            mse_cdf = 0
-            mse_max_key = 0
+            mae_cdf = 0
+            mae_max_key = 0
         else:
             ts = sts_model_type[self.model_cdf](self.cdfs[:self.time_id], lag, predict_step, cdf_width, self.model_path)
             # ts.grid_search(thread=4, start_num=0)
-            pre_cdfs, mse_cdf = ts.train()
+            pre_cdfs, mae_cdf = ts.train()
             ts = ts_model_type[self.model_max_key](self.max_keys[:self.time_id], lag, predict_step, self.model_path)
             # ts.grid_search(thread=3, start_num=0)
-            pre_max_keys, mse_max_key = ts.train()
+            pre_max_keys, mae_max_key = ts.train()
         self.cdfs.extend(pre_cdfs)
         self.max_keys.extend(pre_max_keys)
-        return mse_cdf, mse_max_key
+        self.cdf_verify_mae = mae_cdf
+        self.max_key_verify_mae = mae_max_key
 
     def update(self, cur_cdf, cur_max_key, lag, predict_step, cdf_width):
         """
         update with new data and retrain ts model when outdated
-        return: retraining nums and mse
+        return: retraining nums
         """
         self.cdfs[self.time_id] = cur_cdf
         self.max_keys[self.time_id] = cur_max_key
         self.time_id += 1
         if self.time_id >= len(self.max_keys):
-            mse_cdf, mse_max_key = self.build(lag, predict_step, cdf_width)
-            return 1, mse_cdf, mse_max_key
-        return 0, 0, 0
+            self.build(lag, predict_step, cdf_width)
+            return 1
+        return 0
 
 
 class TSResult:
@@ -107,24 +113,26 @@ class ESResult(TSResult):
         # ES规定数据必须包含不低于两个周期
         if len(data) < 2 * lag:
             data.extend(data[-lag:])
-        self.data = data
+        self.data = np.array(data)
         self.lag = lag
         self.predict_step = predict_step
         self.model_path = model_path + 'es/'
 
     def build(self, trend, seasonal, is_plot=False):
         model = ExponentialSmoothing(self.data, seasonal_periods=self.lag, trend=trend, seasonal=seasonal).fit()
-        pre = correct_max_key(model.forecast(steps=self.predict_step))
-        mse = model.sse / model.model.nobs
+        pre = correct_max_key(model.forecast(steps=self.predict_step)).tolist()
+        # mse = model.sse / model.model.nobs
+        mae = sum(
+            [abs(data) for data in correct_max_key(model.predict(0, self.data.size - 1)) - self.data]) / self.data.size
         if is_plot:
             if os.path.exists(self.model_path) is False:
                 os.makedirs(self.model_path)
             plt.plot(self.data)
             plt.plot(model.predict(0, len(self.data) - 1))
             plt.savefig(
-                self.model_path + "%s_%s_%s.png" % (trend, seasonal, mse))
+                self.model_path + "%s_%s_%s.png" % (trend, seasonal, mae))
             plt.close()
-        return pre, mse
+        return pre, mae
 
     def train(self):
         return self.build(trend='add', seasonal='add')
@@ -166,18 +174,19 @@ class SARIMAResult(TSResult):
         model = SARIMAX(self.data, order=(p, d, q), seasonal_order=(P, D, Q, self.lag),
                         enforce_stationarity=False,
                         enforce_invertibility=False).fit(disp=False)
-        pre = correct_max_key(model.forecast(steps=self.predict_step))
-        mse = model.mse
-        # sum([data ** 2 for data in model.predict(0, self.data.size - 1) - self.data]) / self.data.size
+        pre = correct_max_key(model.forecast(steps=self.predict_step)).tolist()
+        # mse = model.mse
+        mae = sum(
+            [abs(data) for data in correct_max_key(model.predict(0, self.data.size - 1)) - self.data]) / self.data.size
         if is_plot:
             if os.path.exists(self.model_path) is False:
                 os.makedirs(self.model_path)
             plt.plot(self.data)
             plt.plot(model.predict(0, self.data.size - 1))
             plt.savefig(
-                self.model_path + "%s_%s_%s_%s_%s_%s_%s.png" % (p, d, q, P, D, Q, mse))
+                self.model_path + "%s_%s_%s_%s_%s_%s_%s.png" % (p, d, q, P, D, Q, mae))
             plt.close()
-        return pre, mse
+        return pre, mae
 
     def train(self):
         return self.build(p=3, d=1, q=0, P=2, D=0, Q=3)
@@ -219,16 +228,18 @@ class RNNResult(TSResult):
 
     def __init__(self, data, lag, predict_step, model_path):
         super().__init__()
-        k = int(0.7 * len(data))
-        train_data, test_data = data[:k], data[k:]
-        self.train_x = np.array([train_data[i:i + lag]
-                                 for i in range(0, k - lag - predict_step + 1)])
-        self.train_y = np.array([train_data[i + lag:i + lag + predict_step]
-                                 for i in range(0, k - lag - predict_step + 1)])
-        self.test_x = np.array([test_data[i:i + lag]
-                                for i in range(0, len(test_data) - lag - predict_step + 1)])
-        self.test_y = np.array([test_data[i + lag:i + lag + predict_step]
-                                for i in range(0, len(test_data) - lag - predict_step + 1)])
+        group_num = len(data) - lag - predict_step + 1
+        k = int(0.7 * group_num)
+        if k:  # if data is enough, split into train_data and test_data
+            self.train_x = np.array([data[i:i + lag] for i in range(0, k)])
+            self.train_y = np.array([data[i + lag:i + lag + predict_step] for i in range(0, k)])
+            self.test_x = np.array([data[i:i + lag] for i in range(k, group_num)])
+            self.test_y = np.array([data[i + lag:i + lag + predict_step] for i in range(k, group_num)])
+        else:  # if data is not enough, keep the same between train_data and test_data
+            self.train_x = np.array([data[i:i + lag] for i in range(0, group_num)])
+            self.train_y = np.array([data[i + lag:i + lag + predict_step] for i in range(0, group_num)])
+            self.test_x = self.train_x
+            self.test_y = self.train_y
         self.pre_x = np.expand_dims(np.array(data[-lag:]), 0)
         self.lag = lag
         self.predict_step = predict_step
@@ -250,11 +261,12 @@ class RNNResult(TSResult):
         history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x, self.test_y),
                             epochs=100, batch_size=batch_size,
                             callbacks=[early_stopping], verbose=0)
-        pre = correct_max_key(model.predict(self.pre_x)[0])
+        pre = correct_max_key(model.predict(self.pre_x)[0]).tolist()
         # ERROR: loss里的mse和实际计算的mse有差距
-        # mse = sum(sum([(pre - true) ** 2
-        #                for pre, true in zip(model.predict(self.test_x), self.test_y)])) / self.test_y.size
-        mse = history.history['val_loss'][-1]
+        mae = sum(sum([abs(pre - true)
+                       for pre, true in
+                       zip(correct_max_key(model.predict(self.test_x)), self.test_y)])) / self.test_y.size
+        # mse = history.history['val_loss'][-1]
         end_time = time.time()
         if is_plot:
             if os.path.exists(self.model_path) is False:
@@ -264,9 +276,9 @@ class RNNResult(TSResult):
             plt.savefig(
                 self.model_path + "%s_%s_%s_%s_%s_%s_%s_%s_%s.png" % (
                     activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size,
-                    end_time - start_time, mse))
+                    end_time - start_time, mae))
             plt.close()
-        return pre, mse
+        return pre, mae
 
     def train(self):
         return self.build(activation='relu', unit1=128, unit2=256, dropout1=0.0, dropout2=0.0,
@@ -317,16 +329,18 @@ class LSTMResult(TSResult):
 
     def __init__(self, data, lag, predict_step, model_path):
         super().__init__()
-        k = int(0.7 * len(data))
-        train_data, test_data = data[:k], data[k:]
-        self.train_x = np.array([train_data[i:i + lag]
-                                 for i in range(0, k - lag - predict_step + 1)])
-        self.train_y = np.array([train_data[i + lag:i + lag + predict_step]
-                                 for i in range(0, k - lag - predict_step + 1)])
-        self.test_x = np.array([test_data[i:i + lag]
-                                for i in range(0, len(test_data) - lag - predict_step + 1)])
-        self.test_y = np.array([test_data[i + lag:i + lag + predict_step]
-                                for i in range(0, len(test_data) - lag - predict_step + 1)])
+        group_num = len(data) - lag - predict_step + 1
+        k = int(0.7 * group_num)
+        if k:  # if data is enough, split into train_data and test_data
+            self.train_x = np.array([data[i:i + lag] for i in range(0, k)])
+            self.train_y = np.array([data[i + lag:i + lag + predict_step] for i in range(0, k)])
+            self.test_x = np.array([data[i:i + lag] for i in range(k, group_num)])
+            self.test_y = np.array([data[i + lag:i + lag + predict_step] for i in range(k, group_num)])
+        else:  # if data is not enough, keep the same between train_data and test_data
+            self.train_x = np.array([data[i:i + lag] for i in range(0, group_num)])
+            self.train_y = np.array([data[i + lag:i + lag + predict_step] for i in range(0, group_num)])
+            self.test_x = self.train_x
+            self.test_y = self.train_y
         self.pre_x = np.expand_dims(np.array(data[-lag:]), 0)
         self.lag = lag
         self.predict_step = predict_step
@@ -348,11 +362,12 @@ class LSTMResult(TSResult):
         history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x, self.test_y),
                             epochs=100, batch_size=batch_size,
                             callbacks=[early_stopping], verbose=0)
-        pre = correct_max_key(model.predict(self.pre_x)[0])
+        pre = correct_max_key(model.predict(self.pre_x)[0]).tolist()
         # ERROR: loss里的mse和实际计算的mse有差距
-        # mse = sum(sum([(pre - true) ** 2
-        #                for pre, true in zip(model.predict(self.test_x), self.test_y)])) / self.test_y.size
-        mse = history.history['val_loss'][-1]
+        mae = sum(sum([abs(pre - true)
+                       for pre, true in
+                       zip(correct_max_key(model.predict(self.test_x)), self.test_y)])) / self.test_y.size
+        # mse = history.history['val_loss'][-1]
         end_time = time.time()
         if is_plot:
             if os.path.exists(self.model_path) is False:
@@ -362,9 +377,9 @@ class LSTMResult(TSResult):
             plt.savefig(
                 self.model_path + "%s_%s_%s_%s_%s_%s_%s_%s_%s.png" % (
                     activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size,
-                    end_time - start_time, mse))
+                    end_time - start_time, mae))
             plt.close()
-        return pre, mse
+        return pre, mae
 
     def train(self):
         return self.build(activation='relu', unit1=128, unit2=256, dropout1=0.0, dropout2=0.0,
@@ -414,16 +429,18 @@ class GRUResult(TSResult):
 
     def __init__(self, data, lag, predict_step, model_path):
         super().__init__()
-        k = int(0.7 * len(data))
-        train_data, test_data = data[:k], data[k:]
-        self.train_x = np.array([train_data[i:i + lag]
-                                 for i in range(0, k - lag - predict_step + 1)])
-        self.train_y = np.array([train_data[i + lag:i + lag + predict_step]
-                                 for i in range(0, k - lag - predict_step + 1)])
-        self.test_x = np.array([test_data[i:i + lag]
-                                for i in range(0, len(test_data) - lag - predict_step + 1)])
-        self.test_y = np.array([test_data[i + lag:i + lag + predict_step]
-                                for i in range(0, len(test_data) - lag - predict_step + 1)])
+        group_num = len(data) - lag - predict_step + 1
+        k = int(0.7 * group_num)
+        if k:  # if data is enough, split into train_data and test_data
+            self.train_x = np.array([data[i:i + lag] for i in range(0, k)])
+            self.train_y = np.array([data[i + lag:i + lag + predict_step] for i in range(0, k)])
+            self.test_x = np.array([data[i:i + lag] for i in range(k, group_num)])
+            self.test_y = np.array([data[i + lag:i + lag + predict_step] for i in range(k, group_num)])
+        else:  # if data is not enough, keep the same between train_data and test_data
+            self.train_x = np.array([data[i:i + lag] for i in range(0, group_num)])
+            self.train_y = np.array([data[i + lag:i + lag + predict_step] for i in range(0, group_num)])
+            self.test_x = self.train_x
+            self.test_y = self.train_y
         self.pre_x = np.expand_dims(np.array(data[-lag:]), 0)
         self.lag = lag
         self.predict_step = predict_step
@@ -445,11 +462,12 @@ class GRUResult(TSResult):
         history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x, self.test_y),
                             epochs=100, batch_size=batch_size,
                             callbacks=[early_stopping], verbose=0)
-        pre = correct_max_key(model.predict(self.pre_x)[0])
+        pre = correct_max_key(model.predict(self.pre_x)[0]).tolist()
         # ERROR: loss里的mse和实际计算的mse有差距
-        # mse = sum(sum([(pre - true) ** 2
-        #                for pre, true in zip(model.predict(self.test_x), self.test_y)])) / self.test_y.size
-        mse = history.history['val_loss'][-1]
+        mae = sum(sum([abs(pre - true)
+                       for pre, true in
+                       zip(correct_max_key(model.predict(self.test_x)), self.test_y)])) / self.test_y.size
+        # mse = history.history['val_loss'][-1]
         end_time = time.time()
         if is_plot:
             if os.path.exists(self.model_path) is False:
@@ -459,9 +477,9 @@ class GRUResult(TSResult):
             plt.savefig(
                 self.model_path + "%s_%s_%s_%s_%s_%s_%s_%s_%s.png" % (
                     activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size,
-                    end_time - start_time, mse))
+                    end_time - start_time, mae))
             plt.close()
-        return pre, mse
+        return pre, mae
 
     def train(self):
         return self.build(activation='relu', unit1=128, unit2=256, dropout1=0.0, dropout2=0.0,
@@ -514,10 +532,10 @@ class VARResult(TSResult):
         super().__init__()
         data = np.array(data)
         k = int(0.7 * len(data))
-        if len(data) - k >= lag + predict_step:  # if data is enough
+        if len(data) - k >= lag + predict_step:  # if data is enough, split into train_data and test_data
             self.train_data = data[:k]
             self.test_data = data[k:]
-        else:
+        else:  # if data is not enough, keep the same between train_data and test_data
             self.train_data = data
             self.test_data = data
         self.predict_step = predict_step
@@ -527,22 +545,25 @@ class VARResult(TSResult):
 
     def build(self, p, is_plot=False):
         try:
-            model = VAR(self.train_data).fit(maxlags=self.lag, verbose=True, trend='c')
+            model = VAR(self.train_data).fit(maxlags=self.lag, verbose=False, trend='c')
         except ValueError:
             # 数据异常，只能放弃趋势
-            model = VAR(self.train_data).fit(maxlags=self.lag, verbose=True, trend='n')
-        pre = correct_cdf(model.forecast(self.test_data[-self.lag:], steps=self.predict_step))
-        # 训练集的mse
+            try:
+                model = VAR(self.train_data).fit(maxlags=self.lag, verbose=False, trend='n')
+            except LinAlgError:
+                model = VAR(self.train_data[1:]).fit(maxlags=self.lag, verbose=False, trend='n')
+        pre = correct_cdf(model.forecast(self.test_data[-self.lag:], steps=self.predict_step)).tolist()
+        # 训练集的mae
         # train_group_num = len(self.train_data) - self.lag - self.predict_step + 1
-        # mse = sum([sum([err ** 2
-        #                 for l in (model.forecast(self.train_data[i:i + self.lag], steps=self.predict_step)
+        # mae = sum([sum([abs(err)
+        #                 for l in (correct_cdf(model.forecast(self.train_data[i:i + self.lag], steps=self.predict_step))
         #                           - self.train_data[self.lag: i + self.lag + self.predict_step])
         #                 for err in l])
         #            for i in range(train_group_num)]) / (train_group_num * self.width * self.predict_step)
-        # 验证集的mse
+        # 验证集的mae
         test_group_num = len(self.test_data) - self.lag - self.predict_step + 1
-        mse = sum([sum([err ** 2
-                        for l in (model.forecast(self.test_data[i:i + self.lag], steps=self.predict_step)
+        mae = sum([sum([abs(err)
+                        for l in (correct_cdf(model.forecast(self.test_data[i:i + self.lag], steps=self.predict_step))
                                   - self.test_data[i + self.lag: i + self.lag + self.predict_step])
                         for err in l])
                    for i in range(test_group_num)]) / (test_group_num * self.width * self.predict_step)
@@ -552,9 +573,9 @@ class VARResult(TSResult):
             plt.plot(self.test_data[-1])
             plt.plot(model.forecast(self.test_data[-self.lag:], steps=1))
             plt.savefig(
-                self.model_path + "default_%s.png" % mse)
+                self.model_path + "default_%s.png" % mae)
             plt.close()
-        return pre, mse
+        return pre, mae
 
     def train(self):
         return self.build(None)
@@ -582,10 +603,10 @@ class VSARIMAResult(TSResult):
         super().__init__()
         data = np.array(data)
         k = int(0.7 * len(data))
-        if len(data) - k >= lag + predict_step:  # if data is enough
+        if len(data) - k >= lag + predict_step:  # if data is enough, split into train_data and test_data
             self.train_data = data[:k]
             self.test_data = data[k:]
-        else:
+        else:  # if data is not enough, keep the same between train_data and test_data
             self.train_data = data
             self.test_data = data
         self.predict_step = predict_step
@@ -598,19 +619,19 @@ class VSARIMAResult(TSResult):
                        error_cov_type='error_cov_type',
                        enforce_stationarity=False,
                        enforce_invertibility=False).fit(disp=False)
-        pre = list(correct_cdf(model.forecast(self.test_data[-self.lag:], steps=1)[0]))
-        # 训练集的mse
+        pre = correct_cdf(model.forecast(self.test_data[-self.lag:], steps=self.predict_step)).tolist()
+        # 训
         # train_group_num = len(self.train_data) - self.lag - self.predict_step + 1
-        # mse = sum([sum([err ** 2
-        #                 for l in (model.forecast(self.train_data[i:i + self.lag], steps=self.predict_step)
+        # mae = sum([sum([abs(err)
+        #                 for l in (correct_cdf(model.forecast(self.train_data[i:i + self.lag], steps=self.predict_step))
         #                           - self.train_data[self.lag: i + self.lag + self.predict_step])
         #                 for err in l])
         #            for i in range(train_group_num)]) / (train_group_num * self.width * self.predict_step)
         # mse = model.mse
-        # 验证集的mse
+        # 验证集的mae
         test_group_num = len(self.test_data) - self.lag - self.predict_step + 1
-        mse = sum([sum([err ** 2
-                        for l in (model.forecast(self.test_data[i:i + self.lag], steps=self.predict_step)
+        mae = sum([sum([abs(err)
+                        for l in (correct_cdf(model.forecast(self.test_data[i:i + self.lag], steps=self.predict_step))
                                   - self.test_data[i + self.lag: i + self.lag + self.predict_step])
                         for err in l])
                    for i in range(test_group_num)]) / (test_group_num * self.width * self.predict_step)
@@ -620,9 +641,9 @@ class VSARIMAResult(TSResult):
             plt.plot(self.test_data[-1])
             plt.plot(model.forecast(self.test_data[-self.lag:], steps=1))
             plt.savefig(
-                self.model_path + "%s_%s_%s.png" % (p, q, mse))
+                self.model_path + "%s_%s_%s.png" % (p, q, mae))
             plt.close()
-        return pre, mse
+        return pre, mae
 
     def train(self):
         return self.build(p=2, q=0)
@@ -651,18 +672,18 @@ class FCLSTMResult(TSResult):
 
     def __init__(self, data, lag, predict_step, width, model_path):
         super().__init__()
-        k = int(0.7 * len(data))
-        train_data, test_data = data[:k], data[k:]
-        self.train_x = np.array([train_data[i:i + lag]
-                                 for i in range(0, k - lag - predict_step + 1)])
-        self.train_y = np.array([train_data[i + lag:i + lag + predict_step]
-                                 for i in range(0, k - lag - predict_step + 1)])
-        self.train_y = self.train_y.reshape(self.train_y.shape[0], predict_step * width)
-        self.test_x = np.array([test_data[i:i + lag]
-                                for i in range(0, len(test_data) - lag - predict_step + 1)])
-        self.test_y = np.array([test_data[i + lag:i + lag + predict_step]
-                                for i in range(0, len(test_data) - lag - predict_step + 1)])
-        self.test_y = self.test_y.reshape(self.test_y.shape[0], predict_step * width)
+        group_num = len(data) - lag - predict_step + 1
+        k = int(0.7 * group_num)
+        if k:  # if data is enough, split into train_data and test_data
+            self.train_x = np.array([data[i:i + lag] for i in range(0, k)])
+            self.train_y = np.array([data[i + lag:i + lag + predict_step] for i in range(0, k)])
+            self.test_x = np.array([data[i:i + lag] for i in range(k, group_num)])
+            self.test_y = np.array([data[i + lag:i + lag + predict_step] for i in range(k, group_num)])
+        else:  # if data is not enough, keep the same between train_data and test_data
+            self.train_x = np.array([data[i:i + lag] for i in range(0, group_num)])
+            self.train_y = np.array([data[i + lag:i + lag + predict_step] for i in range(0, group_num)])
+            self.test_x = self.train_x
+            self.test_y = self.train_y
         self.pre_x = np.expand_dims(np.array(data[-lag:]), 0)
         self.lag = lag
         self.predict_step = predict_step
@@ -684,11 +705,11 @@ class FCLSTMResult(TSResult):
         history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x, self.test_y),
                             epochs=100, batch_size=batch_size,
                             callbacks=[early_stopping], verbose=0)
-        pre = correct_cdf(model.predict(self.pre_x).reshape(self.predict_step, self.width))
+        pre = correct_cdf(model.predict(self.pre_x).reshape(self.predict_step, self.width)).tolist()
         # ERROR: loss里的mse和实际计算的mse有差距
-        # mse = sum(sum(sum([(pre - true) ** 2 for pre, true in
-        #                    zip(model.predict(self.test_x), self.test_y[:, :, :, 0])]))) / self.test_y.size
-        mse = history.history['val_loss'][-1]
+        mae = sum(sum(sum([abs(pre - true) for pre, true in
+                           zip(correct_cdf(model.predict(self.test_x)), self.test_y[:, :, :, 0])]))) / self.test_y.size
+        # mse = history.history['val_loss'][-1]
         if is_plot:
             if os.path.exists(self.model_path) is False:
                 os.makedirs(self.model_path)
@@ -696,9 +717,9 @@ class FCLSTMResult(TSResult):
             plt.plot(history.history['val_loss'], label='test')
             plt.savefig(
                 self.model_path + "%s_%s_%s_%s_%s_%s_%s_%s.png" % (
-                    activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size, mse))
+                    activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size, mae))
             plt.close()
-        return pre, mse
+        return pre, mae
 
     def train(self):
         return self.build(activation='relu', unit1=128, unit2=256, dropout1=0.0, dropout2=0.0,
@@ -748,17 +769,18 @@ class ConvLSTMResult(TSResult):
 
     def __init__(self, data, lag, predict_step, width, model_path):
         super().__init__()
-        k = int(0.7 * len(data))
-        data = np.expand_dims(np.array(data), -1)
-        train_data, test_data = data[:k], data[k:]
-        self.train_x = np.array([train_data[i:i + lag]
-                                 for i in range(0, k - lag - predict_step + 1)])
-        self.train_y = np.array([train_data[i + lag:i + lag + predict_step]
-                                 for i in range(0, k - lag - predict_step + 1)])
-        self.test_x = np.array([test_data[i:i + lag]
-                                for i in range(0, len(test_data) - lag - predict_step + 1)])
-        self.test_y = np.array([test_data[i + lag:i + lag + predict_step]
-                                for i in range(0, len(test_data) - lag - predict_step + 1)])
+        group_num = len(data) - lag - predict_step + 1
+        k = int(0.7 * group_num)
+        if k:  # if data is enough, split into train_data and test_data
+            self.train_x = np.expand_dims(np.array([data[i:i + lag] for i in range(0, k)]))
+            self.train_y = np.expand_dims(np.array([data[i + lag:i + lag + predict_step] for i in range(0, k)]))
+            self.test_x = np.expand_dims(np.array([data[i:i + lag] for i in range(k, group_num)]))
+            self.test_y = np.expand_dims(np.array([data[i + lag:i + lag + predict_step] for i in range(k, group_num)]))
+        else:  # if data is not enough, keep the same between train_data and test_data
+            self.train_x = np.expand_dims(np.array([data[i:i + lag] for i in range(0, group_num)]))
+            self.train_y = np.expand_dims(np.array([data[i + lag:i + lag + predict_step] for i in range(0, group_num)]))
+            self.test_x = self.train_x
+            self.test_y = self.train_y
         self.pre_x = np.expand_dims(np.array(data[-lag:]), 0)
         self.lag = lag
         self.predict_step = predict_step
@@ -813,11 +835,11 @@ class ConvLSTMResult(TSResult):
         history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x, self.test_y),
                             epochs=100, batch_size=batch_size,
                             callbacks=[early_stopping], verbose=1)
-        pre = correct_cdf(model.predict(self.pre_x)[0, :, :, 0])
+        pre = correct_cdf(model.predict(self.pre_x)[0, :, :, 0]).tolist()
         # ERROR: loss里的mse和实际计算的mse有差距
-        # mse = sum(sum(sum([(pre - true) ** 2 for pre, true in
-        #                    zip(model.predict(self.test_x), self.test_y[:, :, :, 0])]))) / self.test_y.size
-        mse = history.history['val_loss'][-1]
+        mae = sum(sum(sum([abs(pre - true) for pre, true in
+                           zip(correct_cdf(model.predict(self.test_x)), self.test_y[:, :, :, 0])]))) / self.test_y.size
+        # mse = history.history['val_loss'][-1]
         end_time = time.time()
         if is_plot:
             if os.path.exists(self.model_path) is False:
@@ -827,9 +849,9 @@ class ConvLSTMResult(TSResult):
             plt.savefig(
                 self.model_path + "%s_%s_%s_%s_%s_%s_%s_%s_%s_%s_%s.png" % (
                     activation1, activation2, filter1, filter2, dropout1, dropout2,
-                    kernal_size, learning_rate, batch_size, end_time - start_time, mse))
+                    kernal_size, learning_rate, batch_size, end_time - start_time, mae))
             plt.close()
-        return pre, mse
+        return pre, mae
 
     def train(self):
         return self.build(activation1='tanh', activation2='tanh',
@@ -901,33 +923,34 @@ def correct_cdf(cdfs):
     2. transfer into monotonically increasing
     e.g. [0.1, 0.0, 0.1, 0.7, 0.6, 1.0, 0.9] => [0.0, 0.0, 0.1, 0.7, 0.7, 1.0, 1.0]
     """
-    result_cdfs = [None] * cdfs.shape[0]
-    j = 0
-    for cdf in cdfs:
+    for i in range(cdfs.shape[0]):
+        cdf = cdfs[i]
         cdf = (cdf - cdf.min()) / (cdf.max() - cdf.min())
-        i = 0
+        j = 0
         cdf_width = len(cdf)
         cur_v = 0.0
-        while i < cdf_width and cdf[i] != 0.0:
-            cdf[i] = 0.0
-            i += 1
-        while i < cdf_width and cdf[i] < 1.0:
-            if cdf[i] < cur_v:
-                cdf[i] = cur_v
+        while j < cdf_width and cdf[j] != 0.0:
+            cdf[j] = 0.0
+            j += 1
+        while j < cdf_width and cdf[j] < 1.0:
+            if cdf[j] < cur_v:
+                cdf[j] = cur_v
             else:
-                cur_v = cdf[i]
-            i += 1
-        while i < cdf_width:
-            cdf[i] = 1.0
-            i += 1
-        result_cdfs[j] = cdf.tolist()
-        j += 1
-    return result_cdfs
+                cur_v = cdf[j]
+            j += 1
+        while j < cdf_width:
+            cdf[j] = 1.0
+            j += 1
+        cdfs[i] = cdf
+    return cdfs
 
 
 def correct_max_key(max_keys):
     """
     correct the max_key:
     1. max_key >= 0
+    2. transfer into integer
     """
-    return [max(0, round(max_key)) for max_key in max_keys]
+    max_keys = max_keys.astype(np.int)
+    max_keys[max_keys < 0] = 0
+    return max_keys
