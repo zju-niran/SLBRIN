@@ -677,11 +677,14 @@ class FCLSTMResult(TSResult):
         if k:  # if data is enough, split into train_data and test_data
             self.train_x = np.array([data[i:i + lag] for i in range(0, k)])
             self.train_y = np.array([data[i + lag:i + lag + predict_step] for i in range(0, k)])
+            self.train_y = self.train_y.reshape(self.train_y.shape[0], predict_step * width)
             self.test_x = np.array([data[i:i + lag] for i in range(k, group_num)])
             self.test_y = np.array([data[i + lag:i + lag + predict_step] for i in range(k, group_num)])
+            self.test_y = self.test_y.reshape(self.test_y.shape[0], predict_step * width)
         else:  # if data is not enough, keep the same between train_data and test_data
             self.train_x = np.array([data[i:i + lag] for i in range(0, group_num)])
             self.train_y = np.array([data[i + lag:i + lag + predict_step] for i in range(0, group_num)])
+            self.train_y = self.train_y.reshape(self.train_y.shape[0], predict_step * width)
             self.test_x = self.train_x
             self.test_y = self.train_y
         self.pre_x = np.expand_dims(np.array(data[-lag:]), 0)
@@ -707,9 +710,10 @@ class FCLSTMResult(TSResult):
                             callbacks=[early_stopping], verbose=0)
         pre = correct_cdf(model.predict(self.pre_x).reshape(self.predict_step, self.width)).tolist()
         # ERROR: loss里的mse和实际计算的mse有差距
-        mae = sum(sum(sum([abs(pre - true) for pre, true in
-                           zip(correct_cdf(model.predict(self.test_x)), self.test_y[:, :, :, 0])]))) / self.test_y.size
         # mse = history.history['val_loss'][-1]
+        pres = correct_cdf(model.predict(self.test_x).reshape(self.test_x.shape[0] * self.predict_step, self.width))
+        trues = self.test_y.reshape(self.test_x.shape[0] * self.predict_step, self.width)
+        mae = np.sum(np.abs(pres - trues)) / self.test_y.size
         if is_plot:
             if os.path.exists(self.model_path) is False:
                 os.makedirs(self.model_path)
@@ -772,13 +776,19 @@ class ConvLSTMResult(TSResult):
         group_num = len(data) - lag - predict_step + 1
         k = int(0.7 * group_num)
         if k:  # if data is enough, split into train_data and test_data
-            self.train_x = np.expand_dims(np.array([data[i:i + lag] for i in range(0, k)]))
-            self.train_y = np.expand_dims(np.array([data[i + lag:i + lag + predict_step] for i in range(0, k)]))
-            self.test_x = np.expand_dims(np.array([data[i:i + lag] for i in range(k, group_num)]))
-            self.test_y = np.expand_dims(np.array([data[i + lag:i + lag + predict_step] for i in range(k, group_num)]))
+            self.train_x = np.expand_dims(np.array([data[i:i + lag]
+                                                    for i in range(0, k)]), -1)
+            self.train_y = np.expand_dims(np.array([data[i + lag:i + lag + predict_step]
+                                                    for i in range(0, k)]), -1)
+            self.test_x = np.expand_dims(np.array([data[i:i + lag]
+                                                   for i in range(k, group_num)]), -1)
+            self.test_y = np.expand_dims(np.array([data[i + lag:i + lag + predict_step]
+                                                   for i in range(k, group_num)]), -1)
         else:  # if data is not enough, keep the same between train_data and test_data
-            self.train_x = np.expand_dims(np.array([data[i:i + lag] for i in range(0, group_num)]))
-            self.train_y = np.expand_dims(np.array([data[i + lag:i + lag + predict_step] for i in range(0, group_num)]))
+            self.train_x = np.expand_dims(np.array([data[i:i + lag]
+                                                    for i in range(0, group_num)]), -1)
+            self.train_y = np.expand_dims(np.array([data[i + lag:i + lag + predict_step]
+                                                    for i in range(0, group_num)]), -1)
             self.test_x = self.train_x
             self.test_y = self.train_y
         self.pre_x = np.expand_dims(np.array(data[-lag:]), 0)
@@ -837,9 +847,10 @@ class ConvLSTMResult(TSResult):
                             callbacks=[early_stopping], verbose=1)
         pre = correct_cdf(model.predict(self.pre_x)[0, :, :, 0]).tolist()
         # ERROR: loss里的mse和实际计算的mse有差距
-        mae = sum(sum(sum([abs(pre - true) for pre, true in
-                           zip(correct_cdf(model.predict(self.test_x)), self.test_y[:, :, :, 0])]))) / self.test_y.size
         # mse = history.history['val_loss'][-1]
+        pres = model.predict(self.test_x).reshape(self.test_x.shape[0] * self.predict_step, self.width)
+        trues = self.test_y.reshape(self.test_x.shape[0] * self.predict_step, self.width)
+        mae = np.sum(np.abs(pres - trues)) / self.test_y.size
         end_time = time.time()
         if is_plot:
             if os.path.exists(self.model_path) is False:
