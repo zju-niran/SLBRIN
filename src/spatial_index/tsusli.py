@@ -44,8 +44,8 @@ class TSUSLI(ZMIndexOptimised):
         self.thread_retrain = 1
         self.is_save = True
         self.is_retrain_delta = True
-        self.thread_retrain_delta = 1
         self.time_retrain_delta = -1
+        self.thread_retrain_delta = 1
         self.is_save_delta = True
         self.insert_time = 0
         self.insert_io = 0
@@ -55,7 +55,8 @@ class TSUSLI(ZMIndexOptimised):
     def build_append(self, time_interval, start_time, end_time,
                      lag, predict_step, cdf_width, child_length, cdf_model, max_key_model,
                      is_retrain, time_retrain, thread_retrain, is_save,
-                     is_retrain_delta, time_retrain_delta, thread_retrain_delta, is_save_delta):
+                     is_retrain_delta, time_retrain_delta, thread_retrain_delta, is_save_delta,
+                     is_build=True):
         """
         1. create delta_model with ts_model
         2. change delta_index from [] into [[]]
@@ -79,46 +80,54 @@ class TSUSLI(ZMIndexOptimised):
         self.is_save_delta = is_save_delta
         retrain_delta_model_mae1 = 0
         retrain_delta_model_mae2 = 0
-        # 1. create delta_model with ts_model
-        for j in range(self.stages[-1]):
-            # index_lens = [(j, len(self.rmi[-1][j].index)) for j in range(self.stages[-1])]
-            # index_lens.sort(key=lambda x: x[-1])
-            # max_len_index = index_lens[-1][0]
-            # for j in [max_len_index]:
-            s = time.time()
-            node = self.rmi[-1][j]
-            # create the old_cdfs and old_max_keys for delta_model
-            min_key = node.model.input_min
-            max_key = node.model.input_max
-            key_interval = (max_key - min_key) / cdf_width
-            key_list = [int(min_key + k * key_interval) for k in range(cdf_width)]
-            old_cdfs = [[] for k in range(self.time_id)]
-            for data in node.index:
-                old_cdfs[(data[3] - self.start_time) // self.time_interval].append(data[2])
-            old_max_keys = [max(len(cdf) - 1, 0) for cdf in old_cdfs]
-            # for empty and head old_cdfs, remove them
-            l = 0
-            while l < self.time_id and len(old_cdfs[l]) == 0:
-                l += 1
-            old_cdfs = old_cdfs[l:]
-            old_max_keys = old_max_keys[l:]
-            for k in range(len(old_cdfs)):
-                cdf = old_cdfs[k]
-                if cdf:  # for non-empty old_cdfs, create by data
-                    old_cdfs[k] = self.build_cdf(cdf, key_list)
-                else:  # for empty and non-head old_cdfs, copy from their previous
-                    old_cdfs[k] = old_cdfs[k - 1]
-            # plot_ts(cdfs)
-            node.delta_model = TimeSeriesModel(key_list, self.model_path,
-                                               old_cdfs, self.cdf_model,
-                                               old_max_keys, self.max_key_model, 0)
-            node.delta_model.build(lag, predict_step, cdf_width)
-            retrain_delta_model_mae1 += node.delta_model.cdf_verify_mae
-            retrain_delta_model_mae2 += node.delta_model.max_key_verify_mae
-            self.logging.info("%s %s" % (j, time.time() - s))
-            # 2. change delta_index from [] into [[]]
-            node.delta_index = [Array(self.child_length)
-                                for i in range(node.delta_model.max_keys[node.delta_model.time_id] + 1)]
+        if is_build:
+            # 1. create delta_model with ts_model
+            for j in range(self.stages[-1]):
+                # index_lens = [(j, len(self.rmi[-1][j].index)) for j in range(self.stages[-1])]
+                # index_lens.sort(key=lambda x: x[-1])
+                # max_len_index = index_lens[-1][0]
+                # for j in [max_len_index]:
+                s = time.time()
+                node = self.rmi[-1][j]
+                # create the old_cdfs and old_max_keys for delta_model
+                min_key = node.model.input_min
+                max_key = node.model.input_max
+                key_interval = (max_key - min_key) / cdf_width
+                key_list = [int(min_key + k * key_interval) for k in range(cdf_width)]
+                old_cdfs = [[] for k in range(self.time_id)]
+                for data in node.index:
+                    old_cdfs[(data[3] - self.start_time) // self.time_interval].append(data[2])
+                old_max_keys = [max(len(cdf) - 1, 0) for cdf in old_cdfs]
+                # for empty and head old_cdfs, remove them
+                l = 0
+                while l < self.time_id and len(old_cdfs[l]) == 0:
+                    l += 1
+                old_cdfs = old_cdfs[l:]
+                old_max_keys = old_max_keys[l:]
+                for k in range(len(old_cdfs)):
+                    cdf = old_cdfs[k]
+                    if cdf:  # for non-empty old_cdfs, create by data
+                        old_cdfs[k] = self.build_cdf(cdf, key_list)
+                    else:  # for empty and non-head old_cdfs, copy from their previous
+                        old_cdfs[k] = old_cdfs[k - 1]
+                # plot_ts(cdfs)
+                node.delta_model = TimeSeriesModel(key_list, self.model_path,
+                                                   old_cdfs, self.cdf_model,
+                                                   old_max_keys, self.max_key_model, 0)
+                node.delta_model.build(lag, predict_step, cdf_width)
+                retrain_delta_model_mae1 += node.delta_model.cdf_verify_mae
+                retrain_delta_model_mae2 += node.delta_model.max_key_verify_mae
+                self.logging.info("%s %s" % (j, time.time() - s))
+                # 2. change delta_index from [] into [[]]
+                node.delta_index = [Array(self.child_length)
+                                    for i in range(node.delta_model.max_keys[node.delta_model.time_id] + 1)]
+        else:
+            delta_models = np.load(os.path.join(self.model_path, 'delta_models.npy'), allow_pickle=True)[
+                           -self.stages[-1]:]
+            for j in range(self.stages[-1]):
+                self.rmi[-1][j].delta_model = delta_models[j]
+                self.rmi[-1][j].delta_index = [Array(self.child_length)
+                                               for i in range(delta_models[j].max_keys[delta_models[j].time_id] + 1)]
         self.logging.info("Build delta model cdf mae: %s" % (retrain_delta_model_mae1 / self.stages[-1]))
         self.logging.info("Build delta model max_key mae: %s" % (retrain_delta_model_mae2 / self.stages[-1]))
 
@@ -446,8 +455,8 @@ class TSUSLI(ZMIndexOptimised):
         self.thread_retrain = compute[2]
         self.is_save = bool(compute[3])
         self.is_retrain_delta = bool(compute[4])
-        self.thread_retrain_delta = compute[5]
-        self.time_retrain_delta = compute[6]
+        self.time_retrain_delta = compute[5]
+        self.thread_retrain_delta = compute[6]
         self.is_save_delta = bool(compute[7])
         models = np.load(os.path.join(self.model_path, 'models.npy'), allow_pickle=True)
         indexes = np.load(os.path.join(self.model_path, 'indexes.npy'), allow_pickle=True).tolist()
@@ -475,7 +484,7 @@ class TSUSLI(ZMIndexOptimised):
                     delta_model = delta_models[model_cur]
                     cur_max_key = delta_model.max_keys[delta_model.time_id]
                     delta_index = []
-                    for i in range(cur_max_key):
+                    for i in range(cur_max_key + 1):
                         size = delta_index_lens[delta_index_len_cur]
                         max_key = delta_index_lens[delta_index_len_cur + 1]
                         index = delta_indexes[delta_index_cur:delta_index_cur + size]
