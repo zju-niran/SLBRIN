@@ -121,7 +121,7 @@ def plot_group_histogram_and_line(x, y_list, model_path, x_title, y_title, line_
     plt.close()
 
 
-def plot_line(x, y_list, model_path, x_title, y_title, color_list, marker_list, adjust, is_legend=True,
+def plot_lines(x, y_list, model_path, x_title, y_title, color_list, marker_list, adjust, is_legend=True,
               legend_pos='best'):
     font_size = 20
     marker_size = 20
@@ -277,12 +277,12 @@ def plot_build_query_slbrin(input_path, output_path, names, colors, markers):
     range_size_len = len(range_sizes)
     range_query_time_nyct = [[competitor_names[j], [result.iloc[67 + i][2 + j] * 1000 for i in range(range_size_len)]]
                              for j in range(competitor_len)]
-    plot_line(range_sizes, range_query_time_nyct, output_path + "/range_query_time_nyct.png",
+    plot_lines(range_sizes, range_query_time_nyct, output_path + "/range_query_time_nyct.png",
               'Query range size (%)', 'Query time (ms)', competitor_colors, competitor_markers,
               [0.95, 0.18, 0.97, 0.15], True, 'upper left')
     range_query_io_cost_nyct = [[competitor_names[j], [result.iloc[73 + i][2 + j] for i in range(range_size_len)]]
                                 for j in range(competitor_len)]
-    plot_line(range_sizes, range_query_io_cost_nyct, output_path + "/range_query_io_cost_nyct.png",
+    plot_lines(range_sizes, range_query_io_cost_nyct, output_path + "/range_query_io_cost_nyct.png",
               'Query range size (%)', 'IO cost', competitor_colors, competitor_markers, [0.95, 0.15, 0.97, 0.15], False)
     # knn query
     knn_query_time = [[competitor_names[j], [result.iloc[24 + i * 30][2 + j] * 1000 for i in range(dataset_len)]]
@@ -297,12 +297,12 @@ def plot_build_query_slbrin(input_path, output_path, names, colors, markers):
     knn_size_len = len(knn_sizes)
     knn_query_time_nyct = [[competitor_names[j], [result.iloc[79 + i][2 + j] for i in range(knn_size_len)]]
                            for j in range(competitor_len)]
-    plot_line(knn_sizes, knn_query_time_nyct, output_path + "/knn_query_time_nyct.png",
+    plot_lines(knn_sizes, knn_query_time_nyct, output_path + "/knn_query_time_nyct.png",
               "${k}$", 'Query time (ms)', competitor_colors, competitor_markers, [0.973, 0.18, 0.97, 0.15],
               True, 'upper left')
     knn_query_io_cost_nyct = [[competitor_names[j], [result.iloc[85 + i][2 + j] for i in range(knn_size_len)]]
                               for j in range(competitor_len)]
-    plot_line(knn_sizes, knn_query_io_cost_nyct, output_path + "/knn_query_io_cost_nyct.png",
+    plot_lines(knn_sizes, knn_query_io_cost_nyct, output_path + "/knn_query_io_cost_nyct.png",
               "${k}$", 'IO cost', competitor_colors, competitor_markers, [0.975, 0.15, 0.97, 0.15], False)
 
 
@@ -328,21 +328,21 @@ def plot_update_slbrin(input_path, output_path, names, colors, markers):
     update_time_nyct = [[names[j], result.iloc[25][1 + update_point_percent_len * j:
                                                    1 + update_point_percent_len * (j + 1)].tolist()]
                         for j in competitor_ids]
-    plot_line(update_point_percents, update_time_nyct, output_path + "/update_time_nyct.png",
+    plot_lines(update_point_percents, update_time_nyct, output_path + "/update_time_nyct.png",
               'Updated points (%)', 'Update time (s)', competitor_colors, competitor_markers, [0.976, 0.15, 0.97, 0.15])
     # point query in nyct
     update_point_query_time_nyct = [[names[j], (result.iloc[28][1 + update_point_percent_len * j:
                                                                 1 + update_point_percent_len * (j + 1)]
                                                 * 1000000).tolist()]
                                     for j in competitor_ids]
-    plot_line(update_point_percents, update_point_query_time_nyct, output_path + "/update_point_query_time_nyct.png",
+    plot_lines(update_point_percents, update_point_query_time_nyct, output_path + "/update_point_query_time_nyct.png",
               'Updated points (%)', 'Query time (μs)', competitor_colors, competitor_markers,
               [0.976, 0.15, 0.97, 0.15], False)
     update_point_query_io_cost_nyct = [[names[j], (result.iloc[29][1 + update_point_percent_len * j:
                                                                    1 + update_point_percent_len * (
                                                                            j + 1)]).tolist()]
                                        for j in competitor_ids]
-    plot_line(update_point_percents, update_point_query_io_cost_nyct,
+    plot_lines(update_point_percents, update_point_query_io_cost_nyct,
               output_path + "/update_point_query_io_cost_nyct.png",
               'Updated points (%)', 'IO cost', competitor_colors, competitor_markers,
               [0.976, 0.15, 0.97, 0.15], False)
@@ -351,14 +351,14 @@ def plot_update_slbrin(input_path, output_path, names, colors, markers):
                                                                 1 + update_point_percent_len * (j + 1)]
                                                 * 1000).tolist()]
                                     for j in competitor_ids]
-    plot_line(update_point_percents, update_range_query_time_nyct, output_path + "/update_range_query_time_nyct.png",
+    plot_lines(update_point_percents, update_range_query_time_nyct, output_path + "/update_range_query_time_nyct.png",
               'Updated points (%)', 'Query time (ms)', competitor_colors, competitor_markers,
               [0.976, 0.15, 0.97, 0.15], False)
     update_range_query_io_cost_nyct = [[names[j], (result.iloc[31][1 + update_point_percent_len * j:
                                                                    1 + update_point_percent_len * (
                                                                            j + 1)]).tolist()]
                                        for j in competitor_ids]
-    plot_line(update_point_percents, update_range_query_io_cost_nyct,
+    plot_lines(update_point_percents, update_range_query_io_cost_nyct,
               output_path + "/update_range_query_io_cost_nyct.png",
               'Updated points (%)', 'IO cost', competitor_colors, competitor_markers,
               [0.976, 0.15, 0.97, 0.15], False)
@@ -367,14 +367,14 @@ def plot_update_slbrin(input_path, output_path, names, colors, markers):
                                                               1 + update_point_percent_len * (j + 1)]
                                               * 1000).tolist()]
                                   for j in competitor_ids]
-    plot_line(update_point_percents, update_knn_query_time_nyct, output_path + "/update_knn_query_time_nyct.png",
+    plot_lines(update_point_percents, update_knn_query_time_nyct, output_path + "/update_knn_query_time_nyct.png",
               'Updated points (%)', 'Query time (ms)', competitor_colors, competitor_markers,
               [0.976, 0.15, 0.97, 0.15], False)
     update_knn_query_io_cost_nyct = [[names[j], (result.iloc[33][1 + update_point_percent_len * j:
                                                                  1 + update_point_percent_len * (
                                                                          j + 1)]).tolist()]
                                      for j in competitor_ids]
-    plot_line(update_point_percents, update_knn_query_io_cost_nyct, output_path + "/update_knn_query_io_cost_nyct.png",
+    plot_lines(update_point_percents, update_knn_query_io_cost_nyct, output_path + "/update_knn_query_io_cost_nyct.png",
               'Updated points (%)', 'IO cost', competitor_colors, competitor_markers,
               [0.976, 0.15, 0.97, 0.15], False)
     # update slbrin variants
@@ -393,7 +393,7 @@ def plot_update_slbrin(input_path, output_path, names, colors, markers):
     update_time_nyct = [[names[j], result.iloc[25][1 + update_point_percent_len * j:
                                                    1 + update_point_percent_len * (j + 1)].tolist()]
                         for j in competitor_ids]
-    plot_line(update_point_percents, update_time_nyct, output_path + "/update_time_nyct_slbrin.png",
+    plot_lines(update_point_percents, update_time_nyct, output_path + "/update_time_nyct_slbrin.png",
               'Updated points (%)', 'Update time (s)', competitor_colors, competitor_markers, [0.976, 0.15, 0.97, 0.15],
               False)
     # point query in nyct
@@ -401,7 +401,7 @@ def plot_update_slbrin(input_path, output_path, names, colors, markers):
                                                                 1 + update_point_percent_len * (j + 1)]
                                                 * 1000000).tolist()]
                                     for j in competitor_ids]
-    plot_line(update_point_percents, update_point_query_time_nyct,
+    plot_lines(update_point_percents, update_point_query_time_nyct,
               output_path + "/update_point_query_time_nyct_slbrin.png",
               'Updated points (%)', 'Query time (μs)', competitor_colors, competitor_markers,
               [0.976, 0.15, 0.97, 0.15], False)
@@ -409,7 +409,7 @@ def plot_update_slbrin(input_path, output_path, names, colors, markers):
                                                                    1 + update_point_percent_len * (
                                                                            j + 1)]).tolist()]
                                        for j in competitor_ids]
-    plot_line(update_point_percents, update_point_query_io_cost_nyct,
+    plot_lines(update_point_percents, update_point_query_io_cost_nyct,
               output_path + "/update_point_query_io_cost_nyct_slbrin.png",
               'Updated points (%)', 'IO cost', competitor_colors, competitor_markers,
               [0.976, 0.15, 0.97, 0.15], False)
@@ -418,7 +418,7 @@ def plot_update_slbrin(input_path, output_path, names, colors, markers):
                                                                 1 + update_point_percent_len * (j + 1)]
                                                 * 1000).tolist()]
                                     for j in competitor_ids]
-    plot_line(update_point_percents, update_range_query_time_nyct,
+    plot_lines(update_point_percents, update_range_query_time_nyct,
               output_path + "/update_range_query_time_nyct_slbrin.png",
               'Updated points (%)', 'Query time (ms)', competitor_colors, competitor_markers,
               [0.976, 0.16, 0.97, 0.15], False)
@@ -426,7 +426,7 @@ def plot_update_slbrin(input_path, output_path, names, colors, markers):
                                                                    1 + update_point_percent_len * (
                                                                            j + 1)]).tolist()]
                                        for j in competitor_ids]
-    plot_line(update_point_percents, update_range_query_io_cost_nyct,
+    plot_lines(update_point_percents, update_range_query_io_cost_nyct,
               output_path + "/update_range_query_io_cost_nyct_slbrin.png",
               'Updated points (%)', 'IO cost', competitor_colors, competitor_markers,
               [0.976, 0.15, 0.97, 0.15], False)
@@ -435,14 +435,14 @@ def plot_update_slbrin(input_path, output_path, names, colors, markers):
                                                               1 + update_point_percent_len * (j + 1)]
                                               * 1000).tolist()]
                                   for j in competitor_ids]
-    plot_line(update_point_percents, update_knn_query_time_nyct, output_path + "/update_knn_query_time_nyct_slbrin.png",
+    plot_lines(update_point_percents, update_knn_query_time_nyct, output_path + "/update_knn_query_time_nyct_slbrin.png",
               'Updated points (%)', 'Query time (ms)', competitor_colors, competitor_markers,
               [0.976, 0.18, 0.97, 0.15], False)
     update_knn_query_io_cost_nyct = [[names[j], (result.iloc[33][1 + update_point_percent_len * j:
                                                                  1 + update_point_percent_len * (
                                                                          j + 1)]).tolist()]
                                      for j in competitor_ids]
-    plot_line(update_point_percents, update_knn_query_io_cost_nyct,
+    plot_lines(update_point_percents, update_knn_query_io_cost_nyct,
               output_path + "/update_knn_query_io_cost_nyct_slbrin.png",
               'Updated points (%)', 'IO cost', competitor_colors, competitor_markers,
               [0.976, 0.15, 0.97, 0.15], False)
@@ -454,7 +454,7 @@ def plot_update_slbrin(input_path, output_path, names, colors, markers):
     competitor_markers = [markers[j] for j in competitor_ids]
     update_err_nyct_slbrin = [[competitor_names[j], (result.iloc[54 + j][1:1 + update_point_percent_len]).tolist()]
                               for j in range(competitor_len)]
-    plot_line(update_point_percents, update_err_nyct_slbrin, output_path + "/update_err_nyct_slbrin.png",
+    plot_lines(update_point_percents, update_err_nyct_slbrin, output_path + "/update_err_nyct_slbrin.png",
               'Updated points (%)', 'Error bounds', competitor_colors, competitor_markers, [0.976, 0.15, 0.97, 0.15],
               True, 'center')
 

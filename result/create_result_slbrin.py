@@ -13,7 +13,7 @@ config = {
 rcParams.update(config)
 
 
-def plot_line(x, y_list, model_path, x_title, y_title, color_list, marker_list, adjust, is_legend=True,
+def plot_lines(x, y_list, model_path, x_title, y_title, color_list, marker_list, adjust, is_legend=True,
               legend_pos='best'):
     font_size = 20
     marker_size = 20
@@ -206,12 +206,12 @@ def plot_query_slbrin(input_path, output_path, names, colors, markers):
     range_size_len = len(range_sizes)
     range_query_io_cost_nyct = [[competitor_names[j], [result.iloc[79 + i][2 + j] for i in range(range_size_len)]]
                                 for j in range(competitor_len)]
-    plot_line(range_sizes, range_query_io_cost_nyct, output_path + "/range_query3.png",
+    plot_lines(range_sizes, range_query_io_cost_nyct, output_path + "/range_query3.png",
               '查询框大小（$\mathrm{\%}$）', '$\mathrm{IO}$成本',
               competitor_colors, competitor_markers, [0.95, 0.14, 0.97, 0.15], True, 'upper left')
     range_query_time_nyct = [[competitor_names[j], [result.iloc[73 + i][2 + j] * 1000 for i in range(range_size_len)]]
                              for j in range(competitor_len)]
-    plot_line(range_sizes, range_query_time_nyct, output_path + "/range_query4.png",
+    plot_lines(range_sizes, range_query_time_nyct, output_path + "/range_query4.png",
               '查询框大小（$\mathrm{\%}$）', '检索时间（$\mathrm{ms}$）',
               competitor_colors, competitor_markers, [0.95, 0.15, 0.97, 0.15], False)
     # knn query
@@ -227,11 +227,11 @@ def plot_query_slbrin(input_path, output_path, names, colors, markers):
     knn_size_len = len(knn_sizes)
     knn_query_io_cost_nyct = [[competitor_names[j], [result.iloc[91 + i][2 + j] for i in range(knn_size_len)]]
                               for j in range(competitor_len)]
-    plot_line(knn_sizes, knn_query_io_cost_nyct, output_path + "/knn_query3.png", "${k}$", '$\mathrm{IO}$成本',
+    plot_lines(knn_sizes, knn_query_io_cost_nyct, output_path + "/knn_query3.png", "${k}$", '$\mathrm{IO}$成本',
               competitor_colors, competitor_markers, [0.975, 0.14, 0.97, 0.15], True, 'upper left')
     knn_query_time_nyct = [[competitor_names[j], [result.iloc[85 + i][2 + j] for i in range(knn_size_len)]]
                            for j in range(competitor_len)]
-    plot_line(knn_sizes, knn_query_time_nyct, output_path + "/knn_query4.png", "${k}$", '检索时间（$\mathrm{ms}$）',
+    plot_lines(knn_sizes, knn_query_time_nyct, output_path + "/knn_query4.png", "${k}$", '检索时间（$\mathrm{ms}$）',
               competitor_colors, competitor_markers, [0.973, 0.15, 0.97, 0.15], False)
 
 
@@ -243,8 +243,8 @@ if __name__ == '__main__':
     colors = ['#95CCBA', '#F2C477', '#BFC0D5', '#FCE166', '#FCE166', '#86B2C5',
               '#FADEA7', '#E57373', '#F53935', '#B71C1C']
     markers = ['v', 's', 'p', '*', '*', 'x', 'o', 'o', 'o', 'o']
-    input_path = "./table/result2.xlsx"
-    output_path = "./png2"
+    input_path = "./table/result_slbrin.xlsx"
+    output_path = "./result_slbrin"
     plot_grid_search_slbrin(input_path, output_path)
     plot_build_slbrin(input_path, output_path, names, colors)
     plot_error_slbrin(input_path, output_path, names, colors)
