@@ -1,3 +1,4 @@
+import gc
 import multiprocessing
 import os
 import time
@@ -59,6 +60,8 @@ class TimeSeriesModel:
             ts = ts_model_type[self.model_max_key](self.max_keys[:self.time_id], lag, predict_step, self.model_path)
             # ts.grid_search(thread=3, start_num=0)
             pre_max_keys, mae_max_key = ts.train()
+            del ts
+            gc.collect(generation=0)
         self.cdfs.extend(pre_cdfs)
         self.max_keys.extend(pre_max_keys)
         self.cdf_verify_mae = mae_cdf
@@ -844,7 +847,7 @@ class ConvLSTMResult(TSResult):
         # reduce_lr = ReduceLROnPlateau(monitor="loss", patience=5, verbose=0)
         history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x, self.test_y),
                             epochs=100, batch_size=batch_size,
-                            callbacks=[early_stopping], verbose=1)
+                            callbacks=[early_stopping], verbose=0)
         pre = correct_cdf(model.predict(self.pre_x)[0, :, :, 0]).tolist()
         # ERROR: loss里的mse和实际计算的mse有差距
         # mse = history.history['val_loss'][-1]
