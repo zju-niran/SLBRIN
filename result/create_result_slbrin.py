@@ -103,7 +103,7 @@ def plot_grid_search_slbrin(input_path, output_path):
     tn_x = ['5000', '7500', '10000', '15000', '20000']
     tn_build_time = [tn_result.iloc[66][1 + i] / 1000 for i in range(5)]
     tn_index_size = [tn_result.iloc[67][1 + i] / 1024 / 1024 for i in range(5)]
-    tn_error_bound = [tn_result.iloc[70][1 + i] / 100 for i in range(5)]
+    tn_error_range = [tn_result.iloc[70][1 + i] / 100 for i in range(5)]
     tn_error_ratio = [tn_result.iloc[71][1 + i] * 100 for i in range(5)]
     tn_query_time = [sum([tn_result.iloc[74 + i][1 + j] for i in range(5)]) / 5 * 100000 for j in range(5)]
     tn_query_io_cost = [sum([tn_result.iloc[80 + i][1 + j] for i in range(5)]) / 5 for j in range(5)]
@@ -116,7 +116,7 @@ def plot_grid_search_slbrin(input_path, output_path):
 
     fun(tn_build_time)
     fun(tn_index_size)
-    fun(tn_error_bound)
+    fun(tn_error_range)
     fun(tn_error_ratio)
     fun(tn_query_time)
     fun(tn_query_io_cost)
@@ -124,7 +124,7 @@ def plot_grid_search_slbrin(input_path, output_path):
     plot_histogram_and_line(tn_x, tn_index_size, tn_build_time, output_path + "/tn1.png",
                             tn_x_title, "索引体积（$\mathrm{MB}$）", "构建时间（$\mathrm{1000s}$）", "索引体积", "构建时间",
                             color1, color2, [0.91, 0.12, 0.97, 0.15], [0, 15, 3], [0, 5, 1], True, (1, 1))
-    plot_histogram_and_line(tn_x, tn_error_bound, tn_error_ratio, output_path + "/tn2.png",
+    plot_histogram_and_line(tn_x, tn_error_range, tn_error_ratio, output_path + "/tn2.png",
                             tn_x_title, "误差范围（$\mathrm{×100}$）", "误差率（$\mathrm{\%}$）", "误差范围", "误差率",
                             color1, color2, [0.865, 0.10, 0.97, 0.15], [0, 6, 1], [2.5, 3.1, 0.1], True, (0.85, 1))
     plot_histogram_and_line(tn_x, tn_query_io_cost, tn_query_time, output_path + "/tn3.png",
@@ -163,10 +163,10 @@ def plot_error_slbrin(input_path, output_path, names, colors):
     datasets = ['UNIFORM', 'NORMAL', 'NYCT']
     competitor_len = len(competitor_names)
     dataset_len = len(datasets)
-    # point query
-    error_bound = [[competitor_names[j], [result.iloc[5 + i * 32][5 + j] for i in range(dataset_len)]]
+    # err
+    error_range = [[competitor_names[j], [result.iloc[5 + i * 32][5 + j] for i in range(dataset_len)]]
                    for j in range(competitor_len)]
-    plot_group_histogram(datasets, error_bound, output_path + "/error1.png", '数据集', '误差范围（$\mathrm{×100}$）',
+    plot_group_histogram(datasets, error_range, output_path + "/error1.png", '数据集', '误差范围（$\mathrm{×100}$）',
                          competitor_colors, [0.99, 0.14, 0.97, 0.15], is_log=False, ncol=1)
     error_ratio = [[competitor_names[j], [result.iloc[6 + i * 32][5 + j] * 100 for i in range(dataset_len)]]
                    for j in range(competitor_len)]
