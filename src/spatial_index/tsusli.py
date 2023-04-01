@@ -35,9 +35,13 @@ class TSUSLI(ZMIndexOptimised):
         self.lag = 0  # l
         self.predict_step = 0  # f
         self.cdf_width = 0  # c
-        self.child_length = 0  # nl
+        self.child_length = 0  # bs
         self.cdf_model = None  # MF
         self.max_key_model = None  # Mn
+        self.is_init = False
+        self.threshold_err = 1
+        self.threshold_err_cdf = 1
+        self.threshold_err_max_key = 1
         # for compute
         self.is_retrain = True
         self.time_retrain = -1
@@ -54,6 +58,7 @@ class TSUSLI(ZMIndexOptimised):
 
     def build_append(self, time_interval, start_time, end_time,
                      lag, predict_step, cdf_width, child_length, cdf_model, max_key_model,
+                     is_init, threshold_err, threshold_err_cdf, threshold_err_max_key,
                      is_retrain, time_retrain, thread_retrain, is_save,
                      is_retrain_delta, time_retrain_delta, thread_retrain_delta, is_save_delta,
                      is_build=True):
@@ -70,6 +75,11 @@ class TSUSLI(ZMIndexOptimised):
         self.child_length = child_length
         self.cdf_model = cdf_model
         self.max_key_model = max_key_model
+        self.is_init = is_init
+        self.threshold_err = threshold_err
+        self.threshold_err_cdf = threshold_err_cdf
+        self.threshold_err_max_key = threshold_err_max_key
+        # self.is_init_
         self.is_retrain = is_retrain
         self.time_retrain = time_retrain
         self.thread_retrain = thread_retrain
@@ -117,7 +127,7 @@ class TSUSLI(ZMIndexOptimised):
                 node.delta_model.build(lag, predict_step, cdf_width)
                 retrain_delta_model_mae1 += node.delta_model.cdf_verify_mae
                 retrain_delta_model_mae2 += node.delta_model.max_key_verify_mae
-                self.logging.info("%s %s" % (j, time.time() - s))
+                self.logging.info("%s: %s" % (j, time.time() - s))
                 # 2. change delta_index from [] into [[]]
                 node.delta_index = [Array(self.child_length)
                                     for i in range(node.delta_model.max_keys[node.delta_model.time_id] + 1)]
@@ -238,8 +248,9 @@ class TSUSLI(ZMIndexOptimised):
                 if update_list[j]:
                     leaf_node = self.rmi[-1][j]
                     pool.apply_async(retrain_model,
-                                     (self.model_path, j, leaf_node.index, leaf_node.model, self.weight, self.cores,
-                                      self.train_step, self.batch_num, self.learning_rate, mp_dict))
+                                     (self.model_path, j, leaf_node.index, leaf_node.model,
+                                      self.weight, self.cores, self.train_step, self.batch_num, self.learning_rate,
+                                      self.is_init, self.threshold_err, mp_dict))
             pool.close()
             pool.join()
             for (key, value) in mp_dict.items():
@@ -282,8 +293,9 @@ class TSUSLI(ZMIndexOptimised):
                     cur_cdf = self.build_cdf([data[2] for data in update_list[j]], leaf_node.delta_model.key_list)
                     cur_max_key = len(update_list[j]) - 1
                     pool.apply_async(retrain_delta_model,
-                                     (j, leaf_node.delta_model, cur_cdf, cur_max_key, self.lag, self.predict_step,
-                                      self.cdf_width, mp_dict))
+                                     (j, leaf_node.delta_model, cur_cdf, cur_max_key,
+                                      self.lag, self.predict_step, self.cdf_width,
+                                      self.threshold_err_cdf, self.threshold_err_max_key, mp_dict))
             pool.close()
             pool.join()
             for (key, value) in mp_dict.items():
@@ -390,9 +402,11 @@ class TSUSLI(ZMIndexOptimised):
                                ("5", 'f4'), ("6", 'i2'), ("7", 'i2'), ("8", 'f4')])
         np.save(os.path.join(self.model_path, 'meta.npy'), meta)
         meta_append = np.array((self.start_time, self.time_id, self.time_interval,
-                                self.lag, self.predict_step, self.cdf_width),
+                                self.lag, self.predict_step, self.cdf_width,
+                                self.is_init, self.threshold_err, self.threshold_err_cdf, self.threshold_err_max_key),
                                dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'),
-                                      ("13", 'i1'), ("14", 'i1'), ("15", 'i1')])
+                                      ("3", 'i1'), ("4", 'i1'), ("5", 'i2'),
+                                      ("6", 'i1'), ("7", 'i1'), ("8", 'i1'), ("9", 'i1')])
         np.save(os.path.join(self.model_path, 'meta_append.npy'), meta_append)
         compute = np.array((self.is_retrain, self.time_retrain, self.thread_retrain, self.is_save,
                             self.is_retrain_delta, self.time_retrain_delta, self.thread_retrain_delta,
@@ -449,6 +463,10 @@ class TSUSLI(ZMIndexOptimised):
         self.lag = meta_append[3]
         self.predict_step = meta_append[4]
         self.cdf_width = meta_append[5]
+        self.is_init = bool(meta_append[6])
+        self.threshold_err = meta_append[7]
+        self.threshold_err_cdf = meta_append[8]
+        self.threshold_err_max_key = meta_append[9]
         compute = np.load(os.path.join(self.model_path, 'compute.npy'), allow_pickle=True).item()
         self.is_retrain = bool(compute[0])
         self.time_retrain = compute[1]
@@ -516,8 +534,10 @@ class TSUSLI(ZMIndexOptimised):
                index_len * ITEM_SIZE
 
 
-def retrain_delta_model(model_key, delta_model, cur_cdf, cur_max_key, lag, predict_step, cdf_width, mp_dict):
-    num = delta_model.update(cur_cdf, cur_max_key, lag, predict_step, cdf_width)
+def retrain_delta_model(model_key, delta_model, cur_cdf, cur_max_key, lag, predict_step, cdf_width,
+                        threshold_err_cdf, threshold_err_max_key, mp_dict):
+    num = delta_model.update(cur_cdf, cur_max_key, lag, predict_step, cdf_width,
+                             threshold_err_cdf, threshold_err_max_key)
     mp_dict[model_key] = delta_model, num
 
 
@@ -572,6 +592,10 @@ def main():
                            child_length=ITEMS_PER_PAGE,
                            cdf_model="var",
                            max_key_model="es",
+                           is_init=True,
+                           threshold_err=1,
+                           threshold_err_cdf=10,
+                           threshold_err_max_key=10,
                            is_retrain=False,
                            time_retrain=-1,
                            thread_retrain=3,

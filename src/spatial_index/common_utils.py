@@ -408,6 +408,7 @@ def biased_search_less_max_duplicate(nums, field, x, mid, left, right):
         mid = (left + right) // 2
     return right + 1
 
+
 def biased_search_almost(nums, field, x, mid, left, right):
     """
     二分查找 + 对象 + biased + 查找不超过x的数量 + 允许重复
@@ -517,6 +518,15 @@ def denormalize_output_minmax(value, min_v, max_v):
     elif value > 1:
         return max_v
     return value * (max_v - min_v) + min_v
+
+
+def denormalize_outputs_minmax(values, min_v, max_v):
+    if max_v == min_v:
+        values.fill(min_v)
+        return values
+    values[values < 0] = 0
+    values[values > 1] = 1
+    return values * (max_v - min_v) + min_v
 
 
 def relu(x):

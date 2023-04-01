@@ -10,7 +10,8 @@ import numpy as np
 sys.path.append('/home/zju/wlj/SLBRIN')
 from src.spatial_index.common_utils import biased_search_less_max_duplicate, biased_search_duplicate
 from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
-from src.spatial_index.zm_index_optimised import ZMIndexOptimised, NN
+from src.spatial_index.zm_index_optimised import ZMIndexOptimised
+from src.spatial_index.zm_index_di import retrain_model
 
 # 预设pagesize=4096, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
 PAGE_SIZE = 4096
@@ -28,6 +29,8 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
         self.time_id = None
         self.time_interval = None
         self.empty_ratio = None
+        self.is_init = False
+        self.threshold_err = 1
         # for compute
         self.is_retrain = True
         self.time_retrain = -1
@@ -73,7 +76,7 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
         model.max_err += empty_len
         return diff_left_len
 
-    def build_append(self, time_interval, start_time, end_time, empty_ratio,
+    def build_append(self, time_interval, start_time, end_time, empty_ratio, is_init, threshold_err,
                      is_retrain, time_retrain, thread_retrain, is_save):
         """
         1. preserve empty locations for each leaf node
@@ -86,6 +89,8 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
         self.time_id = math.ceil((end_time - start_time) / time_interval)
         self.time_interval = time_interval
         self.empty_ratio = empty_ratio
+        self.is_init = is_init
+        self.threshold_err = threshold_err
         self.is_retrain = is_retrain
         self.time_retrain = time_retrain
         self.thread_retrain = thread_retrain
@@ -186,8 +191,9 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
                     inputs = leaf_node.index[model.bias:model.bias + model.output_max + 1]
                     retrain_model_io += math.ceil(len(inputs) / ITEMS_PER_PAGE)
                     pool.apply_async(retrain_model,
-                                     (self.model_path, j, inputs, model, self.weight, self.cores,
-                                      self.train_step, self.batch_num, self.learning_rate, mp_dict))
+                                     (self.model_path, j, inputs, model,
+                                      self.weight, self.cores, self.train_step, self.batch_num, self.learning_rate,
+                                      self.is_init, self.threshold_err, mp_dict))
             pool.close()
             pool.join()
             for (key, value) in mp_dict.items():
@@ -262,8 +268,10 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
 
     def save(self):
         super(ZMIndexInPlaceInsert, self).save()
-        meta_append = np.array((self.start_time, self.time_id, self.time_interval, self.empty_ratio),
-                               dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'), ("3", 'f8')])
+        meta_append = np.array((self.start_time, self.time_id, self.time_interval,
+                                self.empty_ratio, self.is_init, self.threshold_err),
+                               dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'),
+                                      ("3", 'f8'), ("4", 'i1'), ("5", 'i1')])
         np.save(os.path.join(self.model_path, 'meta_append.npy'), meta_append)
         compute = np.array((self.is_retrain, self.time_retrain, self.thread_retrain, self.is_save),
                            dtype=[("0", 'i1'), ("1", 'i2'), ("2", 'i1'), ("3", 'i1')])
@@ -276,6 +284,8 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
         self.time_id = meta_append[1]
         self.time_interval = meta_append[2]
         self.empty_ratio = meta_append[3]
+        self.is_init = bool(meta_append[4])
+        self.threshold_err = meta_append[5]
         compute = np.load(os.path.join(self.model_path, 'compute.npy'), allow_pickle=True).item()
         self.is_retrain = bool(compute[0])
         self.time_retrain = compute[1]
@@ -296,27 +306,6 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
                os.path.getsize(os.path.join(self.model_path, "cores.npy")) - 128 + \
                os.path.getsize(os.path.join(self.model_path, "models.npy")) - 128, \
                index_len * ITEM_SIZE
-
-
-def retrain_model(model_path, model_key, inputs, model, weight, cores, train_step, batch_num,
-                  learning_rate, mp_dict):
-    inputs = [data[2] for data in inputs]
-    inputs.insert(0, model.input_min)
-    inputs.append(model.input_max)
-    inputs_num = len(inputs)
-    labels = list(range(0, inputs_num))
-    batch_size = 2 ** math.ceil(math.log(inputs_num / batch_num, 2))
-    if batch_size < 1:
-        batch_size = 1
-    tmp_index = NN(model_path, model_key, inputs, labels, True, weight,
-                   cores, train_step, batch_size, learning_rate, False, None, None)
-    # tmp_index.build_simple(None)  # retrain with initial model
-    tmp_index.build_simple(model.matrices if model else None)  # retrain with old model
-    model.matrices = tmp_index.get_matrices()
-    # model.output_max = inputs_num - 3
-    model.min_err = math.floor(tmp_index.min_err)
-    model.max_err = math.ceil(tmp_index.max_err)
-    mp_dict[model_key] = (model, 1, tmp_index.get_epochs())
 
 
 def main():
@@ -364,7 +353,9 @@ def main():
                            start_time=1356998400,
                            end_time=1359676799,
                            empty_ratio=0.5,
-                           is_retrain=False,
+                           is_init=True,
+                           threshold_err=1,
+                           is_retrain=True,
                            time_retrain=-1,
                            thread_retrain=3,
                            is_save=False)

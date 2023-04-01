@@ -12,7 +12,7 @@ from src.mlp import MLP
 from src.mlp_simple import MLPSimple
 from src.spatial_index.common_utils import Region, biased_search_duplicate, normalize_input_minmax, \
     denormalize_output_minmax, binary_search_less_max, binary_search_duplicate, normalize_output, normalize_input, \
-    relu
+    relu, denormalize_outputs_minmax
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
 from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
@@ -645,6 +645,30 @@ class AbstractNN:
             y1 = relu(y1 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
             y2 = relu(y2 * self.matrices[i * 2] + self.matrices[i * 2 + 1])
         return (np.dot(y2, self.matrices[-2]) - np.dot(y1, self.matrices[-2]))[0, 0] / delta
+
+    def update_error_range(self, xs):
+        xs_len = len(xs)
+        self.output_max = xs_len - 1
+        if xs_len:
+            # 数据量太多，predict很慢，因此用均匀采样得到100个点来计算误差
+            if xs_len > 100:
+                step_size = xs_len // 100
+                sample_keys = [i for i in range(0, step_size * 100, step_size)]
+                xs = np.array([xs[i] for i in sample_keys])
+                ys = np.array(sample_keys)
+            else:
+                xs = np.array(xs)
+                ys = np.arange(xs_len)
+            pres = normalize_input_minmax(np.expand_dims(xs, -1), self.input_min, self.input_max)
+            for i in range(self.hl_nums):
+                pres = relu(np.dot(pres, self.matrices[i * 2]) + self.matrices[i * 2 + 1])
+            pres = np.dot(pres, self.matrices[-2]) + self.matrices[-1]
+            errs = denormalize_outputs_minmax(pres.flatten(), ys.min(), ys.max()) - ys
+            self.min_err = math.floor(errs.min())
+            self.max_err = math.ceil(errs.max())
+        else:
+            self.min_err = 0
+            self.max_err = 0
 
 
 class Array:

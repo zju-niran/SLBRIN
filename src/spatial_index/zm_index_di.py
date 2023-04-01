@@ -28,6 +28,8 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
         self.time_id = None
         self.time_interval = None
         self.initial_length = 0
+        self.is_init = False
+        self.threshold_err = 1
         # for compute
         self.is_retrain = True
         self.time_retrain = -1
@@ -38,12 +40,14 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
         self.last_insert_time = 0
         self.last_insert_io = 0
 
-    def build_append(self, time_interval, start_time, end_time, initial_length,
+    def build_append(self, time_interval, start_time, end_time, initial_length, is_init, threshold_err,
                      is_retrain, time_retrain, thread_retrain, is_save):
         self.start_time = start_time
         self.time_id = math.ceil((end_time - start_time) / time_interval)
         self.time_interval = time_interval
         self.initial_length = initial_length
+        self.is_init = is_init
+        self.threshold_err = threshold_err
         self.is_retrain = is_retrain
         self.time_retrain = time_retrain
         self.thread_retrain = thread_retrain
@@ -112,8 +116,9 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
                 if update_list[j] == 1:
                     leaf_node = self.rmi[-1][j]
                     pool.apply_async(retrain_model,
-                                     (self.model_path, j, leaf_node.index, leaf_node.model, self.weight, self.cores,
-                                      self.train_step, self.batch_num, self.learning_rate, mp_dict))
+                                     (self.model_path, j, leaf_node.index, leaf_node.model,
+                                      self.weight, self.cores, self.train_step, self.batch_num, self.learning_rate,
+                                      self.is_init, self.threshold_err, mp_dict))
             pool.close()
             pool.join()
             for (key, value) in mp_dict.items():
@@ -145,8 +150,9 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
 
     def save(self):
         super(ZMIndexDeltaInsert, self).save()
-        meta_append = np.array((self.start_time, self.time_id, self.time_interval),
-                               dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4')])
+        meta_append = np.array((self.start_time, self.time_id, self.time_interval,
+                                self.initial_length, self.is_init, self.threshold_err),
+                               dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'), ("3", 'i4'), ("4", 'i1'), ("5", 'i1')])
         np.save(os.path.join(self.model_path, 'meta_append.npy'), meta_append)
         compute = np.array((self.is_retrain, self.time_retrain, self.thread_retrain, self.is_save),
                            dtype=[("0", 'i1'), ("1", 'i2'), ("2", 'i1'), ("3", 'i1')])
@@ -158,6 +164,9 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
         self.start_time = meta_append[0]
         self.time_id = meta_append[1]
         self.time_interval = meta_append[2]
+        self.initial_length = meta_append[3]
+        self.is_init = bool(meta_append[4])
+        self.threshold_err = meta_append[5]
         compute = np.load(os.path.join(self.model_path, 'compute.npy'), allow_pickle=True).item()
         self.is_retrain = bool(compute[0])
         self.time_retrain = compute[1]
@@ -174,25 +183,32 @@ class ZMIndexDeltaInsert(ZMIndexOptimised):
         return structure_size, ie_size
 
 
-def retrain_model(model_path, model_key, inputs, model, weight, cores, train_step, batch_num,
-                  learning_rate, mp_dict):
+def retrain_model(model_path, model_key, inputs, model,
+                  weight, cores, train_step, batch_num, learning_rate,
+                  is_init, threshold_err, mp_dict):
     inputs = [data[2] for data in inputs]
-    inputs.insert(0, model.input_min)
-    inputs.append(model.input_max)
-    inputs_num = len(inputs)
-    labels = list(range(0, inputs_num))
-    batch_size = 2 ** math.ceil(math.log(inputs_num / batch_num, 2))
-    if batch_size < 1:
-        batch_size = 1
-    tmp_index = NN(model_path, model_key, inputs, labels, True, weight,
-                   cores, train_step, batch_size, learning_rate, False, None, None)
-    # tmp_index.build_simple(None)  # retrain with initial model
-    tmp_index.build_simple(model.matrices if model else None)  # retrain with old model
-    model.matrices = tmp_index.get_matrices()
-    model.output_max = inputs_num - 3
-    model.min_err = math.floor(tmp_index.min_err)
-    model.max_err = math.ceil(tmp_index.max_err)
-    mp_dict[model_key] = (model, 1, tmp_index.get_epochs())
+    old_err = model.max_err - model.min_err
+    model.update_error_range(inputs)
+    if model.max_err - model.min_err <= threshold_err * old_err:
+        mp_dict[model_key] = (model, 0, 0)
+    else:
+        inputs.insert(0, model.input_min)
+        inputs.append(model.input_max)
+        inputs_num = len(inputs)
+        labels = list(range(0, inputs_num))
+        batch_size = 2 ** math.ceil(math.log(inputs_num / batch_num, 2))
+        if batch_size < 1:
+            batch_size = 1
+        tmp_index = NN(model_path, model_key, inputs, labels, True, weight,
+                       cores, train_step, batch_size, learning_rate, False, None, None)
+        if is_init:
+            tmp_index.build_simple(model.matrices if model else None)
+        else:
+            tmp_index.build_simple(None)
+        model.matrices = tmp_index.get_matrices()
+        model.min_err = math.floor(tmp_index.min_err)
+        model.max_err = math.ceil(tmp_index.max_err)
+        mp_dict[model_key] = (model, 1, tmp_index.get_epochs())
 
 
 def main():
@@ -240,7 +256,9 @@ def main():
                            start_time=1356998400,
                            end_time=1359676799,
                            initial_length=ITEMS_PER_PAGE,
-                           is_retrain=False,
+                           is_init=False,
+                           threshold_err=1,
+                           is_retrain=True,
                            time_retrain=-1,
                            thread_retrain=3,
                            is_save=False)

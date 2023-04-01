@@ -1,4 +1,3 @@
-import gc
 import multiprocessing
 import os
 import time
@@ -22,6 +21,7 @@ warnings.simplefilter('ignore', UserWarning)
 warnings.simplefilter('ignore', RuntimeWarning)
 
 
+# TODO: 只有ES和VAR完成了TCRM改造
 class TimeSeriesModel:
     def __init__(self, key_list, model_path, cdfs, type_cdf, max_keys, type_max_key, data_len):
         # for compute
@@ -38,36 +38,42 @@ class TimeSeriesModel:
         # for ts of cdf
         self.cdfs = cdfs
         self.model_cdf = type_cdf
+        self.sts_model = None
         # for ts of max key
         self.max_keys = max_keys
         self.model_max_key = type_max_key
+        self.ts_model = None
 
-    def build(self, lag, predict_step, cdf_width):
+    def build(self, lag, predict_step, cdf_width, threshold_err_cdf=0, threshold_err_max_key=0):
+        train_num = 0
         if self.time_id == 0:  # if cdfs is []
             pre_cdfs = [[0.0] * cdf_width for i in range(predict_step)]
             pre_max_keys = [0 for i in range(predict_step)]
-            mae_cdf = 0
-            mae_max_key = 0
         elif self.time_id <= lag + predict_step:  # if cdfs are not enough
             pre_cdfs = [self.cdfs[-1] for i in range(predict_step)]
             pre_max_keys = [self.max_keys[-1] for i in range(predict_step)]
-            mae_cdf = 0
-            mae_max_key = 0
         else:
-            ts = sts_model_type[self.model_cdf](self.cdfs[:self.time_id], lag, predict_step, cdf_width, self.model_path)
-            # ts.grid_search(thread=4, start_num=0)
-            pre_cdfs, mae_cdf = ts.train()
-            ts = ts_model_type[self.model_max_key](self.max_keys[:self.time_id], lag, predict_step, self.model_path)
-            # ts.grid_search(thread=3, start_num=0)
-            pre_max_keys, mae_max_key = ts.train()
-            del ts
-            gc.collect(generation=0)
+            if self.sts_model:
+                pre_cdfs, train_num = self.sts_model.retrain(self.cdfs[:self.time_id], threshold_err_cdf)
+            else:
+                self.sts_model = sts_model_type[self.model_cdf](
+                    self.cdfs[:self.time_id], lag, predict_step, cdf_width, self.model_path)
+                # self.sts_model.grid_search(thread=4, start_num=0)
+                pre_cdfs, train_num = self.sts_model.train()
+            if self.ts_model:
+                pre_max_keys, train_num = self.ts_model.retrain(self.max_keys[:self.time_id], threshold_err_max_key)
+            else:
+                self.ts_model = ts_model_type[self.model_max_key](
+                    self.max_keys[:self.time_id], lag, predict_step, self.model_path)
+                # self.ts_model.grid_search(thread=3, start_num=0)
+                pre_max_keys, train_num = self.ts_model.train()
         self.cdfs.extend(pre_cdfs)
         self.max_keys.extend(pre_max_keys)
-        self.cdf_verify_mae = mae_cdf
-        self.max_key_verify_mae = mae_max_key
+        self.cdf_verify_mae = self.sts_model.err if self.sts_model else 0
+        self.max_key_verify_mae = self.ts_model.err if self.ts_model else 0
+        return train_num
 
-    def update(self, cur_cdf, cur_max_key, lag, predict_step, cdf_width):
+    def update(self, cur_cdf, cur_max_key, lag, predict_step, cdf_width, threshold_err_cdf, threshold_err_max_key):
         """
         update with new data and retrain ts model when outdated
         return: retraining nums
@@ -76,8 +82,7 @@ class TimeSeriesModel:
         self.max_keys[self.time_id] = cur_max_key
         self.time_id += 1
         if self.time_id >= len(self.max_keys):
-            self.build(lag, predict_step, cdf_width)
-            return 1
+            return self.build(lag, predict_step, cdf_width, threshold_err_cdf, threshold_err_max_key)
         return 0
 
 
@@ -113,32 +118,53 @@ class ESResult(TSResult):
 
     def __init__(self, data, lag, predict_step, model_path):
         super().__init__()
-        # ES规定数据必须包含不低于两个周期
-        if len(data) < 2 * lag:
-            data.extend(data[-lag:])
-        self.data = np.array(data)
         self.lag = lag
         self.predict_step = predict_step
         self.model_path = model_path + 'es/'
+        self.model = None
+        self.err = 0
+        self.init_data(data)
+
+    def init_data(self, data):
+        # ES规定数据必须包含不低于两个周期
+        if len(data) < 2 * self.lag:
+            data.extend(data[-self.lag:])
+        self.data = np.array(data)
 
     def build(self, trend, seasonal, is_plot=False):
         model = ExponentialSmoothing(self.data, seasonal_periods=self.lag, trend=trend, seasonal=seasonal).fit()
-        pre = correct_max_key(model.forecast(steps=self.predict_step)).tolist()
-        # mse = model.sse / model.model.nobs
-        mae = sum(
-            [abs(data) for data in correct_max_key(model.predict(0, self.data.size - 1)) - self.data]) / self.data.size
+        self.model = model
+        self.err = self.get_err()
         if is_plot:
             if os.path.exists(self.model_path) is False:
                 os.makedirs(self.model_path)
             plt.plot(self.data)
             plt.plot(model.predict(0, len(self.data) - 1))
             plt.savefig(
-                self.model_path + "%s_%s_%s.png" % (trend, seasonal, mae))
+                self.model_path + "%s_%s_%s.png" % (trend, seasonal, self.err))
             plt.close()
-        return pre, mae
+
+    def predict(self):
+        return correct_max_key(self.model.forecast(steps=self.predict_step)).tolist()
 
     def train(self):
-        return self.build(trend='add', seasonal='add')
+        self.build(trend='add', seasonal='add')
+        return self.predict(), 1
+
+    def retrain(self, data, threshold_err):
+        self.init_data(data)
+        old_err = self.err
+        self.err = self.get_err()
+        if self.err <= threshold_err * old_err:
+            return self.predict(), 0
+        else:
+            return self.train()
+
+    def get_err(self):
+        # mse = model.sse / model.model.nobs
+        mae = sum([abs(data)
+                   for data in correct_max_key(self.model.predict(0, self.data.size - 1)) - self.data]) / self.data.size
+        return mae
 
     def grid_search(self, thread=1, start_num=0):
         trends = ["add", "mul", "additive", "multiplicative", None]
@@ -533,18 +559,23 @@ class VARResult(TSResult):
 
     def __init__(self, data, lag, predict_step, width, model_path):
         super().__init__()
+        self.predict_step = predict_step
+        self.lag = lag
+        self.width = width
+        self.model_path = model_path + 'var/'
+        self.model = None
+        self.err = 0
+        self.init_data(data)
+
+    def init_data(self, data):
         data = np.array(data)
         k = int(0.7 * len(data))
-        if len(data) - k >= lag + predict_step:  # if data is enough, split into train_data and test_data
+        if len(data) - k >= self.lag + self.predict_step:  # if data is enough, split into train_data and test_data
             self.train_data = data[:k]
             self.test_data = data[k:]
         else:  # if data is not enough, keep the same between train_data and test_data
             self.train_data = data
             self.test_data = data
-        self.predict_step = predict_step
-        self.lag = lag
-        self.width = width
-        self.model_path = model_path + 'var/'
 
     def build(self, p, is_plot=False):
         try:
@@ -555,33 +586,51 @@ class VARResult(TSResult):
                 model = VAR(self.train_data).fit(maxlags=self.lag, verbose=False, trend='n')
             except LinAlgError:
                 model = VAR(self.train_data[1:]).fit(maxlags=self.lag, verbose=False, trend='n')
-        pre = correct_cdf(model.forecast(self.test_data[-self.lag:], steps=self.predict_step)).tolist()
-        # 训练集的mae
-        # train_group_num = len(self.train_data) - self.lag - self.predict_step + 1
-        # mae = sum([sum([abs(err)
-        #                 for l in (correct_cdf(model.forecast(self.train_data[i:i + self.lag], steps=self.predict_step))
-        #                           - self.train_data[self.lag: i + self.lag + self.predict_step])
-        #                 for err in l])
-        #            for i in range(train_group_num)]) / (train_group_num * self.width * self.predict_step)
-        # 验证集的mae
-        test_group_num = len(self.test_data) - self.lag - self.predict_step + 1
-        mae = sum([sum([abs(err)
-                        for l in (correct_cdf(model.forecast(self.test_data[i:i + self.lag], steps=self.predict_step))
-                                  - self.test_data[i + self.lag: i + self.lag + self.predict_step])
-                        for err in l])
-                   for i in range(test_group_num)]) / (test_group_num * self.width * self.predict_step)
+        self.model = model
+        self.err = self.get_err()
         if is_plot:
             if os.path.exists(self.model_path) is False:
                 os.makedirs(self.model_path)
             plt.plot(self.test_data[-1])
             plt.plot(model.forecast(self.test_data[-self.lag:], steps=1))
             plt.savefig(
-                self.model_path + "default_%s.png" % mae)
+                self.model_path + "default_%s.png" % self.err)
             plt.close()
-        return pre, mae
+
+    def predict(self):
+        return correct_cdf(self.model.forecast(self.test_data[-self.lag:], steps=self.predict_step)).tolist()
 
     def train(self):
-        return self.build(None)
+        self.build(None)
+        return self.predict(), 1
+
+    def retrain(self, data, threshold_err):
+        self.init_data(data)
+        old_err = self.err
+        self.err = self.get_err()
+        if self.err <= threshold_err * old_err:
+            return self.predict(), 0
+        else:
+            return self.train()
+
+
+    def get_err(self):
+        # 训练集的mae
+        # train_group_num = len(self.train_data) - self.lag - self.predict_step + 1
+        # mae = sum([sum([abs(err)
+        #                 for l in (correct_cdf(self.model.forecast(self.train_data[i:i + self.lag], steps=self.predict_step))
+        #                           - self.train_data[self.lag: i + self.lag + self.predict_step])
+        #                 for err in l])
+        #            for i in range(train_group_num)]) / (train_group_num * self.width * self.predict_step)
+        # 验证集的mae
+        test_group_num = len(self.test_data) - self.lag - self.predict_step + 1
+        mae = sum([sum([abs(err)
+                        for l in (correct_cdf(self.model.forecast(self.test_data[i:i + self.lag],
+                                                                  steps=self.predict_step))
+                                  - self.test_data[i + self.lag: i + self.lag + self.predict_step])
+                        for err in l])
+                   for i in range(test_group_num)]) / (test_group_num * self.width * self.predict_step)
+        return mae
 
     def grid_search(self, thread=1, start_num=0):
         pool = multiprocessing.Pool(processes=thread)

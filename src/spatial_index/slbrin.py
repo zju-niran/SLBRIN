@@ -284,7 +284,7 @@ class SLBRIN(SpatialIndex):
         在模型更新时，监听误差范围，如果超过ts_err(inefficient)，则设为inefficient状态
         """
         hr = self.history_ranges[hr_key]
-        if hr.model.max_err - hr.model.min_err >= self.meta.threshold_err * old_err:
+        if hr.model.max_err - hr.model.min_err > self.meta.threshold_err * old_err:
             hr.state = 1
             self.retrain_state = 1
             # self.retrain_inefficient_model(hr_key)
@@ -343,7 +343,7 @@ class SLBRIN(SpatialIndex):
             hr.number = hr_number
             hr.max_key = hr_number - 1
             old_err = hr.model.max_err - hr.model.min_err
-            hr.model_update(hr_data)
+            hr.update_error_range(hr_data)
             self.get_retrain_inefficient_model(hr_key, old_err)
             return 0
 
@@ -379,7 +379,7 @@ class SLBRIN(SpatialIndex):
             child_data = hr_data[r[3]:r[3] + r[2]]
             child_hr = HistoryRange(r[0], r[1], r[2], r[5], 0, r[4].up_right_less_region(region_offset),
                                     2 << self.meta.geohash.sum_bits - r[1] - 1)
-            child_hr.model_update(child_data)
+            child_hr.update_error_range(child_data)
             child_ranges.append([child_hr, child_data])
         # 2. replace old hr and data
         del self.index_entries[hr_key]
@@ -1009,7 +1009,7 @@ class HistoryRange:
             return self.max_key
         return int(self.max_key * x)
 
-    def model_update(self, xs):
+    def update_error_range(self, xs):
         if self.number:
             # 数据量太多，predict很慢，因此用均匀采样得到100个点来计算误差
             if self.number > 100:

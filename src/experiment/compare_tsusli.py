@@ -51,38 +51,54 @@ if __name__ == '__main__':
                         level=logging.INFO,
                         format="%(message)s")
     index_infos = [
-        # ("dtusli", True, -1, 3, True),
-        # ("dtusli", False, -1, 3, False, 146),
-        # ("ipusli", False, -1, 3, False, 0.2),
-        # ("ipusli2", False, -1, 3, False, 0.8),
+        # prepare
+        # ("dtusli", True, -1, 3, True, 146, False, 0),
         # predict_step
-        ("tsusli_24_1_100_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 1, 100, 1, "var", "es", True),
-        ("tsusli_24_6_100_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 6, 100, 1, "var", "es", False),
-        ("tsusli_24_12_100_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 1, "var", "es", False),
-        ("tsusli_24_18_100_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 18, 100, 1, "var", "es", False),
-        ("tsusli_24_24_100_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 24, 100, 1, "var", "es", False),
-        # nl
-        ("tsusli_24_12_100_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 1, "var", "es", False),
-        ("tsusli_24_12_100_146_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 146, "var", "es", False),
-        ("tsusli_24_12_100_292_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 292, "var", "es", False),
-        ("tsusli_24_12_100_438_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 438, "var", "es", False),
-        ("tsusli_24_12_100_584_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 584, "var", "es", False),
+        # ("tsusli_24_1_100_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 1, 100, 1, "var", "es", False, 0, False),
+        # ("tsusli_24_6_100_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 6, 100, 1, "var", "es", False, 0, False),
+        # ("tsusli_24_12_100_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 1, "var", "es", False, 0, False),
+        # ("tsusli_24_18_100_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 18, 100, 1, "var", "es", False, 0, False),
+        # ("tsusli_24_24_100_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 24, 100, 1, "var", "es", False, 0, False),
+        # bs
+        # ("tsusli_24_12_100_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 1, "var", "es", False, 0, False),
+        # ("tsusli_24_12_100_146_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 146, "var", "es", False, 0, False),
+        # ("tsusli_24_12_100_292_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 292, "var", "es", False, 0, False),
+        # ("tsusli_24_12_100_438_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 438, "var", "es", False, 0, False),
+        # ("tsusli_24_12_100_584_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 584, "var", "es", False, 0, False),
         # cdf_width
-        ("tsusli_24_12_10_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 10, 1, "var", "es", False),
-        ("tsusli_24_12_50_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 50, 1, "var", "es", False),
-        ("tsusli_24_12_100_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 1, "var", "es", False),
-        ("tsusli_24_12_500_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 500, 1, "var", "es", False),
-        ("tsusli_24_12_1000_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 1000, 1, "var", "es", False),
+        # ("tsusli_24_12_10_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 10, 1, "var", "es", False, 0, False),
+        # ("tsusli_24_12_50_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 50, 1, "var", "es", False, 0, False),
+        # ("tsusli_24_12_100_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 1, "var", "es", False, 0, False),
+        # ("tsusli_24_12_250_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 250, 1, "var", "es", False, 0, False),
+        # ("tsusli_24_12_500_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 500, 1, "var", "es", False, 0, False),
         # ts model
-        # ("tsusli_24_12_100_1_var_es", False, -1, 3, False, True, -1, 3, True, 24, 12, 100, 1, "var", "es", False),
-        ("tsusli_24_12_100_1_var_sarima", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 1, "var", "sarima", False),
-        ("tsusli_24_12_100_1_var_rnn", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 1, "var", "rnn", False),
-        ("tsusli_24_12_100_1_var_lstm", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 1, "var", "lstm", False),
-        ("tsusli_24_12_100_1_var_gru", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 1, "var", "gru", False),
+        # ("tsusli_24_12_100_1_var_es", False, -1, 3, False, True, -1, 3, True, 24, 12, 100, 1, "var", "es", False, 0, False),
+        # ("tsusli_24_12_100_1_var_sarima", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 1, "var", "sarima", False, 0, False),
+        # ("tsusli_24_12_100_1_var_rnn", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 1, "var", "rnn", False, 0, False),
+        # ("tsusli_24_12_100_1_var_lstm", False, -1, 3, False, True, -1, 3, True, 24, 12, 100, 1, "var", "lstm", True),
+        # ("tsusli_24_12_100_1_var_gru", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 1, "var", "gru", False, 0, False),
         # sts model
-        # ("tsusli_24_12_100_1_var_es", False, -1, 3, False, True, -1, 3, True, 24, 12, 100, 1, "var", "es", False),
-        ("tsusli_24_12_100_1_fclstm_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 1, "fclstm", "es", False),
-        ("tsusli_24_12_100_1_convlstm_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 1, "convlstm", "es", False),
+        # ("tsusli_24_12_100_1_var_es", False, -1, 3, False, True, -1, 3, True, 24, 12, 100, 1, "var", "es", False, 0, False),
+        # ("tsusli_24_12_100_1_fclstm_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 1, "fclstm", "es", False, 0, False),
+        # ("tsusli_24_12_100_1_convlstm_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 1, "convlstm", "es", False, 0, False),
+        # compare update among dtusli/ipusli/tsusli
+        # ("dtusli", False, -1, 3, False, 146, False, 0),
+        # ("ipusli", False, -1, 3, False, 0.2, False, 0),
+        # ("ipusli2", False, -1, 3, False, 0.8, False, 0),
+        # ("tsusli_24_12_100_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 1, "var", "es", False, 0, False),
+        # compre retrain among dtusli/ipusli/tsusli
+        # ("dtusli", False, -1, 3, False, 146, True, 0),
+        # ("dtusli", False, -1, 3, False, 146, True, 1),
+        # ("dtusli", False, -1, 3, False, 146, True, 2),
+        # ("dtusli", False, -1, 3, False, 146, True, 4),
+        # ("dtusli", False, -1, 3, False, 146, True, 8),
+        # ("ipusli", False, -1, 3, False, 0.2, True, 0),
+        # ("ipusli2", False, -1, 3, False, 0.8, True, 0),
+        # ("tsusli_24_12_100_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 1, "var", "es", False, 0, False),
+        # ("dtusli", False, -1, 3, False, 146, True, 0),
+        # ("ipusli", False, -1, 3, False, 0.2, True, 0),
+        # ("ipusli2", False, -1, 3, False, 0.8, True, 0),
+        # ("tsusli_24_12_100_1_var_es", False, -1, 3, False, False, -1, 3, False, 24, 12, 100, 1, "var", "es", False, 0, False),
     ]
     data_distributions = [Distribution.NYCT_SORTED]
     # data_distributions = [Distribution.UNIFORM_10W, Distribution.NORMAL_10W, Distribution.NYCT_10W]
@@ -110,6 +126,8 @@ if __name__ == '__main__':
                                    start_time=1356998400,
                                    end_time=1359676799,
                                    initial_length=index_info[5],
+                                   is_init=index_info[6],
+                                   threshold_err=index_info[7],
                                    is_retrain=index_info[1],
                                    time_retrain=index_info[2],
                                    thread_retrain=index_info[3],
@@ -126,6 +144,10 @@ if __name__ == '__main__':
                                    child_length=index_info[12],
                                    cdf_model=index_info[13],
                                    max_key_model=index_info[14],
+                                   is_init=index_info[15],
+                                   threshold_err=index_info[16],
+                                   threshold_err_cdf=index_info[17],
+                                   threshold_err_max_key=index_info[18],
                                    is_retrain=index_info[1],
                                    time_retrain=index_info[2],
                                    thread_retrain=index_info[3],
@@ -142,6 +164,8 @@ if __name__ == '__main__':
                                    start_time=1356998400,
                                    end_time=1359676799,
                                    empty_ratio=index_info[5],
+                                   is_init=index_info[6],
+                                   threshold_err=index_info[7],
                                    is_retrain=index_info[1],
                                    time_retrain=index_info[2],
                                    thread_retrain=index_info[3],
@@ -155,13 +179,8 @@ if __name__ == '__main__':
             logging.info("Index entry size: %s" % ie_size)
             logging.info("Model precision avg: %s" % index.model_err())
             for update_data in update_data_list:
-                io_cost = index.io_cost
-                start_time = time.time()
                 index.insert(update_data)
-                end_time = time.time()
                 logging.info("Update data num: %s" % len(update_data))
-                logging.info("Update time: %s" % (end_time - start_time))
-                logging.info("Update io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
                 io_cost = index.io_cost
                 start_time = time.time()
                 index.test_point_query(point_query_list)
