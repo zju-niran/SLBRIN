@@ -8,30 +8,8 @@ sys.path.append('/home/zju/wlj/SLBRIN')
 from src.spatial_index.tsusli import TSUSLI
 from src.spatial_index.zm_index_di import ZMIndexDeltaInsert
 from src.spatial_index.zm_index_ipi import ZMIndexInPlaceInsert
-from src.experiment.common_utils import load_data, Distribution, copy_dirs, load_query
-
-
-def filter_data_by_date(data, end_time):
-    i = 0
-    while data[i][2] <= end_time:
-        i += 1
-    return data[:i]
-
-
-def group_data_by_date(data, start_time, time_interval):
-    left = 0
-    right = 0
-    cur_time = start_time + time_interval
-    result = []
-    data_len = len(data)
-    while left < data_len:
-        while right < data_len and data[right][2] <= cur_time:
-            right += 1
-        result.append(data[left:right])
-        left = right
-        cur_time += time_interval
-    return result
-
+from src.experiment.common_utils import load_data, Distribution, copy_dirs, load_query, filter_data_by_date, \
+    group_data_by_date
 
 if __name__ == '__main__':
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"

@@ -175,3 +175,25 @@ def test_query(index, data_distribution, type):
         sum_io_cost += (index.io_cost - io_cost) / query_list_len
         io_cost = index.io_cost
     return sum_search_time / 5, sum_io_cost / 5
+
+
+def filter_data_by_date(data, end_time):
+    i = 0
+    while data[i][2] <= end_time:
+        i += 1
+    return data[:i]
+
+
+def group_data_by_date(data, start_time, time_interval):
+    left = 0
+    right = 0
+    cur_time = start_time + time_interval
+    result = []
+    data_len = len(data)
+    while left < data_len:
+        while right < data_len and data[right][2] <= cur_time:
+            right += 1
+        result.append(data[left:right])
+        left = right
+        cur_time += time_interval
+    return result

@@ -503,9 +503,7 @@ class ZMIndex(SpatialIndex):
                index_len * ITEM_SIZE
 
     def model_err(self):
-        model_precisions = [(node.model.max_err - node.model.min_err) for node in self.rmi[-1] if node.model]
-        model_precisions_avg = sum(model_precisions) / self.stages[-1]
-        return model_precisions_avg
+        return sum([(node.model.max_err - node.model.min_err) for node in self.rmi[-1] if node.model]) / self.stages[-1]
 
     def avg_io_cost(self):
         """

@@ -79,7 +79,6 @@ class TSUSLI(ZMIndexOptimised):
         self.threshold_err = threshold_err
         self.threshold_err_cdf = threshold_err_cdf
         self.threshold_err_max_key = threshold_err_max_key
-        # self.is_init_
         self.is_retrain = is_retrain
         self.time_retrain = time_retrain
         self.thread_retrain = thread_retrain
@@ -406,7 +405,7 @@ class TSUSLI(ZMIndexOptimised):
                                 self.is_init, self.threshold_err, self.threshold_err_cdf, self.threshold_err_max_key),
                                dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'),
                                       ("3", 'i1'), ("4", 'i1'), ("5", 'i2'),
-                                      ("6", 'i1'), ("7", 'i1'), ("8", 'i1'), ("9", 'i1')])
+                                      ("6", 'i1'), ("7", 'f8'), ("8", 'f8'), ("9", 'f8')])
         np.save(os.path.join(self.model_path, 'meta_append.npy'), meta_append)
         compute = np.array((self.is_retrain, self.time_retrain, self.thread_retrain, self.is_save,
                             self.is_retrain_delta, self.time_retrain_delta, self.thread_retrain_delta,
@@ -545,9 +544,8 @@ def main():
     load_index_from_json = True
     load_index_from_json2 = False
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    # model_path = "model/tsusli_nyct/"
     model_path = "model/tsusli_10w_nyct/"
-    data_distribution = Distribution.NYCT_SORTED
+    data_distribution = Distribution.NYCT_10W_SORTED
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
     index = TSUSLI(model_path=model_path)
@@ -603,7 +601,8 @@ def main():
                            is_retrain_delta=True,
                            time_retrain_delta=-1,
                            thread_retrain_delta=3,
-                           is_save_delta=True)
+                           is_save_delta=True,
+                           is_build=False)
         index.save()
         end_time = time.time()
         build_time = end_time - start_time

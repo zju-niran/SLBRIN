@@ -559,6 +559,24 @@ def get_mbr_by_points(points):
     return [y_min, y_max, x_min, x_max]
 
 
+def merge_sorted_list(lst1, lst2):
+    left = 0
+    max_key1 = len(lst1) - 1
+    for num2 in lst2:
+        right = max_key1
+        while left <= right:
+            mid = (left + right) // 2
+            if lst1[mid][2] == num2[2]:
+                left = mid
+                break
+            elif lst1[mid][2] < num2[2]:
+                left = mid + 1
+            else:
+                right = mid - 1
+        lst1.insert(left, num2)
+        max_key1 += 1
+
+
 def plot_ts(ts):
     ts_len = len(ts)
     col = 5

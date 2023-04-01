@@ -271,7 +271,7 @@ class ZMIndexInPlaceInsert(ZMIndexOptimised):
         meta_append = np.array((self.start_time, self.time_id, self.time_interval,
                                 self.empty_ratio, self.is_init, self.threshold_err),
                                dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'),
-                                      ("3", 'f8'), ("4", 'i1'), ("5", 'i1')])
+                                      ("3", 'f8'), ("4", 'i1'), ("5", 'f8')])
         np.save(os.path.join(self.model_path, 'meta_append.npy'), meta_append)
         compute = np.array((self.is_retrain, self.time_retrain, self.thread_retrain, self.is_save),
                            dtype=[("0", 'i1'), ("1", 'i2'), ("2", 'i1'), ("3", 'i1')])
@@ -354,7 +354,7 @@ def main():
                            end_time=1359676799,
                            empty_ratio=0.5,
                            is_init=True,
-                           threshold_err=1,
+                           threshold_err=0,
                            is_retrain=True,
                            time_retrain=-1,
                            thread_retrain=3,

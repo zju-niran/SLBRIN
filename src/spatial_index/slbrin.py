@@ -12,10 +12,10 @@ sys.path.append('/home/zju/wlj/SLBRIN')
 from src.mlp import MLP
 from src.mlp_simple import MLPSimple
 from src.spatial_index.common_utils import Region, binary_search_less_max, sigmoid, biased_search_almost, \
-    biased_search_duplicate, get_mbr_by_points
+    biased_search_duplicate, get_mbr_by_points, merge_sorted_list
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
-from src.experiment.common_utils import load_data, Distribution, data_precision, data_region
+from src.experiment.common_utils import load_data, Distribution, data_precision, data_region, load_query
 
 PAGE_SIZE = 4096
 HR_SIZE = 8 + 1 + 2 + 4 + 1  # 16
@@ -952,24 +952,6 @@ def build_nn(model_path, model_key, inputs, labels, is_new, is_simple, weight, c
     tmp_dict[model_key] = abstract_index
 
 
-def merge_sorted_list(lst1, lst2):
-    left = 0
-    max_key1 = len(lst1) - 1
-    for num2 in lst2:
-        right = max_key1
-        while left <= right:
-            mid = (left + right) // 2
-            if lst1[mid][2] == num2[2]:
-                left = mid
-                break
-            elif lst1[mid][2] < num2[2]:
-                left = mid + 1
-            else:
-                right = mid - 1
-        lst1.insert(left, num2)
-        max_key1 += 1
-
-
 class Meta:
     def __init__(self, last_hr, last_cr, threshold_number, threshold_length, threshold_err, threshold_summary,
                  threshold_merge, geohash):
@@ -1151,7 +1133,7 @@ def main():
         os.makedirs(model_path)
     index = SLBRIN(model_path=model_path)
     index_name = index.name
-    load_index_from_file = True
+    load_index_from_file = False
     if load_index_from_file:
         index.load()
     else:
@@ -1185,7 +1167,7 @@ def main():
                     use_threshold=False,
                     threshold=0,
                     retrain_time_limit=1,
-                    thread_pool_size=6)
+                    thread_pool_size=3)
         index.save()
         end_time = time.time()
         build_time = end_time - start_time
@@ -1199,8 +1181,7 @@ def main():
     model_precisions = [(hr.model.max_err - hr.model.min_err) for hr in index.history_ranges]
     model_precisions_avg = sum(model_precisions) / model_num
     logging.info("Model precision avg: %s" % model_precisions_avg)
-    path = '../../data/query/point_query_nyct.npy'
-    point_query_list = np.load(path, allow_pickle=True).tolist()
+    point_query_list = load_query(data_distribution, 0).tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)
     end_time = time.time()
@@ -1209,8 +1190,7 @@ def main():
     logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
     io_cost = index.io_cost
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/query/range_query_nyct.npy'
-    range_query_list = np.load(path, allow_pickle=True).tolist()
+    range_query_list = load_query(data_distribution, 1).tolist()
     start_time = time.time()
     results = index.range_query(range_query_list)
     end_time = time.time()
@@ -1219,8 +1199,7 @@ def main():
     logging.info("Range query io cost: %s" % ((index.io_cost - io_cost) / len(range_query_list)))
     io_cost = index.io_cost
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/query/knn_query_nyct.npy'
-    knn_query_list = np.load(path, allow_pickle=True).tolist()
+    knn_query_list = load_query(data_distribution, 2).tolist()
     start_time = time.time()
     results = index.knn_query(knn_query_list)
     end_time = time.time()
