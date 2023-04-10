@@ -45,7 +45,8 @@ class TimeSeriesModel:
         self.ts_model = None
 
     def build(self, lag, predict_step, cdf_width, threshold_err_cdf=0, threshold_err_max_key=0):
-        train_num = 0
+        num_cdf = 0
+        num_max_key = 0
         if self.time_id == 0:  # if cdfs is []
             pre_cdfs = [[0.0] * cdf_width for i in range(predict_step)]
             pre_max_keys = [0 for i in range(predict_step)]
@@ -54,24 +55,22 @@ class TimeSeriesModel:
             pre_max_keys = [self.max_keys[-1] for i in range(predict_step)]
         else:
             if self.sts_model:
-                pre_cdfs, train_num = self.sts_model.retrain(self.cdfs[:self.time_id], threshold_err_cdf)
+                pre_cdfs, num_cdf = self.sts_model.retrain(self.cdfs[:self.time_id], threshold_err_cdf)
             else:
-                self.sts_model = sts_model_type[self.model_cdf](
-                    self.cdfs[:self.time_id], lag, predict_step, cdf_width, self.model_path)
+                self.sts_model = sts_model_type[self.model_cdf](lag, predict_step, cdf_width, self.model_path)
                 # self.sts_model.grid_search(thread=4, start_num=0)
-                pre_cdfs, train_num = self.sts_model.train()
+                pre_cdfs, num_cdf = self.sts_model.train(self.cdfs[:self.time_id])
             if self.ts_model:
-                pre_max_keys, train_num = self.ts_model.retrain(self.max_keys[:self.time_id], threshold_err_max_key)
+                pre_max_keys, num_max_key = self.ts_model.retrain(self.max_keys[:self.time_id], threshold_err_max_key)
             else:
-                self.ts_model = ts_model_type[self.model_max_key](
-                    self.max_keys[:self.time_id], lag, predict_step, self.model_path)
+                self.ts_model = ts_model_type[self.model_max_key](lag, predict_step, self.model_path)
                 # self.ts_model.grid_search(thread=3, start_num=0)
-                pre_max_keys, train_num = self.ts_model.train()
+                pre_max_keys, num_max_key = self.ts_model.train(self.max_keys[:self.time_id])
         self.cdfs.extend(pre_cdfs)
         self.max_keys.extend(pre_max_keys)
         self.cdf_verify_mae = self.sts_model.err if self.sts_model else 0
         self.max_key_verify_mae = self.ts_model.err if self.ts_model else 0
-        return train_num
+        return num_cdf, num_max_key
 
     def update(self, cur_cdf, cur_max_key, lag, predict_step, cdf_width, threshold_err_cdf, threshold_err_max_key):
         """
@@ -83,7 +82,7 @@ class TimeSeriesModel:
         self.time_id += 1
         if self.time_id >= len(self.max_keys):
             return self.build(lag, predict_step, cdf_width, threshold_err_cdf, threshold_err_max_key)
-        return 0
+        return 0, 0
 
 
 class TSResult:
@@ -116,30 +115,29 @@ class ESResult(TSResult):
     乘法对应指数: mul/multiplicative的结果相同
     """
 
-    def __init__(self, data, lag, predict_step, model_path):
+    def __init__(self, lag, predict_step, model_path):
         super().__init__()
         self.lag = lag
         self.predict_step = predict_step
         self.model_path = model_path + 'es/'
         self.model = None
         self.err = 0
-        self.init_data(data)
 
     def init_data(self, data):
         # ES规定数据必须包含不低于两个周期
         if len(data) < 2 * self.lag:
             data.extend(data[-self.lag:])
-        self.data = np.array(data)
+        return np.array(data)
 
-    def build(self, trend, seasonal, is_plot=False):
-        model = ExponentialSmoothing(self.data, seasonal_periods=self.lag, trend=trend, seasonal=seasonal).fit()
+    def build(self, data, trend, seasonal, is_plot=False):
+        model = ExponentialSmoothing(data, seasonal_periods=self.lag, trend=trend, seasonal=seasonal).fit()
         self.model = model
-        self.err = self.get_err()
+        self.err = self.get_err(data)
         if is_plot:
             if os.path.exists(self.model_path) is False:
                 os.makedirs(self.model_path)
-            plt.plot(self.data)
-            plt.plot(model.predict(0, len(self.data) - 1))
+            plt.plot(data)
+            plt.plot(model.predict(0, len(data) - 1))
             plt.savefig(
                 self.model_path + "%s_%s_%s.png" % (trend, seasonal, self.err))
             plt.close()
@@ -147,23 +145,25 @@ class ESResult(TSResult):
     def predict(self):
         return correct_max_key(self.model.forecast(steps=self.predict_step)).tolist()
 
-    def train(self):
-        self.build(trend='add', seasonal='add')
+    def train(self, data):
+        data = self.init_data(data)
+        self.build(data, trend='add', seasonal='add')
         return self.predict(), 1
 
     def retrain(self, data, threshold_err):
-        self.init_data(data)
+        data=self.init_data(data)
         old_err = self.err
-        self.err = self.get_err()
+        self.err = self.get_err(data)
         if self.err <= threshold_err * old_err:
             return self.predict(), 0
         else:
-            return self.train()
+            self.build(data, trend='add', seasonal='add')
+            return self.predict(), 1
 
-    def get_err(self):
+    def get_err(self, data):
         # mse = model.sse / model.model.nobs
-        mae = sum([abs(data)
-                   for data in correct_max_key(self.model.predict(0, self.data.size - 1)) - self.data]) / self.data.size
+        mae = sum([abs(err)
+                   for err in correct_max_key(self.model.predict(0, data.size - 1)) - data]) / data.size
         return mae
 
     def grid_search(self, thread=1, start_num=0):
@@ -557,7 +557,7 @@ class VARResult(TSResult):
     grid search:
     """
 
-    def __init__(self, data, lag, predict_step, width, model_path):
+    def __init__(self, lag, predict_step, width, model_path):
         super().__init__()
         self.predict_step = predict_step
         self.lag = lag
@@ -565,56 +565,57 @@ class VARResult(TSResult):
         self.model_path = model_path + 'var/'
         self.model = None
         self.err = 0
-        self.init_data(data)
 
     def init_data(self, data):
         data = np.array(data)
         k = int(0.7 * len(data))
         if len(data) - k >= self.lag + self.predict_step:  # if data is enough, split into train_data and test_data
-            self.train_data = data[:k]
-            self.test_data = data[k:]
+            train_data = data[:k]
+            test_data = data[k:]
         else:  # if data is not enough, keep the same between train_data and test_data
-            self.train_data = data
-            self.test_data = data
+            train_data = data
+            test_data = data
+        return train_data, test_data
 
-    def build(self, p, is_plot=False):
+    def build(self, train_data, test_data, p, is_plot=False):
         try:
-            model = VAR(self.train_data).fit(maxlags=self.lag, verbose=False, trend='c')
+            model = VAR(train_data).fit(maxlags=self.lag, verbose=False, trend='c')
         except ValueError:
             # 数据异常，只能放弃趋势
             try:
-                model = VAR(self.train_data).fit(maxlags=self.lag, verbose=False, trend='n')
+                model = VAR(train_data).fit(maxlags=self.lag, verbose=False, trend='n')
             except LinAlgError:
-                model = VAR(self.train_data[1:]).fit(maxlags=self.lag, verbose=False, trend='n')
+                model = VAR(train_data[1:]).fit(maxlags=self.lag, verbose=False, trend='n')
         self.model = model
-        self.err = self.get_err()
+        self.err = self.get_err(test_data)
         if is_plot:
             if os.path.exists(self.model_path) is False:
                 os.makedirs(self.model_path)
-            plt.plot(self.test_data[-1])
-            plt.plot(model.forecast(self.test_data[-self.lag:], steps=1))
+            plt.plot(test_data[-1])
+            plt.plot(model.forecast(test_data[-self.lag:], steps=1))
             plt.savefig(
                 self.model_path + "default_%s.png" % self.err)
             plt.close()
 
-    def predict(self):
-        return correct_cdf(self.model.forecast(self.test_data[-self.lag:], steps=self.predict_step)).tolist()
+    def predict(self, data):
+        return correct_cdf(self.model.forecast(data, steps=self.predict_step)).tolist()
 
-    def train(self):
-        self.build(None)
-        return self.predict(), 1
+    def train(self, data):
+        train_data, test_data = self.init_data(data)
+        self.build(train_data, test_data, None)
+        return self.predict(test_data[-self.lag:]), 1
 
     def retrain(self, data, threshold_err):
-        self.init_data(data)
+        train_data, test_data = self.init_data(data)
         old_err = self.err
-        self.err = self.get_err()
+        self.err = self.get_err(test_data)
         if self.err <= threshold_err * old_err:
-            return self.predict(), 0
+            return self.predict(test_data[-self.lag:]), 0
         else:
-            return self.train()
+            self.build(train_data, test_data, None)
+            return self.predict(test_data[-self.lag:]), 1
 
-
-    def get_err(self):
+    def get_err(self, data):
         # 训练集的mae
         # train_group_num = len(self.train_data) - self.lag - self.predict_step + 1
         # mae = sum([sum([abs(err)
@@ -623,11 +624,11 @@ class VARResult(TSResult):
         #                 for err in l])
         #            for i in range(train_group_num)]) / (train_group_num * self.width * self.predict_step)
         # 验证集的mae
-        test_group_num = len(self.test_data) - self.lag - self.predict_step + 1
+        test_group_num = len(data) - self.lag - self.predict_step + 1
         mae = sum([sum([abs(err)
-                        for l in (correct_cdf(self.model.forecast(self.test_data[i:i + self.lag],
+                        for l in (correct_cdf(self.model.forecast(data[i:i + self.lag],
                                                                   steps=self.predict_step))
-                                  - self.test_data[i + self.lag: i + self.lag + self.predict_step])
+                                  - data[i + self.lag: i + self.lag + self.predict_step])
                         for err in l])
                    for i in range(test_group_num)]) / (test_group_num * self.width * self.predict_step)
         return mae

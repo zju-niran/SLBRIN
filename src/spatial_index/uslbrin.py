@@ -8,12 +8,12 @@ import time
 import numpy as np
 
 sys.path.append('/home/zju/wlj/SLBRIN')
-from src.spatial_index.common_utils import binary_search_less_max_duplicate, binary_search_less_max, merge_sorted_list
+from src.spatial_index.common_utils import binary_search_less_max_duplicate, binary_search_less_max, merge_sorted_list, \
+    biased_search_duplicate, binary_search_duplicate, biased_search_almost
 from src.experiment.common_utils import load_data, Distribution, data_precision, data_region, load_query
-from src.spatial_index.slbrin import SLBRIN, HistoryRange, NN
+from src.spatial_index.slbrin import SLBRIN, HistoryRange, NN, valid_position_funcs, range_position_funcs
 from src.spatial_index.zm_index import Array
 from src.ts_model import TimeSeriesModel
-from src.spatial_index.tsusli import retrain_delta_model
 
 PAGE_SIZE = 4096
 HR_SIZE = 8 + 1 + 2 + 4 + 1  # 16
@@ -147,20 +147,22 @@ class USLBRIN(SLBRIN):
             cdf.append(p / x_len)
         return cdf
 
-    def get_delta_index_list(self, key, hr, hr_append):
+    def get_delta_index_key(self, key, hr, hr_append):
         """
         get the delta_index list which contains the key
         """
         delta_model = hr_append.delta_model
         pos = (key - hr.value) / hr.value_diff * self.cdf_width
         pos_int = int(pos)
-        left_p = delta_model.cdfs[delta_model.time_id][pos_int]
-        if pos >= self.cdf_width - 1:  # if point is at the top of cdf(1.0), insert into the tail of delta_index
+        if pos < 0:
+            key = 0
+        elif pos >= self.cdf_width - 1:  # if point is at the top of cdf(1.0), insert into the tail of delta_index
             key = delta_model.max_keys[delta_model.time_id]
         else:
-            right_p = delta_model.cdfs[delta_model.time_id][pos_int + 1]
+            cdf = delta_model.cdfs[delta_model.time_id]
+            left_p, right_p = cdf[pos_int: pos_int + 2]
             key = int((left_p + (right_p - left_p) * (pos - pos_int)) * delta_model.max_keys[delta_model.time_id])
-        return hr_append.delta_index[key]
+        return key
 
     def insert_single(self, point):
         gh = self.meta.geohash.encode(point[0], point[1])
@@ -170,7 +172,7 @@ class USLBRIN(SLBRIN):
         hr = self.history_ranges[hr_key]
         hr_append = self.history_ranges_append[hr_key]
         hr_append.delta_model.data_len += 1
-        tg_array = self.get_delta_index_list(gh, hr, hr_append)
+        tg_array = hr_append.delta_index[self.get_delta_index_key(gh, hr, hr_append)]
         tg_array.insert(binary_search_less_max(tg_array.index, 2, gh, 0, tg_array.max_key) + 1, point)
         # IO1: search key
         self.io_cost += math.ceil((tg_array.max_key + 1) / ITEMS_PER_PAGE)
@@ -209,7 +211,7 @@ class USLBRIN(SLBRIN):
             hr.max_key = hr_number - 1
             old_err = hr.model.max_err - hr.model.min_err
             hr.update_error_range(hr_data)
-            if hr.model.max_err - hr.model.min_err > self.meta.threshold_err * old_err:
+            if hr.model.max_err - hr.model.min_err > self.threshold_err * old_err:
                 hr.state = 1
             return 0
 
@@ -228,13 +230,11 @@ class USLBRIN(SLBRIN):
                 child_list = [None] * 4
                 length = cur[1] + 2
                 r_bound = cur[0]
-                child_matrices_list = cur[5].splits()
                 for i in range(4):
                     value = r_bound
                     r_bound = cur[0] + (i + 1 << self.meta.geohash.sum_bits - length)
                     tmp_r_key = binary_search_less_max(hr_data, 2, r_bound, tmp_l_key, r_key)
-                    child_list[i] = (value, length, tmp_r_key - tmp_l_key + 1, tmp_l_key, child_regions[i],
-                                     child_matrices_list[i])
+                    child_list[i] = (value, length, tmp_r_key - tmp_l_key + 1, tmp_l_key, child_regions[i], cur[5])
                     tmp_l_key = tmp_r_key + 1
                 range_stack.extend(child_list[::-1])
             else:
@@ -247,7 +247,7 @@ class USLBRIN(SLBRIN):
             child_hr = HistoryRange(r[0], r[1], r[2], r[5], 0, r[4].up_right_less_region(region_offset),
                                     2 << self.meta.geohash.sum_bits - r[1] - 1)
             child_hr.update_error_range(child_data)
-            if child_hr.model.max_err - child_hr.model.min_err > self.meta.threshold_err * old_err:
+            if child_hr.model.max_err - child_hr.model.min_err > self.threshold_err * old_err:
                 child_hr.state = 1
             chiid_hr_append = self.init_hr_append(child_hr, child_data)
             child_ranges.append([child_hr, chiid_hr_append, child_data])
@@ -297,7 +297,8 @@ class USLBRIN(SLBRIN):
         self.last_insert_time = self.insert_time
         self.last_insert_io = self.insert_io
         # 1. merge delta index into index
-        update_list = []
+        cdfs = []
+        max_keys = []
         start_io = self.io_cost
         start_time = time.time()
         offset = 0  # update_hr中若出现split_hr，会导致后续hr_key向后偏移，因此用offset来记录偏移量
@@ -312,13 +313,18 @@ class USLBRIN(SLBRIN):
                 tmp = self.update_hr(i + offset, delta_index)
                 offset += tmp
                 if tmp:
-                    update_list.extend([None] * (tmp + 1))
+                    cdfs.extend([None] * (tmp + 1))
+                    max_keys.extend([None] * (tmp + 1))
                 else:
-                    update_list.append(delta_index)
+                    cur_cdf = self.build_cdf([data[2] for data in delta_index], hr_append.delta_model.key_list)
+                    cur_max_key = len(delta_index) - 1
+                    cdfs.append(cur_cdf)
+                    max_keys.append(cur_max_key)
                 # IO1: merge data
                 self.io_cost += math.ceil(len(self.index_entries[i]) / ITEMS_PER_PAGE)
             else:
-                update_list.append(None)
+                cdfs.append(None)
+                max_keys.append(None)
         hr_num += offset
         self.logging.info("Merge data time: %s" % (time.time() - start_time))
         self.logging.info("Merge data io: %s" % (self.io_cost - start_io))
@@ -348,14 +354,12 @@ class USLBRIN(SLBRIN):
             self.logging.info("Retrain model time: %s" % (time.time() - start_time))
             self.logging.info("Retrain model io: %s" % (self.io_cost - start_io))
         else:
-
             time_model_path = os.path.join(self.model_path, "../uslbrin_time_model", str(self.time_id),
                                            'models_%s_%s.npy' % (self.is_init, self.threshold_err))
             models = np.load(time_model_path, allow_pickle=True)
-            model_cur = 0
             for i in range(0, hr_num):
-                self.history_ranges[i].model = models[model_cur]
-                model_cur += 1
+                self.history_ranges[i].state = 0
+                self.history_ranges[i].model = models[i]
         if self.is_save:
             time_model_path = os.path.join(self.model_path, "../uslbrin_time_model", str(self.time_id))
             if os.path.exists(time_model_path) is False:
@@ -363,37 +367,29 @@ class USLBRIN(SLBRIN):
             models = [hr.model for hr in self.history_ranges]
             np.save(os.path.join(time_model_path, 'models_%s_%s.npy' % (self.is_init, self.threshold_err)), models)
         # 3. update delta model
-        retrain_delta_model_num = 0
+        retrain_delta_model_num1 = 0
+        retrain_delta_model_num2 = 0
         retrain_delta_model_mae1 = 0
         retrain_delta_model_mae2 = 0
         retrain_delta_model_time = 0
         retrain_delta_model_io = 0
         if self.is_retrain_delta and self.time_id > self.time_retrain_delta:
             start_time = time.time()
-            pool = multiprocessing.Pool(processes=self.thread_retrain_delta)
-            mp_dict = multiprocessing.Manager().dict()
             for i in range(0, hr_num):
-                if update_list[i]:
-                    hr_append = self.history_ranges_append[i]
-                    cur_cdf = self.build_cdf([data[2] for data in update_list[i]], hr_append.delta_model.key_list)
-                    cur_max_key = len(update_list[i]) - 1
-                    pool.apply_async(retrain_delta_model,
-                                     (i, hr_append.delta_model, cur_cdf, cur_max_key,
-                                      self.lag, self.predict_step, self.cdf_width,
-                                      self.threshold_err_cdf, self.threshold_err_max_key, mp_dict))
-            pool.close()
-            pool.join()
-            for (key, value) in mp_dict.items():
-                hr_append = self.history_ranges_append[key]
-                hr_append.delta_model = value[0]
-                hr_append.delta_index = [Array(self.child_length) for i in range(
-                    hr_append.delta_model.max_keys[hr_append.delta_model.time_id] + 1)]
-                retrain_delta_model_num += value[1]
-                if value[1]:
-                    retrain_delta_model_io += len(hr_append.delta_model.max_keys)
-                else:
-                    retrain_delta_model_io += 1
-            for hr_append in self.history_ranges_append:
+                hr_append = self.history_ranges_append[i]
+                if cdfs[i]:
+                    num_cdf, num_max_key = hr_append.delta_model.update(cdfs[i], max_keys[i], self.lag,
+                                                                        self.predict_step,
+                                                                        self.cdf_width, self.threshold_err_cdf,
+                                                                        self.threshold_err_max_key)
+                    hr_append.delta_index = [Array(self.child_length) for i in range(
+                        hr_append.delta_model.max_keys[hr_append.delta_model.time_id] + 1)]
+                    retrain_delta_model_num1 += num_cdf
+                    retrain_delta_model_num2 += num_max_key
+                    if num_cdf or num_max_key:
+                        retrain_delta_model_io += len(hr_append.delta_model.max_keys)
+                    else:
+                        retrain_delta_model_io += 1
                 retrain_delta_model_mae1 += hr_append.delta_model.cdf_verify_mae
                 retrain_delta_model_mae2 += hr_append.delta_model.max_key_verify_mae
             retrain_delta_model_time = (time.time() - start_time)
@@ -424,13 +420,246 @@ class USLBRIN(SLBRIN):
         index_len = 0
         for i in range(0, hr_num):
             index_len += len(self.index_entries[i]) + len(self.history_ranges_append[i].delta_index) * self.child_length
-        self.logging.info("Retrain delta model num: %s" % retrain_delta_model_num)
+        self.logging.info("Retrain delta model cdf num: %s" % retrain_delta_model_num1)
+        self.logging.info("Retrain delta model max_key num: %s" % retrain_delta_model_num2)
         self.logging.info("Retrain delta model cdf mae: %s" % retrain_delta_model_mae1)
         self.logging.info("Retrain delta model max_key mae: %s" % retrain_delta_model_mae2)
         self.logging.info("Retrain delta model time: %s" % retrain_delta_model_time)
         self.logging.info("Retrain delta model io: %s" % retrain_delta_model_io)
         self.logging.info("Index entry size: %s" % (index_len * ITEM_SIZE))
         self.logging.info("Model precision avg: %s" % self.model_err())
+
+    def point_query_single(self, point):
+        """
+        1. compute geohash from x/y of points
+        2. find hr within geohash by slbrin.point_query
+        3. predict by leaf model
+        4. biased search in scope [pre - max_err, pre + min_err]
+        """
+        # 1. compute geohash from x/y of point
+        gh = self.meta.geohash.encode(point[0], point[1])
+        # 2. find hr within geohash by slbrin.point_query
+        hr_key = self.point_query_hr(gh)
+        hr = self.history_ranges[hr_key]
+        if hr.number == 0:
+            result = []
+        else:
+            # 3. predict by leaf model
+            pre = hr.model_predict(gh)
+            target_ies = self.index_entries[hr_key]
+            # 4. biased search in scope [pre - max_err, pre + min_err]
+            l_bound = max(pre - hr.model.max_err, 0)
+            r_bound = min(pre - hr.model.min_err, hr.max_key)
+            self.io_cost += math.ceil((r_bound - l_bound) / ITEMS_PER_PAGE)
+            result = [target_ies[key][4] for key in biased_search_duplicate(target_ies, 2, gh, pre, l_bound, r_bound)]
+        hr_append = self.history_ranges_append[hr_key]
+        tg_array = hr_append.delta_index[self.get_delta_index_key(gh, hr, hr_append)]
+        result.extend([tg_array.index[key][4]
+                       for key in binary_search_duplicate(tg_array.index, 2, gh, 0, tg_array.max_key)])
+        self.io_cost += math.ceil((tg_array.max_key + 1) / ITEMS_PER_PAGE)
+        return result
+
+    def range_query_single(self, window):
+        """
+        1. compute geohash from window_left and window_right
+        2. get all relative hrs with key and relationship
+        3. get min_geohash and max_geohash of every hr for different relation
+        4. predict min_key/max_key by nn
+        5. filter all the point of scope[min_key/max_key] by range.contain(point)
+        主要耗时间：range_query_hr/nn predict/精确过滤: 15/24/37.6
+        """
+        # 1. compute geohash of window_left and window_right
+        gh1 = self.meta.geohash.encode(window[2], window[0])
+        gh2 = self.meta.geohash.encode(window[3], window[1])
+        # 2. get all relative hrs with key and relationship
+        hr_list = self.range_query_hr(gh1, gh2)
+        result = []
+        # 3. get min_geohash and max_geohash of every hr for different relation
+        for hr_key in hr_list:
+            hr = self.history_ranges[hr_key]
+            hr_append = self.history_ranges_append[hr_key]
+            position = hr_list[hr_key]
+            hr_data = self.index_entries[hr_key]
+            if position == 0:  # window contain hr
+                result.extend([ie[4] for ie in hr_data])
+                self.io_cost += math.ceil(len(hr_data) / ITEMS_PER_PAGE)
+                delta_index_len = 0
+                for child in hr_append.delta_index:
+                    result.extend([ie[4] for ie in child.index[:child.max_key + 1]])
+                    delta_index_len += child.max_key
+                self.io_cost += math.ceil(delta_index_len / ITEMS_PER_PAGE)
+            else:
+                # wrong child hr from range_by_int
+                is_valid = valid_position_funcs[position](hr.scope, window)
+                if not is_valid:
+                    continue
+                # if-elif-else->lambda, 30->4
+                gh_new1, gh_new2, compare_func = range_position_funcs[position](hr.scope, window, gh1, gh2,
+                                                                                self.meta.geohash)
+                # 4 predict min_key/max_key by nn
+                if gh_new1:
+                    pre1 = hr.model_predict(gh_new1)
+                    l_bound1 = max(pre1 - hr.model.max_err, 0)
+                    r_bound1 = min(pre1 - hr.model.min_err, hr.max_key)
+                    left_key = min(biased_search_almost(hr_data, 2, gh_new1, pre1, l_bound1, r_bound1))
+                    left_key_append = self.get_delta_index_key(gh_new1, hr, hr_append)
+                else:
+                    l_bound1 = 0
+                    left_key = 0
+                    left_key_append = 0
+                if gh_new2:
+                    pre2 = hr.model_predict(gh_new2)
+                    l_bound2 = max(pre2 - hr.model.max_err, 0)
+                    r_bound2 = min(pre2 - hr.model.min_err, hr.max_key)
+                    right_key = max(biased_search_almost(hr_data, 2, gh_new2, pre2, l_bound2, r_bound2)) + 1
+                    right_key_append = self.get_delta_index_key(gh_new2, hr, hr_append) + 1
+                else:
+                    r_bound2 = hr.number
+                    right_key = hr.number
+                    right_key_append = len(hr_append.delta_index)
+                # 5 filter all the point of scope[min_key/max_key] by range.contain(point)
+                # 优化: region.contain->compare_func不同位置的点做不同的判断: 638->474mil
+                result.extend([ie[4] for ie in hr_data[left_key:right_key] if compare_func(ie)])
+                self.io_cost += math.ceil((r_bound2 - l_bound1) / ITEMS_PER_PAGE)
+                delta_index_len = 0
+                for child in hr_append.delta_index[left_key_append:right_key_append]:
+                    result.extend([ie[4] for ie in child.index[:child.max_key + 1] if compare_func(ie)])
+                    delta_index_len += child.max_key
+                self.io_cost += math.ceil(delta_index_len / ITEMS_PER_PAGE)
+        return result
+
+    def knn_query_single(self, knn):
+        """
+        1. get the nearest key of query point
+        2. get the nn points to create range query window
+        3. filter point by distance
+        主要耗时间：knn_query_hr/nn predict/精确过滤: 6.1/30/40.5
+        """
+        x, y, k = knn
+        k = int(k)
+        # 1. get the nearest key of query point
+        qp_g = self.meta.geohash.encode(x, y)
+        qp_hr_key = self.point_query_hr(qp_g)
+        qp_hr = self.history_ranges[qp_hr_key]
+        qp_hr_data = self.index_entries[qp_hr_key]
+        # if hr is empty, TODO
+        if qp_hr.number == 0:
+            return []
+        # if model, qp_ie_key = point_query(geohash)
+        else:
+            pre = qp_hr.model_predict(qp_g)
+            l_bound = max(pre - qp_hr.model.max_err, 0)
+            r_bound = min(pre - qp_hr.model.min_err, qp_hr.max_key)
+            qp_ie_key = biased_search_almost(qp_hr_data, 2, qp_g, pre, l_bound, r_bound)[0]
+        # 2. get the n points to create range query window
+        tp_ie_list = [qp_hr_data[qp_ie_key]]
+        cur_ie_key = qp_ie_key + 1
+        cur_hr_data = qp_hr_data
+        cur_hr = qp_hr
+        cur_hr_key = qp_hr_key
+        i = k
+        while i > 0:
+            right_ie_len = cur_hr.number - cur_ie_key + 1
+            if right_ie_len >= i:
+                tp_ie_list.extend(cur_hr_data[cur_ie_key:cur_ie_key + i])
+                break
+            else:
+                tp_ie_list.extend(cur_hr_data[cur_ie_key:])
+                if cur_hr_key == self.meta.last_hr:
+                    break
+                i -= right_ie_len
+                cur_hr_key += 1
+                cur_hr_data = self.index_entries[cur_hr_key]
+                cur_hr = self.history_ranges[cur_hr_key]
+                cur_ie_key = 0
+        cur_ie_key = qp_ie_key
+        cur_hr_key = qp_hr_key
+        cur_hr_data = qp_hr_data
+        i = k
+        while i > 0:
+            left_ie_len = cur_ie_key
+            if left_ie_len >= i:
+                tp_ie_list.extend(cur_hr_data[cur_ie_key - i:cur_ie_key])
+                break
+            else:
+                tp_ie_list.extend(cur_hr_data[cur_ie_key - left_ie_len:cur_ie_key])
+                if cur_hr_key == 0:
+                    break
+                i -= left_ie_len
+                cur_hr_key -= 1
+                cur_hr_data = self.index_entries[cur_hr_key]
+                cur_ie_key = self.history_ranges[cur_hr_key].number
+        tp_list = sorted([[(tp_ie[0] - x) ** 2 + (tp_ie[1] - y) ** 2, tp_ie[4]] for tp_ie in tp_ie_list])[:k]
+        max_dist = tp_list[-1][0]
+        if max_dist == 0:
+            return [tp[1] for tp in tp_list]
+        max_dist_pow = max_dist ** 0.5
+        window = [y - max_dist_pow, y + max_dist_pow, x - max_dist_pow, x + max_dist_pow]
+        # 处理超出边界的情况
+        self.meta.geohash.region.clip_region(window, self.meta.geohash.data_precision)
+        gh1 = self.meta.geohash.encode(window[2], window[0])
+        gh2 = self.meta.geohash.encode(window[3], window[1])
+        tp_window_hrs = self.knn_query_hr(qp_hr_key, gh1, gh2, knn)
+        tp_list = []
+        for tp_window_hr in tp_window_hrs:
+            if tp_window_hr[2] > max_dist:
+                break
+            hr_key = tp_window_hr[0]
+            hr = self.history_ranges[hr_key]
+            hr_append = self.history_ranges_append[hr_key]
+            position = tp_window_hr[1]
+            hr_data = self.index_entries[hr_key]
+            if position == 0:  # window contain hr
+                tmp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[4]] for ie in hr_data]
+                self.io_cost += math.ceil(len(hr_data) / ITEMS_PER_PAGE)
+                delta_index_len = 0
+                for child in hr_append.delta_index:
+                    tmp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[4]]
+                                     for ie in child.index[:child.max_key + 1]])
+                    delta_index_len += child.max_key
+                self.io_cost += math.ceil(delta_index_len / ITEMS_PER_PAGE)
+            else:
+                # wrong child hr from range_by_int
+                is_valid = valid_position_funcs[position](hr.scope, window)
+                if not is_valid:
+                    continue
+                gh_new1, gh_new2, compare_func = range_position_funcs[tp_window_hr[1]](hr.scope, window, gh1, gh2,
+                                                                                       self.meta.geohash)
+                if gh_new1:
+                    pre1 = hr.model_predict(gh_new1)
+                    l_bound1 = max(pre1 - hr.model.max_err, 0)
+                    r_bound1 = min(pre1 - hr.model.min_err, hr.max_key)
+                    left_key = min(biased_search_almost(hr_data, 2, gh_new1, pre1, l_bound1, r_bound1))
+                    left_key_append = self.get_delta_index_key(gh_new1, hr, hr_append)
+                else:
+                    l_bound1 = 0
+                    left_key = 0
+                    left_key_append = 0
+                if gh_new2:
+                    pre2 = hr.model_predict(gh_new2)
+                    l_bound2 = max(pre2 - hr.model.max_err, 0)
+                    r_bound2 = min(pre2 - hr.model.min_err, hr.max_key)
+                    right_key = max(biased_search_almost(hr_data, 2, gh_new2, pre2, l_bound2, r_bound2)) + 1
+                    right_key_append = self.get_delta_index_key(gh_new2, hr, hr_append) + 1
+                else:
+                    r_bound2 = hr.number
+                    right_key = hr.number
+                    right_key_append = len(hr_append.delta_index)
+                # 3. filter point by distance
+                tmp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[4]]
+                            for ie in hr_data[left_key:right_key] if compare_func(ie)]
+                self.io_cost += math.ceil((r_bound2 - l_bound1) / ITEMS_PER_PAGE)
+                delta_index_len = 0
+                for child in hr_append.delta_index[left_key_append:right_key_append]:
+                    tmp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[4]]
+                                     for ie in child.index[:child.max_key + 1] if compare_func(ie)])
+                    delta_index_len += child.max_key
+                self.io_cost += math.ceil(delta_index_len / ITEMS_PER_PAGE)
+            if len(tmp_list) > 0:
+                tp_list.extend(tmp_list)
+                tp_list = sorted(tp_list)[:k]
+                max_dist = tp_list[-1][0]
+        return [tp[1] for tp in tp_list]
 
     def save(self):
         super(USLBRIN, self).save()
@@ -599,7 +828,7 @@ def main():
                            is_retrain_delta=True,
                            time_retrain_delta=-1,
                            thread_retrain_delta=3,
-                           is_save_delta=True,
+                           is_save_delta=False,
                            is_build=False)
         index.save()
         end_time = time.time()

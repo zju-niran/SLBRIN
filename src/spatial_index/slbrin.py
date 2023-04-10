@@ -11,7 +11,7 @@ import numpy as np
 sys.path.append('/home/zju/wlj/SLBRIN')
 from src.mlp import MLP
 from src.mlp_simple import MLPSimple
-from src.spatial_index.common_utils import Region, binary_search_less_max, sigmoid, biased_search_almost, \
+from src.spatial_index.common_utils import Region, binary_search_less_max, relu, biased_search_almost, \
     biased_search_duplicate, get_mbr_by_points, merge_sorted_list
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
@@ -1090,12 +1090,12 @@ class AbstractNN:
     # model.predict有小偏差，可能是exp的e和elu的e不一致
     def predict(self, x):
         for i in range(self.hl_nums):
-            x = sigmoid(np.dot(x, self.matrices[i * 2]) + self.matrices[i * 2 + 1])
+            x = relu(np.dot(x, self.matrices[i * 2]) + self.matrices[i * 2 + 1])
         return (np.dot(x, self.matrices[-2]) + self.matrices[-1])[0, 0]
 
     def predicts(self, xs):
         for i in range(self.hl_nums):
-            xs = sigmoid(np.dot(xs, self.matrices[i * 2]) + self.matrices[i * 2 + 1])
+            xs = relu(np.dot(xs, self.matrices[i * 2]) + self.matrices[i * 2 + 1])
         return (np.dot(xs, self.matrices[-2]) + self.matrices[-1]).flatten()
 
     def splits(self):
@@ -1127,8 +1127,8 @@ class AbstractNN:
 
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    model_path = "model/slbrin_10w/"
-    data_distribution = Distribution.NYCT_10W_SORTED
+    model_path = "model/test/"
+    data_distribution = Distribution.NYCT_SORTED
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
     index = SLBRIN(model_path=model_path)
@@ -1151,13 +1151,13 @@ def main():
         # 索引体积=meta+hrs+crs+model+索引项
         index.build(data_list=build_data_list,
                     is_sorted=True,
-                    threshold_number=1000,
+                    threshold_number=10000,
                     data_precision=data_precision[data_distribution],
                     region=data_region[data_distribution],
                     threshold_err=1,
                     threshold_summary=1000,
                     threshold_merge=5,
-                    is_new=False,
+                    is_new=True,
                     is_simple=False,
                     weight=1,
                     core=[1, 128],

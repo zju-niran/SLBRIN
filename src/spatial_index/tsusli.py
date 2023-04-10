@@ -359,11 +359,11 @@ class TSUSLI(ZMIndexOptimised):
         delta_model = leaf_node.delta_model
         pos = (key - model.input_min) / (model.input_max - model.input_min) * self.cdf_width
         pos_int = int(pos)
-        left_p = delta_model.cdfs[delta_model.time_id][pos_int]
         if pos >= self.cdf_width - 1:  # if point is at the top of cdf(1.0), insert into the tail of delta_index
             key = delta_model.max_keys[delta_model.time_id]
         else:
-            right_p = delta_model.cdfs[delta_model.time_id][pos_int + 1]
+            cdf = delta_model.cdfs[delta_model.time_id]
+            left_p, right_p = cdf[pos_int: pos_int + 2]
             key = int((left_p + (right_p - left_p) * (pos - pos_int)) * delta_model.max_keys[delta_model.time_id])
         return leaf_node.delta_index[key]
 
