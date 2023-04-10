@@ -23,7 +23,7 @@ class RStarTree(SpatialIndex):
         self.logging = logging.getLogger(self.name)
 
     def insert_single(self, point):
-        self.index.insert(point[2], Rect(point[0], point[1], point[0], point[1]))
+        self.index.insert(point[-1], Rect(point[0], point[1], point[0], point[1]))
 
     def delete(self, point):
         return

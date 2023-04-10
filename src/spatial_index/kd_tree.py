@@ -340,7 +340,7 @@ class KDTree(SpatialIndex):
         优化：stack->iter->当前方法:时间比为50->50->0.1
         """
         value = knn[:-1]
-        n = knn[-1]
+        n = int(knn[-1])
         result_heap = []
         self.knn_query_node(self.root_node, value, 0, result_heap, n)
         return [itr[1] for itr in result_heap]

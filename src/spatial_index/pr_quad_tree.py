@@ -304,7 +304,7 @@ class PRQuadTree(SpatialIndex):
         TODO: stack改成iter看下是否有加速
         """
         point = Point(knn[0], knn[1])
-        n = knn[2]
+        n = int(knn[2])
         stack = [self.root_node]
         nearest_distance = (float('-inf'), None)
         point_heap = []

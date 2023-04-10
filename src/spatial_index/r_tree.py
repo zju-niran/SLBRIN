@@ -1,5 +1,4 @@
 import logging
-import math
 import os
 import sys
 import time
@@ -9,7 +8,7 @@ from rtree import index
 
 sys.path.append('/home/zju/wlj/SLBRIN')
 from src.spatial_index.spatial_index import SpatialIndex
-from src.experiment.common_utils import load_data, Distribution
+from src.experiment.common_utils import load_data, Distribution, load_query
 
 PAGE_SIZE = 4096
 
@@ -32,7 +31,7 @@ class RTree(SpatialIndex):
         self.io_cost = 0
 
     def insert_single(self, point):
-        self.index.insert(point[2], (point[0], point[1]))
+        self.index.insert(point[-1], (point[0], point[1]))
 
     def delete(self, point):
         self.index.delete(point.key, (point.lng, point.lat))
@@ -69,7 +68,7 @@ class RTree(SpatialIndex):
         return list(self.index.intersection((window[2], window[0], window[3], window[1])))
 
     def knn_query_single(self, knn):
-        return list(self.index.nearest((knn[0], knn[1]), knn[2]))[:knn[2]]
+        return list(self.index.nearest((knn[0], knn[1]), int(knn[2])))[:int(knn[2])]
 
     def save(self):
         rtree_meta = (self.fill_factor, self.leaf_node_capacity, self.non_leaf_node_capacity, self.buffering_capacity)
@@ -112,6 +111,7 @@ class RTree(SpatialIndex):
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     model_path = "model/rtree_10w/"
+    data_distribution = Distribution.NYCT_10W_SORTED
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
     index = RTree(model_path=model_path)
@@ -122,7 +122,7 @@ def main():
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()
-        build_data_list = load_data(Distribution.NYCT_10W, 0)
+        build_data_list = load_data(data_distribution, 0)
         # 按照pagesize=4096, read_ahead=256, size(pointer)=4, size(x/y)=8, 一个page存放一个node
         # leaf node存放xyxy数据、数据指针、指向下一个leaf node的指针
         # leaf_node_capacity=(pagesize-size(pointer))/(size(x)*4+size(pointer))=(4096-4)/(8*4+4*1)=113
@@ -161,8 +161,7 @@ def main():
     logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
     io_cost = index.io_cost
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/query/range_query_nyct.npy'
-    range_query_list = np.load(path, allow_pickle=True).tolist()
+    range_query_list = load_query(data_distribution, 1).tolist()
     start_time = time.time()
     results = index.range_query(range_query_list)
     end_time = time.time()
@@ -171,8 +170,7 @@ def main():
     logging.info("Range query io cost: %s" % ((index.io_cost - io_cost) / len(range_query_list)))
     io_cost = index.io_cost
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/query/knn_query_nyct.npy'
-    knn_query_list = np.load(path, allow_pickle=True).tolist()
+    knn_query_list = load_query(data_distribution, 2).tolist()
     start_time = time.time()
     results = index.knn_query(knn_query_list)
     end_time = time.time()
@@ -185,6 +183,15 @@ def main():
     index.insert(update_data_list)
     end_time = time.time()
     logging.info("Update time: %s" % (end_time - start_time))
+    point_query_list = load_query(data_distribution, 0).tolist()
+    start_time = time.time()
+    results = index.point_query(point_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(point_query_list)
+    logging.info("Point query time: %s" % search_time)
+    logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
+    io_cost = index.io_cost
+    np.savetxt(model_path + 'point_query_result1.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
 
 
 if __name__ == '__main__':
