@@ -465,8 +465,7 @@ def main():
     logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
     io_cost = index.io_cost
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/query/range_query_nyct.npy'
-    range_query_list = np.load(path, allow_pickle=True).tolist()
+    range_query_list = load_query(data_distribution, 1).tolist()
     start_time = time.time()
     results = index.range_query(range_query_list)
     end_time = time.time()
@@ -475,20 +474,31 @@ def main():
     logging.info("Range query io cost: %s" % ((index.io_cost - io_cost) / len(range_query_list)))
     io_cost = index.io_cost
     np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    path = '../../data/query/knn_query_nyct.npy'
-    knn_query_list = np.load(path, allow_pickle=True).tolist()
+    knn_query_list = load_query(data_distribution, 2).tolist()
     start_time = time.time()
     results = index.knn_query(knn_query_list)
     end_time = time.time()
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time: %s" % search_time)
     logging.info("KNN query io cost: %s" % ((index.io_cost - io_cost) / len(knn_query_list)))
+    io_cost = index.io_cost
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     update_data_list = load_data(Distribution.NYCT_10W, 1)
     start_time = time.time()
     index.insert(update_data_list)
     end_time = time.time()
     logging.info("Update time: %s" % (end_time - start_time))
+    logging.info("Update io cost: %s" % (index.io_cost - io_cost))
+    io_cost = index.io_cost
+    point_query_list = load_query(data_distribution, 0).tolist()
+    start_time = time.time()
+    results = index.point_query(point_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(point_query_list)
+    logging.info("Point query time: %s" % search_time)
+    logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
+    io_cost = index.io_cost
+    np.savetxt(model_path + 'point_query_result1.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
 
 
 if __name__ == '__main__':

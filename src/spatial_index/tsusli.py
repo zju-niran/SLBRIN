@@ -626,6 +626,8 @@ def main():
     index.insert(update_data_list)
     end_time = time.time()
     logging.info("Update time: %s" % (end_time - start_time))
+    logging.info("Update io cost: %s" % (index.io_cost - io_cost))
+    io_cost = index.io_cost
     point_query_list = load_query(data_distribution, 0).tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)
