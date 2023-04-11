@@ -4,8 +4,11 @@ import shutil
 import sys
 import time
 
+from src.spatial_index.tsusli import TSUSLI
+
 sys.path.append('/home/zju/wlj/SLBRIN')
-from src.experiment.common_utils import Distribution, load_query, load_data, copy_dirs, group_data_by_date
+from src.experiment.common_utils import Distribution, load_query, load_data, copy_dirs, group_data_by_date, \
+    filter_data_by_date
 from src.spatial_index.uslbrin import USLBRIN
 
 if __name__ == '__main__':
@@ -27,25 +30,30 @@ if __name__ == '__main__':
                         format="%(message)s")
     index_infos = [
         # prepare
-        ("uslbrin_0_0_0", True, -1, 3, True, True, -1, 3, True, True, 0, 0, 0, True),
+        # ("uslbrin_1.1_1_1.0", False, -1, 3, False, False, -1, 3, False, False, 1.1, 1, 1.0, True),
         # tel
-        ("uslbrin_0_0_0", True, -1, 3, True, False, -1, 3, False, True, 0, 0, 0, False),
-        ("uslbrin_1_0_0", True, -1, 3, True, False, -1, 3, False, True, 1, 0, 0, False),
-        ("uslbrin_2_0_0", True, -1, 3, True, False, -1, 3, False, True, 2, 0, 0, False),
-        ("uslbrin_4_0_0", True, -1, 3, True, False, -1, 3, False, True, 4, 0, 0, False),
-        ("uslbrin_8_0_0", True, -1, 3, True, False, -1, 3, False, True, 8, 0, 0, False),
+        ("uslbrin_0.8_1_1.1", True, -1, 6, True, True, -1, 3, False, False, 0.8, 1, 1.1, False),
+        ("uslbrin_0.9_1_1.1", True, -1, 6, True, True, -1, 3, False, False, 0.9, 1, 1.1, False),
+        ("uslbrin_1.0_1_1.1", True, -1, 6, True, True, -1, 3, False, False, 1.0, 1, 1.1, False),
+        ("uslbrin_1.1_1_1.1", True, -1, 6, True, True, -1, 3, False, False, 1.1, 1, 1.1, False),
+        ("uslbrin_1.2_1_1.1", True, -1, 6, True, True, -1, 3, False, False, 1.2, 1, 1.1, False),
         # tef
-        ("uslbrin_0_0_0", False, -1, 3, False, True, -1, 3, True, True, 0, 0, 0, False),
-        ("uslbrin_0_1_0", False, -1, 3, False, True, -1, 3, True, True, 0, 1, 0, False),
-        ("uslbrin_0_2_0", False, -1, 3, False, True, -1, 3, True, True, 0, 2, 0, False),
-        ("uslbrin_0_4_0", False, -1, 3, False, True, -1, 3, True, True, 0, 4, 0, False),
-        ("uslbrin_0_8_0", False, -1, 3, False, True, -1, 3, True, True, 0, 8, 0, False),
+        ("uslbrin_1.1_0_1.1", False, -1, 3, False, True, -1, 3, False, False, 1.1, 0, 1.1, False),
+        ("uslbrin_1.1_1_1.1", False, -1, 3, False, True, -1, 3, False, False, 1.1, 1, 1.1, False),
+        ("uslbrin_1.1_2_1.1", False, -1, 3, False, True, -1, 3, False, False, 1.1, 2, 1.1, False),
+        ("uslbrin_1.1_4_1.1", False, -1, 3, False, True, -1, 3, False, False, 1.1, 4, 1.1, False),
+        ("uslbrin_1.1_8_1.1", False, -1, 3, False, True, -1, 3, False, False, 1.1, 8, 1.1, False),
         # ten
-        ("uslbrin_0_0_0", False, -1, 3, False, True, -1, 3, True, True, 0, 0, 0, False),
-        ("uslbrin_0_0_1", False, -1, 3, False, True, -1, 3, True, True, 0, 0, 1, False),
-        ("uslbrin_0_0_2", False, -1, 3, False, True, -1, 3, True, True, 0, 0, 2, False),
-        ("uslbrin_0_0_4", False, -1, 3, False, True, -1, 3, True, True, 0, 0, 4, False),
-        ("uslbrin_0_0_8", False, -1, 3, False, True, -1, 3, True, True, 0, 0, 8, False),
+        ("uslbrin_1.1_1_0.8", False, -1, 3, False, True, -1, 3, False, False, 1.1, 1, 0.8, False),
+        ("uslbrin_1.1_1_0.9", False, -1, 3, False, True, -1, 3, False, False, 1.1, 1, 0.9, False),
+        ("uslbrin_1.1_1_1.0", False, -1, 3, False, True, -1, 3, False, False, 1.1, 1, 1.0, False),
+        ("uslbrin_1.1_1_1.1", False, -1, 3, False, True, -1, 3, False, False, 1.1, 1, 1.1, False),
+        ("uslbrin_1.1_1_1.2", False, -1, 3, False, True, -1, 3, False, False, 1.1, 1, 1.2, False),
+        # rm
+        ("tsusli_1_1_1_1.1", False, -1, 3, False, True, -1, 3, False, False, 1.1, 1, 1.1, False),
+        ("tsusli_1.1_1_1.1", False, -1, 3, False, True, -1, 3, False, True, 1.1, 1, 1.1, False),
+        ("uslbrin_1_1_1_1.1", False, -1, 3, False, True, -1, 3, False, False, 1.1, 1, 1.1, False),
+        ("uslbrin_1.1_1_1.1", False, -1, 3, False, True, -1, 3, False, True, 1.1, 1, 1.1, False),
     ]
     data_distributions = [Distribution.NYCT_SORTED]
     # data_distributions = [Distribution.UNIFORM_10W, Distribution.NORMAL_10W, Distribution.NYCT_10W]
@@ -54,6 +62,8 @@ if __name__ == '__main__':
         point_query_list = load_query(data_distribution, 0).tolist()
         update_data_list = load_data(data_distribution, 1)
         # 2013-02-01-08: 1359676800 | 2013-02-02-08: 1359763200 | 2013-02-08-08: 1360281600
+        # update_data_list = filter_data_by_date(update_data_list, 1359763200)
+        # update_data_list = group_data_by_date(update_data_list, 1359676800, 60 * 10)
         update_data_list = group_data_by_date(update_data_list, 1359676800, 60 * 60 * 4)
         for index_info in index_infos:
             target_model_path = target_path + data_distribution.name + "/" + index_info[0]
@@ -65,8 +75,9 @@ if __name__ == '__main__':
             # initial the compared model from the zm_index
             logging.info("*************start %s %s************" % (index_info[0], data_distribution.name))
             start_time = time.time()
-            index = USLBRIN(model_path=target_model_path)
-            super(USLBRIN, index).load()
+            index_class = TSUSLI if index_info[0].startswith("tsusli") else USLBRIN
+            index = index_class(model_path=target_model_path)
+            super(index_class, index).load()
             index.build_append(time_interval=60 * 60 * 24,
                                start_time=1356998400,
                                end_time=1359676799,

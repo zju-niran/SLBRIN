@@ -1127,8 +1127,8 @@ class AbstractNN:
 
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    model_path = "model/test/"
-    data_distribution = Distribution.NYCT_SORTED
+    model_path = "model/slbrin_10w/"
+    data_distribution = Distribution.NYCT_10W_SORTED
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
     index = SLBRIN(model_path=model_path)
