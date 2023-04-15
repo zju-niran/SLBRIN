@@ -486,7 +486,7 @@ class USLBRIN(SLBRIN):
                 delta_index_len = 0
                 for child in hr_append.delta_index:
                     result.extend([ie[4] for ie in child.index[:child.max_key + 1]])
-                    delta_index_len += child.max_key
+                    delta_index_len += child.max_key + 1
                 self.io_cost += math.ceil(delta_index_len / ITEMS_PER_PAGE)
             else:
                 # wrong child hr from range_by_int
@@ -524,7 +524,7 @@ class USLBRIN(SLBRIN):
                 delta_index_len = 0
                 for child in hr_append.delta_index[left_key_append:right_key_append]:
                     result.extend([ie[4] for ie in child.index[:child.max_key + 1] if compare_func(ie)])
-                    delta_index_len += child.max_key
+                    delta_index_len += child.max_key + 1
                 self.io_cost += math.ceil(delta_index_len / ITEMS_PER_PAGE)
         return result
 
@@ -616,7 +616,7 @@ class USLBRIN(SLBRIN):
                 for child in hr_append.delta_index:
                     tmp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[4]]
                                      for ie in child.index[:child.max_key + 1]])
-                    delta_index_len += child.max_key
+                    delta_index_len += child.max_key + 1
                 self.io_cost += math.ceil(delta_index_len / ITEMS_PER_PAGE)
             else:
                 # wrong child hr from range_by_int
@@ -653,7 +653,7 @@ class USLBRIN(SLBRIN):
                 for child in hr_append.delta_index[left_key_append:right_key_append]:
                     tmp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[4]]
                                      for ie in child.index[:child.max_key + 1] if compare_func(ie)])
-                    delta_index_len += child.max_key
+                    delta_index_len += child.max_key + 1
                 self.io_cost += math.ceil(delta_index_len / ITEMS_PER_PAGE)
             if len(tmp_list) > 0:
                 tp_list.extend(tmp_list)

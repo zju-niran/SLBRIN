@@ -268,11 +268,13 @@ class ZMIndex(SpatialIndex):
         right_key = r_bound2 if len(right_key) == 0 else max(right_key)
         # 4. filter all the point of scope[key1, key2] by range(x1/y1/x2/y2).contain(point)
         # 5. filter in delta index
+        io_index_len = 0
+        io_delta_index_len = 0
         if leaf_key1 == leaf_key2:
             # filter index
             result = [ie[4] for ie in leaf_node1.index[left_key:right_key + 1]
                       if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
-            self.io_cost += math.ceil((r_bound2 - l_bound1) / ITEMS_PER_PAGE)
+            io_index_len += r_bound2 - l_bound1
             # filter delta index
             delta_index = leaf_node1.delta_index
             if delta_index.max_key >= 0:
@@ -281,10 +283,10 @@ class ZMIndex(SpatialIndex):
                 result.extend([ie[4]
                                for ie in delta_index.index[left_key:right_key + 1]
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-                self.io_cost += math.ceil((delta_index.max_key + 1) / ITEMS_PER_PAGE)
+                io_delta_index_len += delta_index.max_key + 1
         else:
             # filter index
-            io_index_len = len(leaf_node1.index) + r_bound2 - l_bound1
+            io_index_len += len(leaf_node1.index) + r_bound2 - l_bound1
             result = [ie[4]
                       for ie in leaf_node1.index[left_key:]
                       if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
@@ -298,10 +300,8 @@ class ZMIndex(SpatialIndex):
             result.extend([ie[4]
                            for ie in leaf_node2.index[:right_key + 1]
                            if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-            self.io_cost += math.ceil(io_index_len / ITEMS_PER_PAGE)
             # filter delta index
             delta_index = leaf_node1.delta_index
-            io_index_len = 0
             if delta_index.max_key >= 0:
                 io_index_len += delta_index.max_key + 1
                 left_key = binary_search_less_max(delta_index.index, 2, gh1, 0, delta_index.max_key)
@@ -322,7 +322,7 @@ class ZMIndex(SpatialIndex):
                 result.extend([ie[4]
                                for ie in delta_index.index[:right_key + 1]
                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
-            self.io_cost += math.ceil(io_index_len / ITEMS_PER_PAGE)
+        self.io_cost += math.ceil(io_index_len / ITEMS_PER_PAGE) + math.ceil(io_delta_index_len / ITEMS_PER_PAGE)
         return result
 
     def knn_query_single(self, knn):
@@ -387,7 +387,7 @@ class ZMIndex(SpatialIndex):
                 io_index_len += len(leaf_node1.index) + right_key
                 delta_index = leaf_node2.delta_index
                 if delta_index.max_key >= 0:
-                    delta_right_key = binary_search_less_max(delta_index.index, 2, gh2, 0, delta_index.max_key)
+                    delta_right_key = binary_search_less_max(delta_index.index, 2, gh2, 0, delta_index.max_key) + 1
                     tp_list.extend([ie for ie in delta_index.index[:delta_right_key]
                                     if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
                     io_delta_index_len += delta_right_key

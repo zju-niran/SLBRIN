@@ -160,7 +160,7 @@ class TSUSLI(SLIBS):
         leaf_node = self.rmi[-1][self.get_leaf_node(gh)]
         # 1. find and insert ie into the target list of delta_index
         leaf_node.delta_model.data_len += 1
-        tg_array = self.get_delta_index_list(gh, leaf_node)
+        tg_array = leaf_node.delta_index[self.get_delta_index_key(gh, leaf_node)]
         tg_array.insert(binary_search_less_max(tg_array.index, 2, gh, 0, tg_array.max_key) + 1, point)
         # IO1: search key
         self.io_cost += math.ceil((tg_array.max_key + 1) / ITEMS_PER_PAGE)
@@ -354,7 +354,7 @@ class TSUSLI(SLIBS):
         self.logging.info("Index entry size: %s" % (index_len * ITEM_SIZE))
         self.logging.info("Model precision avg: %s" % self.model_err())
 
-    def get_delta_index_list(self, key, leaf_node):
+    def get_delta_index_key(self, key, leaf_node):
         """
         get the delta_index list which contains the key
         """
@@ -368,7 +368,7 @@ class TSUSLI(SLIBS):
             cdf = delta_model.cdfs[delta_model.time_id]
             left_p, right_p = cdf[pos_int: pos_int + 2]
             key = int((left_p + (right_p - left_p) * (pos - pos_int)) * delta_model.max_keys[delta_model.time_id])
-        return leaf_node.delta_index[key]
+        return key
 
     def point_query_single(self, point):
         """
@@ -384,11 +384,174 @@ class TSUSLI(SLIBS):
         self.io_cost += math.ceil((r_bound - l_bound) / ITEMS_PER_PAGE)
         # 1. find the target list of delta_index which contains the target ie
         if leaf_node.delta_model.data_len:
-            tg_array = self.get_delta_index_list(gh, leaf_node)
+            tg_array = leaf_node.delta_index[self.get_delta_index_key(gh, leaf_node)]
             result.extend([tg_array.index[key][4]
                            for key in binary_search_duplicate(tg_array.index, 2, gh, 0, tg_array.max_key)])
             self.io_cost += math.ceil((tg_array.max_key + 1) / ITEMS_PER_PAGE)
         return result
+
+    def range_query_single(self, window):
+        """
+        different from zm_index
+        1. find the target list of delta_index which contains the target ie
+        """
+        gh1 = self.geohash.encode(window[2], window[0])
+        gh2 = self.geohash.encode(window[3], window[1])
+        leaf_node1, leaf_key1, pre1, min_err1, max_err1 = self.predict(gh1)
+        l_bound1 = max(pre1 - max_err1, 0)
+        r_bound1 = min(pre1 - min_err1, leaf_node1.model.output_max)
+        left_key = biased_search_duplicate(leaf_node1.index, 2, gh1, pre1, l_bound1, r_bound1)
+        left_key = l_bound1 if len(left_key) == 0 else min(left_key)
+        leaf_node2, leaf_key2, pre2, min_err2, max_err2 = self.predict(gh2)
+        l_bound2 = max(pre2 - max_err2, 0)
+        r_bound2 = min(pre2 - min_err2, leaf_node2.model.output_max)
+        right_key = biased_search_duplicate(leaf_node2.index, 2, gh2, pre2, l_bound2, r_bound2)
+        right_key = r_bound2 if len(right_key) == 0 else max(right_key)
+        # 1. find the target list of delta_index which contains the target ie
+        io_index_len = 0
+        io_delta_index_len = 0
+        if leaf_key1 == leaf_key2:
+            result = [ie[4] for ie in leaf_node1.index[left_key:right_key + 1]
+                      if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
+            io_index_len += r_bound2 - l_bound1
+            # filter delta index
+            if leaf_node1.delta_model.data_len:
+                delta_index = leaf_node1.delta_index
+                delta_left_key = self.get_delta_index_key(gh1, leaf_node1)
+                delta_right_key = self.get_delta_index_key(gh2, leaf_node1) + 1
+                result.extend([ie[4] for child in delta_index[delta_left_key:delta_right_key]
+                               for ie in child.index[:child.max_key + 1]
+                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                io_delta_index_len += sum([child.max_key + 1 for child in delta_index[delta_left_key:delta_right_key]])
+        else:
+            io_index_len += len(leaf_node1.index) + r_bound2 - l_bound1
+            result = [ie[4]
+                      for ie in leaf_node1.index[left_key:]
+                      if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
+            if leaf_key2 - leaf_key1 > 1:
+                result.extend([ie[4]
+                               for leaf_key in range(leaf_key1 + 1, leaf_key2)
+                               for ie in self.rmi[-1][leaf_key].index
+                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                for leaf_key in range(leaf_key1 + 1, leaf_key2):
+                    io_index_len += len(self.rmi[-1][leaf_key].index)
+            result.extend([ie[4]
+                           for ie in leaf_node2.index[:right_key + 1]
+                           if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+            # filter delta index
+            if leaf_node1.delta_model.data_len:
+                delta_index = leaf_node1.delta_index
+                delta_left_key = self.get_delta_index_key(gh1, leaf_node1)
+                result.extend([ie[4] for child in delta_index[delta_left_key:]
+                               for ie in child.index[:child.max_key + 1]
+                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                io_delta_index_len += sum([child.max_key + 1 for child in delta_index[delta_left_key:]])
+            if leaf_key2 - leaf_key1 > 1:
+                result.extend([ie[4]
+                               for leaf_key in range(leaf_key1 + 1, leaf_key2)
+                               for child in self.rmi[-1][leaf_key].delta_index
+                               for ie in child.index
+                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                for leaf_key in range(leaf_key1 + 1, leaf_key2):
+                    io_delta_index_len += self.rmi[-1][leaf_key].delta_model.data_len
+            if leaf_node2.delta_model.data_len:
+                delta_index = leaf_node2.delta_index
+                delta_right_key = self.get_delta_index_key(gh2, leaf_node2) + 1
+                result.extend([ie[4] for child in delta_index[:delta_right_key]
+                               for ie in child.index[:child.max_key + 1]
+                               if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                io_delta_index_len += sum([child.max_key + 1 for child in delta_index[:delta_right_key]])
+        self.io_cost += math.ceil(io_index_len / ITEMS_PER_PAGE) + math.ceil(io_delta_index_len / ITEMS_PER_PAGE)
+        return result
+
+    def knn_query_single(self, knn):
+        """
+        different from zm_index
+        1. find the target list of delta_index which contains the target ie
+        """
+        x, y, k = knn
+        k = int(k)
+        w = self.get_weight(self.geohash.encode(x, y))
+        if w > 0:
+            window_ratio = (k / self.max_key) ** 0.5 / w
+        else:
+            window_ratio = (k / self.max_key) ** 0.5
+        window_radius = window_ratio * self.geohash.region_width / 2
+        while True:
+            window = [y - window_radius, y + window_radius, x - window_radius, x + window_radius]
+            self.geohash.region.clip_region(window, self.geohash.data_precision)
+            gh1 = self.geohash.encode(window[2], window[0])
+            gh2 = self.geohash.encode(window[3], window[1])
+            leaf_node1, leaf_key1, pre1, min_err1, max_err1 = self.predict(gh1)
+            l_bound1 = max(pre1 - max_err1, 0)
+            r_bound1 = min(pre1 - min_err1, leaf_node1.model.output_max)
+            left_key = biased_search_duplicate(leaf_node1.index, 2, gh1, pre1, l_bound1, r_bound1)
+            left_key = l_bound1 if len(left_key) == 0 else min(left_key)
+            leaf_node2, leaf_key2, pre2, min_err2, max_err2 = self.predict(gh2)
+            l_bound2 = max(pre2 - max_err2, 0)
+            r_bound2 = min(pre2 - min_err2, leaf_node2.model.output_max)
+            right_key = biased_search_duplicate(leaf_node2.index, 2, gh2, pre2, l_bound2, r_bound2)
+            right_key = r_bound2 + 1 if len(right_key) == 0 else max(right_key) + 1
+            io_index_len = 0
+            io_delta_index_len = 0
+            # 1. find the target list of delta_index which contains the target ie
+            if leaf_key1 == leaf_key2:
+                tp_list = [ie for ie in leaf_node1.index[left_key:right_key]
+                           if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
+                io_index_len += right_key - left_key
+                # filter delta index
+                if leaf_node1.delta_model.data_len:
+                    delta_index = leaf_node1.delta_index
+                    delta_left_key = self.get_delta_index_key(gh1, leaf_node1)
+                    delta_right_key = self.get_delta_index_key(gh2, leaf_node1) + 1
+                    tp_list.extend([ie for child in delta_index[delta_left_key:delta_right_key]
+                                    for ie in child.index[:child.max_key + 1]
+                                    if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                    io_delta_index_len += sum(
+                        [child.max_key + 1 for child in delta_index[delta_left_key:delta_right_key]])
+            else:
+                tp_list = [ie for ie in leaf_node1.index[left_key:]
+                           if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]]
+                io_index_len += len(leaf_node1.index) - left_key
+                if leaf_node1.delta_model.data_len:
+                    delta_index = leaf_node1.delta_index
+                    delta_left_key = self.get_delta_index_key(gh1, leaf_node1)
+                    tp_list.extend([ie for child in delta_index[delta_left_key:]
+                                    for ie in child.index[:child.max_key + 1]
+                                    if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                    io_delta_index_len += sum([child.max_key + 1 for child in delta_index[delta_left_key:]])
+                tp_list.extend([ie for ie in leaf_node2.index[:right_key]
+                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                io_index_len += len(leaf_node1.index) + right_key
+                if leaf_node2.delta_model.data_len:
+                    delta_index = leaf_node2.delta_index
+                    delta_right_key = self.get_delta_index_key(gh2, leaf_node2) + 1
+                    tp_list.extend([ie for child in delta_index[:delta_right_key]
+                                    for ie in child.index[:child.max_key + 1]
+                                    if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                    io_delta_index_len += sum([child.max_key + 1 for child in delta_index[:delta_right_key]])
+                tp_list.extend([ie for leaf_key in range(leaf_key1 + 1, leaf_key2)
+                                for ie in self.rmi[-1][leaf_key].index
+                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                io_index_len += sum([len(self.rmi[-1][leaf_key].index) for leaf_key in range(leaf_key1 + 1, leaf_key2)])
+                tp_list.extend([ie for leaf_key in range(leaf_key1 + 1, leaf_key2)
+                                for child in self.rmi[-1][leaf_key].delta_index
+                                for ie in child.index
+                                if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+                io_delta_index_len += sum(
+                    [self.rmi[-1][leaf_key].delta_model.data_len for leaf_key in range(leaf_key1 + 1, leaf_key2)])
+            if len(tp_list) < k:
+                window_radius *= 2
+            else:
+                tp_list = [[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[4]] for ie in tp_list]
+                tp_list.sort()
+                dst = tp_list[k - 1][0] ** 0.5
+                if dst > window_radius:
+                    window_radius = dst
+                else:
+                    break
+        self.io_cost += math.ceil(io_index_len / ITEMS_PER_PAGE) + math.ceil(io_delta_index_len / ITEMS_PER_PAGE)
+        return [tp[1] for tp in tp_list[:k]]
 
     def save(self):
         """
@@ -547,7 +710,7 @@ def main():
     load_index_from_json = True
     load_index_from_json2 = False
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    model_path = "model/tsusli_10w_nyct/"
+    model_path = "model/tsusli_10w/"
     data_distribution = Distribution.NYCT_10W_SORTED
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
@@ -597,14 +760,14 @@ def main():
                            threshold_err=1,
                            threshold_err_cdf=10,
                            threshold_err_max_key=10,
-                           is_retrain=False,
+                           is_retrain=True,
                            time_retrain=-1,
                            thread_retrain=3,
-                           is_save=False,
+                           is_save=True,
                            is_retrain_delta=True,
                            time_retrain_delta=-1,
                            thread_retrain_delta=3,
-                           is_save_delta=True,
+                           is_save_delta=False,
                            is_build=False)
         index.save()
         end_time = time.time()
@@ -624,6 +787,24 @@ def main():
     logging.info("Point query io cost: %s" % ((index.io_cost - io_cost) / len(point_query_list)))
     io_cost = index.io_cost
     np.savetxt(model_path + 'point_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    range_query_list = load_query(data_distribution, 1).tolist()
+    start_time = time.time()
+    results = index.range_query(range_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(range_query_list)
+    logging.info("Range query time: %s" % search_time)
+    logging.info("Range query io cost: %s" % ((index.io_cost - io_cost) / len(range_query_list)))
+    io_cost = index.io_cost
+    np.savetxt(model_path + 'range_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
+    knn_query_list = load_query(data_distribution, 2).tolist()
+    start_time = time.time()
+    results = index.knn_query(knn_query_list)
+    end_time = time.time()
+    search_time = (end_time - start_time) / len(knn_query_list)
+    logging.info("KNN query time: %s" % search_time)
+    logging.info("KNN query io cost: %s" % ((index.io_cost - io_cost) / len(knn_query_list)))
+    io_cost = index.io_cost
+    np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
     update_data_list = load_data(Distribution.NYCT_10W, 1)
     start_time = time.time()
     index.insert(update_data_list)

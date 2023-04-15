@@ -4,7 +4,6 @@ import shutil
 import sys
 import time
 
-
 sys.path.append('/home/zju/wlj/SLBRIN')
 from src.spatial_index.r_tree import RTree
 from src.spatial_index.pr_quad_tree import PRQuadTree
@@ -23,13 +22,13 @@ if __name__ == '__main__':
                         level=logging.INFO,
                         format="%(message)s")
     index_infos = [
-        (RTree, "rtree/%s"),
-        (PRQuadTree, "prquadtree/%s"),
-        (BRINSpatial, "brinspatial/%s"),
-        (TSUSLI, "tsusli/%s"),
-        (USLBRIN, "uslbrin/%s"),
+        # (RTree, "rtree/%s", "rtree/%s/fill_factor_0.8"),
+        # (PRQuadTree, "prquadtree/%s", "prquadtree/%s/n_500"),
+        # (BRINSpatial, "brinspatial/%s", "brinspatial/%s/ppr_sorted_64"),
+        (TSUSLI, "tsusli/%s", "slibs/%s/stage2_num_1000"),
+        (USLBRIN, "uslbrin/%s", "slbrin/%s/tn_10000"),
     ]
-    data_distributions = [Distribution.NYCT_SORTED]
+    data_distributions = [Distribution.NYCT_SORTED, Distribution.NORMAL_SORTED, Distribution.UNIFORM_SORTED]
     for data_distribution in data_distributions:
         origin_model_path = origin_path + data_distribution.name
         point_query_list = load_query(data_distribution, 0).tolist()
@@ -39,7 +38,7 @@ if __name__ == '__main__':
         update_data_list = group_data_by_date(update_data_list, 1359676800, 60 * 60 * 4)
         for index_info in index_infos:
             # 拷贝目标索引磁盘文件
-            origin_model_path = origin_path + index_info[1] % data_distribution.name
+            origin_model_path = origin_path + index_info[2] % data_distribution.name
             target_model_path = target_path + index_info[1] % data_distribution.name
             if os.path.exists(target_model_path):
                 shutil.rmtree(target_model_path)
@@ -63,11 +62,11 @@ if __name__ == '__main__':
                                    threshold_err_max_key=1.1,
                                    is_retrain=True,
                                    time_retrain=-1,
-                                   thread_retrain=3,
+                                   thread_retrain=6,
                                    is_save=False,
                                    is_retrain_delta=True,
                                    time_retrain_delta=-1,
-                                   thread_retrain_delta=3,
+                                   thread_retrain_delta=6,
                                    is_save_delta=False,
                                    is_build=True)
             else:
