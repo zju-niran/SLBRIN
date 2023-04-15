@@ -21,9 +21,9 @@ MODELS_PER_PAGE = int(PAGE_SIZE / MODEL_SIZE)
 ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 
 
-class ZMIndexOptimised(ZMIndex):
+class SLIBS(ZMIndex):
     def __init__(self, model_path=None):
-        super(ZMIndexOptimised, self).__init__(model_path)
+        super(SLIBS, self).__init__(model_path)
 
     def build(self, data_list, is_sorted, data_precision, region, is_new, is_simple, weight,
               stages, cores, train_steps, batch_nums, learning_rates, use_thresholds, thresholds, retrain_time_limits,
@@ -193,11 +193,11 @@ class NNSimple(MLPSimple):
 
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    model_path = "model/zm_index_optimised_10w/"
+    model_path = "model/slibs_10w/"
     data_distribution = Distribution.NYCT_10W_SORTED
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
-    index = ZMIndexOptimised(model_path=model_path)
+    index = SLIBS(model_path=model_path)
     index_name = index.name
     load_index_from_json = False
     if load_index_from_json:

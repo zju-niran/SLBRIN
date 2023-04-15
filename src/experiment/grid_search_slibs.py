@@ -5,10 +5,10 @@ import time
 
 sys.path.append('/home/zju/wlj/SLBRIN')
 from src.experiment.common_utils import Distribution, load_data, data_region, data_precision, load_query
-from src.spatial_index.zm_index_optimised import ZMIndexOptimised
+from src.spatial_index.slibs import SLIBS
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    parent_path = "model/zmindexoptimised"
+    parent_path = "model/slibs"
     if not os.path.exists(parent_path):
         os.makedirs(parent_path)
     logging.basicConfig(filename=os.path.join(parent_path, "log.file"),
@@ -22,7 +22,7 @@ if __name__ == '__main__':
             model_path = parent_path + "/%s/stage2_num_%s" % (data_distribution.name, stage2_num)
             if os.path.exists(model_path) is False:
                 os.makedirs(model_path)
-            index = ZMIndexOptimised(model_path=model_path)
+            index = SLIBS(model_path=model_path)
             logging.info("*************start %s************" % model_path)
             start_time = time.time()
             build_data_list = load_data(data_distribution, 0)

@@ -13,8 +13,8 @@ from src.spatial_index.common_utils import biased_search_duplicate, binary_searc
     Region, binary_search_less_max_duplicate
 from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.zm_index import Node, Array
-from src.spatial_index.zm_index_optimised import ZMIndexOptimised
-from src.spatial_index.zm_index_di import retrain_model
+from src.spatial_index.slibs import SLIBS
+from src.spatial_index.dtusli import retrain_model
 from src.ts_model import TimeSeriesModel
 
 # 预设pagesize=4096, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
@@ -25,7 +25,7 @@ MODELS_PER_PAGE = int(PAGE_SIZE / MODEL_SIZE)
 ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 
 
-class TSUSLI(ZMIndexOptimised):
+class TSUSLI(SLIBS):
     def __init__(self, model_path=None):
         super().__init__(model_path)
         # for update
@@ -261,7 +261,7 @@ class TSUSLI(ZMIndexOptimised):
             self.logging.info("Retrain model time: %s" % (time.time() - start_time))
             self.logging.info("Retrain model io: %s" % (self.io_cost - start_io))
         else:
-            time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id), 'models.npy')
+            time_model_path = os.path.join(self.model_path, "../sli_time_model_model", str(self.time_id), 'models.npy')
             models = np.load(time_model_path, allow_pickle=True)
             model_cur = 0
             for i in range(len(self.stages)):
@@ -269,7 +269,7 @@ class TSUSLI(ZMIndexOptimised):
                     self.rmi[i][j].model = models[model_cur]
                     model_cur += 1
         if self.is_save:
-            time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id))
+            time_model_path = os.path.join(self.model_path, "../sli_time_model_model", str(self.time_id))
             if os.path.exists(time_model_path) is False:
                 os.makedirs(time_model_path)
             models = []
@@ -277,7 +277,8 @@ class TSUSLI(ZMIndexOptimised):
                 models.extend([node.model for node in stage])
             np.save(os.path.join(time_model_path, 'models.npy'), models)
         # 3. update delta model
-        retrain_delta_model_num = 0
+        retrain_delta_model_num1 = 0
+        retrain_delta_model_num2 = 0
         retrain_delta_model_mae1 = 0
         retrain_delta_model_mae2 = 0
         retrain_delta_model_time = 0
@@ -302,7 +303,8 @@ class TSUSLI(ZMIndexOptimised):
                 leaf_node.delta_model = value[0]
                 leaf_node.delta_index = [Array(self.child_length) for i in range(
                     leaf_node.delta_model.max_keys[leaf_node.delta_model.time_id] + 1)]
-                retrain_delta_model_num += value[1]
+                retrain_delta_model_num1 += value[1]
+                retrain_delta_model_num2 += value[2]
                 if value[1]:
                     retrain_delta_model_io += len(leaf_node.delta_model.max_keys)
                 else:
@@ -316,7 +318,7 @@ class TSUSLI(ZMIndexOptimised):
             retrain_delta_model_mae2 = retrain_delta_model_mae2 / self.stages[-1]
         else:
             time_model_path = os.path.join(
-                self.model_path, "../zm_time_model", str(self.time_id), 'delta_models_%s_%s_%s_%s_%s.npy' % (
+                self.model_path, "../sli_time_model_model", str(self.time_id), 'delta_models_%s_%s_%s_%s_%s.npy' % (
                     self.lag, self.predict_step, self.cdf_width, self.cdf_model, self.max_key_model))
             delta_models = np.load(time_model_path, allow_pickle=True)
             model_cur = 0
@@ -332,7 +334,7 @@ class TSUSLI(ZMIndexOptimised):
             retrain_delta_model_mae1 = retrain_delta_model_mae1 / self.stages[-1]
             retrain_delta_model_mae2 = retrain_delta_model_mae2 / self.stages[-1]
         if self.is_save_delta:
-            time_model_path = os.path.join(self.model_path, "../zm_time_model", str(self.time_id))
+            time_model_path = os.path.join(self.model_path, "../sli_time_model_model", str(self.time_id))
             if os.path.exists(time_model_path) is False:
                 os.makedirs(time_model_path)
             delta_models = []
@@ -343,7 +345,8 @@ class TSUSLI(ZMIndexOptimised):
         index_len = 0
         for leaf_node in self.rmi[-1]:
             index_len += len(leaf_node.index) + len(leaf_node.delta_index) * self.child_length
-        self.logging.info("Retrain delta model num: %s" % retrain_delta_model_num)
+        self.logging.info("Retrain delta model cdf num: %s" % retrain_delta_model_num1)
+        self.logging.info("Retrain delta model max_key num: %s" % retrain_delta_model_num2)
         self.logging.info("Retrain delta model cdf mae: %s" % retrain_delta_model_mae1)
         self.logging.info("Retrain delta model max_key mae: %s" % retrain_delta_model_mae2)
         self.logging.info("Retrain delta model time: %s" % retrain_delta_model_time)
@@ -535,9 +538,9 @@ class TSUSLI(ZMIndexOptimised):
 
 def retrain_delta_model(model_key, delta_model, cur_cdf, cur_max_key, lag, predict_step, cdf_width,
                         threshold_err_cdf, threshold_err_max_key, mp_dict):
-    num = delta_model.update(cur_cdf, cur_max_key, lag, predict_step, cdf_width,
-                             threshold_err_cdf, threshold_err_max_key)
-    mp_dict[model_key] = delta_model, num
+    num1, num2 = delta_model.update(cur_cdf, cur_max_key, lag, predict_step, cdf_width,
+                                    threshold_err_cdf, threshold_err_max_key)
+    mp_dict[model_key] = delta_model, num1, num2
 
 
 def main():

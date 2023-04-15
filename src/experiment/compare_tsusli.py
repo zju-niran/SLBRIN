@@ -6,8 +6,8 @@ import time
 
 sys.path.append('/home/zju/wlj/SLBRIN')
 from src.spatial_index.tsusli import TSUSLI
-from src.spatial_index.zm_index_di import ZMIndexDeltaInsert
-from src.spatial_index.zm_index_ipi import ZMIndexInPlaceInsert
+from src.spatial_index.dtusli import ZMIndexDeltaInsert
+from src.spatial_index.ipusli import ZMIndexInPlaceInsert
 from src.experiment.common_utils import load_data, Distribution, copy_dirs, load_query, filter_data_by_date, \
     group_data_by_date
 

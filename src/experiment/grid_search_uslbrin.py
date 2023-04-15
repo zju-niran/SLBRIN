@@ -4,11 +4,9 @@ import shutil
 import sys
 import time
 
-from src.spatial_index.tsusli import TSUSLI
-
 sys.path.append('/home/zju/wlj/SLBRIN')
-from src.experiment.common_utils import Distribution, load_query, load_data, copy_dirs, group_data_by_date, \
-    filter_data_by_date
+from src.experiment.common_utils import Distribution, load_query, load_data, copy_dirs, group_data_by_date
+from src.spatial_index.tsusli import TSUSLI
 from src.spatial_index.uslbrin import USLBRIN
 
 if __name__ == '__main__':
@@ -21,7 +19,7 @@ if __name__ == '__main__':
     for gpu in gpus:
         tf.config.experimental.set_memory_growth(gpu, True)
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    origin_path = "model/origin_slbrin/"
+    origin_path = "model/"
     target_path = "model/compare_uslbrin/"
     if not os.path.exists(target_path):
         os.makedirs(target_path)
@@ -29,17 +27,15 @@ if __name__ == '__main__':
                         level=logging.INFO,
                         format="%(message)s")
     index_infos = [
-        # prepare
-        # ("uslbrin_1.1_1_1.0", False, -1, 3, False, False, -1, 3, False, False, 1.1, 1, 1.0, True),
         # tel
-        ("uslbrin_0.8_1_1.1", True, -1, 6, True, True, -1, 3, False, False, 0.8, 1, 1.1, False),
+        ("uslbrin_0.8_1_1.1", True, -1, 6, True, True, -1, 3, False, False, 0.8, 1, 1.1, True),
         ("uslbrin_0.9_1_1.1", True, -1, 6, True, True, -1, 3, False, False, 0.9, 1, 1.1, False),
         ("uslbrin_1.0_1_1.1", True, -1, 6, True, True, -1, 3, False, False, 1.0, 1, 1.1, False),
         ("uslbrin_1.1_1_1.1", True, -1, 6, True, True, -1, 3, False, False, 1.1, 1, 1.1, False),
         ("uslbrin_1.2_1_1.1", True, -1, 6, True, True, -1, 3, False, False, 1.2, 1, 1.1, False),
         # tef
         ("uslbrin_1.1_0_1.1", False, -1, 3, False, True, -1, 3, False, False, 1.1, 0, 1.1, False),
-        ("uslbrin_1.1_1_1.1", False, -1, 3, False, True, -1, 3, False, False, 1.1, 1, 1.1, False),
+        # ("uslbrin_1.1_1_1.1", False, -1, 3, False, True, -1, 3, False, False, 1.1, 1, 1.1, False),
         ("uslbrin_1.1_2_1.1", False, -1, 3, False, True, -1, 3, False, False, 1.1, 2, 1.1, False),
         ("uslbrin_1.1_4_1.1", False, -1, 3, False, True, -1, 3, False, False, 1.1, 4, 1.1, False),
         ("uslbrin_1.1_8_1.1", False, -1, 3, False, True, -1, 3, False, False, 1.1, 8, 1.1, False),
@@ -47,18 +43,17 @@ if __name__ == '__main__':
         ("uslbrin_1.1_1_0.8", False, -1, 3, False, True, -1, 3, False, False, 1.1, 1, 0.8, False),
         ("uslbrin_1.1_1_0.9", False, -1, 3, False, True, -1, 3, False, False, 1.1, 1, 0.9, False),
         ("uslbrin_1.1_1_1.0", False, -1, 3, False, True, -1, 3, False, False, 1.1, 1, 1.0, False),
-        ("uslbrin_1.1_1_1.1", False, -1, 3, False, True, -1, 3, False, False, 1.1, 1, 1.1, False),
+        # ("uslbrin_1.1_1_1.1", False, -1, 3, False, True, -1, 3, False, False, 1.1, 1, 1.1, False),
         ("uslbrin_1.1_1_1.2", False, -1, 3, False, True, -1, 3, False, False, 1.1, 1, 1.2, False),
         # rm
-        ("tsusli_1_1_1_1.1", False, -1, 3, False, True, -1, 3, False, False, 1.1, 1, 1.1, False),
-        ("tsusli_1.1_1_1.1", False, -1, 3, False, True, -1, 3, False, True, 1.1, 1, 1.1, False),
-        ("uslbrin_1_1_1_1.1", False, -1, 3, False, True, -1, 3, False, False, 1.1, 1, 1.1, False),
-        ("uslbrin_1.1_1_1.1", False, -1, 3, False, True, -1, 3, False, True, 1.1, 1, 1.1, False),
+        ("tsusli_1.1_1_1.1", True, -1, 3, True, True, -1, 3, False, False, 1.1, 1, 1.1, True),
+        ("tsusli_1.1_1_1.1", True, -1, 3, True, True, -1, 3, False, True, 1.1, 1, 1.1, False),
+        # ("uslbrin_1.1_1_1.1", True, -1, 3, True, True, -1, 3, False, False, 1.1, 1, 1.1, False),
+        ("uslbrin_1.1_1_1.1", True, -1, 3, True, True, -1, 3, False, True, 1.1, 1, 1.1, False),
     ]
     data_distributions = [Distribution.NYCT_SORTED]
     # data_distributions = [Distribution.UNIFORM_10W, Distribution.NORMAL_10W, Distribution.NYCT_10W]
     for data_distribution in data_distributions:
-        origin_model_path = origin_path + data_distribution.name
         point_query_list = load_query(data_distribution, 0).tolist()
         update_data_list = load_data(data_distribution, 1)
         # 2013-02-01-08: 1359676800 | 2013-02-02-08: 1359763200 | 2013-02-08-08: 1360281600
@@ -66,6 +61,12 @@ if __name__ == '__main__':
         # update_data_list = group_data_by_date(update_data_list, 1359676800, 60 * 10)
         update_data_list = group_data_by_date(update_data_list, 1359676800, 60 * 60 * 4)
         for index_info in index_infos:
+            if index_info[0].startswith("tsusli"):
+                origin_model_path = origin_path + "slibs/" + data_distribution.name + "/stage2_num_1000"
+                index_class = TSUSLI
+            else:
+                origin_model_path = origin_path + "slbrin/" + data_distribution.name + "/tn_10000"
+                index_class = USLBRIN
             target_model_path = target_path + data_distribution.name + "/" + index_info[0]
             if index_info[-1]:
                 # copy the zm_index as the basic
@@ -75,7 +76,6 @@ if __name__ == '__main__':
             # initial the compared model from the zm_index
             logging.info("*************start %s %s************" % (index_info[0], data_distribution.name))
             start_time = time.time()
-            index_class = TSUSLI if index_info[0].startswith("tsusli") else USLBRIN
             index = index_class(model_path=target_model_path)
             super(index_class, index).load()
             index.build_append(time_interval=60 * 60 * 24,
