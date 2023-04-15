@@ -426,8 +426,8 @@ class USLBRIN(SLBRIN):
         self.logging.info("Retrain delta model max_key mae: %s" % retrain_delta_model_mae2)
         self.logging.info("Retrain delta model time: %s" % retrain_delta_model_time)
         self.logging.info("Retrain delta model io: %s" % retrain_delta_model_io)
-        self.logging.info("Index entry size: %s" % (index_len * ITEM_SIZE))
-        self.logging.info("Model precision avg: %s" % self.model_err())
+        self.logging.info("Retrain Index entry size: %s" % (index_len * ITEM_SIZE))
+        self.logging.info("Retrain Model precision avg: %s" % self.model_err())
 
     def point_query_single(self, point):
         """
@@ -728,7 +728,8 @@ class USLBRIN(SLBRIN):
         ie_size
         """
         structure_size, ie_size = super(USLBRIN, self).size()
-        structure_size += os.path.getsize(os.path.join(self.model_path, "meta_append.npy")) - 128
+        structure_size += os.path.getsize(os.path.join(self.model_path, "meta_append.npy")) - 128 + \
+                          os.path.getsize(os.path.join(self.model_path, "delta_models.npy")) - 128
         return structure_size, ie_size
 
     def model_err(self):

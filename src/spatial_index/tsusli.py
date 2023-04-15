@@ -351,8 +351,8 @@ class TSUSLI(SLIBS):
         self.logging.info("Retrain delta model max_key mae: %s" % retrain_delta_model_mae2)
         self.logging.info("Retrain delta model time: %s" % retrain_delta_model_time)
         self.logging.info("Retrain delta model io: %s" % retrain_delta_model_io)
-        self.logging.info("Index entry size: %s" % (index_len * ITEM_SIZE))
-        self.logging.info("Model precision avg: %s" % self.model_err())
+        self.logging.info("Retrain Index entry size: %s" % (index_len * ITEM_SIZE))
+        self.logging.info("Retrain Model precision avg: %s" % self.model_err())
 
     def get_delta_index_key(self, key, leaf_node):
         """
