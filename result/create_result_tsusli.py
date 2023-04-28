@@ -66,7 +66,7 @@ def plot_T_lines(x, y_list, model_path, x_title, y_title, color_list, marker_lis
     # plt.yscale("log")
     plt.gcf().subplots_adjust(right=adjust[0], left=adjust[1], top=adjust[2], bottom=adjust[3])
     if is_legend:
-        plt.legend(loc=legend_pos, frameon=False, ncol=2, columnspacing=1, handletextpad=0.3)
+        plt.legend(loc=legend_pos, frameon=False, ncol=1, columnspacing=1, handletextpad=0.3)
     plt.margins(x=0)
     plt.savefig(model_path)
     plt.close()
@@ -181,7 +181,7 @@ def plot_group_histogram(x, y_list, model_path, x_title, y_title, color_list, ad
         plt.ylim(y_lim[0], y_lim[1])
     plt.gcf().subplots_adjust(right=adjust[0], left=adjust[1], top=adjust[2], bottom=adjust[3])
     if is_legend:
-        plt.legend(loc=legend_pos, frameon=False, ncol=2, columnspacing=1, handletextpad=0.3, fontsize=font_size)
+        plt.legend(loc=legend_pos, frameon=False, ncol=1, columnspacing=1, handletextpad=0.3, fontsize=font_size)
     plt.savefig(model_path)
     plt.close()
 
@@ -211,8 +211,8 @@ def plot_grid_search_f(input_path, output_path):
                             color1, color2, [0.88, 0.11, 0.97, 0.15], [2, 12, 2], [2.8, 3.8, 0.2], True, (1, 1))
     plot_histogram_and_line(f_x, f_retrain_num, f_retrain_avg_time, output_path + "/f3.png", f_x_title,
                             "重训练次数", "重训练平均时间（$\mathrm{s}$）",
-                            "训练次数", "训练时间",
-                            color1, color2, [0.91, 0.13, 0.97, 0.15], [], [0, 5, 1], True, (1, 1), True)
+                            "重训练次数", "重训练时间",
+                            color1, color2, [0.91, 0.13, 0.97, 0.15], [5, 1000, 100], [0, 5, 1], True, (1, 1), True)
     plot_line_and_line(f_x, f_update_time, f_query_time, output_path + "/f4.png", f_x_title,
                        "更新时间（$\mathrm{ms}$）", "检索时间（$\mathrm{μs}$）",
                        "更新时间", "检索时间",
@@ -312,13 +312,13 @@ def plot_grid_search_sts(input_path, output_path):
                      for j in range(competitor_len)]
     plot_T_lines(update_time_id_list, ts_pre_max_key_mae, output_path + "/sts1.png",
                  '合并周期（${T}$）', '空间排列预测误差（$\mathrm{\%}$）',
-                 competitor_colors, competitor_markers, [0.975, 0.115, 0.97, 0.15], True, 'center left')
+                 competitor_colors, competitor_markers, [0.975, 0.115, 0.97, 0.15], False, 'center left')
     plot_T_lines(update_time_id_list, ts_true_max_key_mae, output_path + "/sts2.png",
                  '合并周期（${T}$）', '空间排列真实误差（$\mathrm{\%}$）',
                  competitor_colors, competitor_markers, [0.975, 0.125, 0.97, 0.15], False, 'upper left')
     plot_T_lines(update_time_id_list, ts_retrain_avg_time, output_path + "/sts3.png",
                  '合并周期（${T}$）', '重训练平均时间（$\mathrm{s}$）',
-                 competitor_colors, competitor_markers, [0.975, 0.135, 0.97, 0.15], False, 'upper left')
+                 competitor_colors, competitor_markers, [0.975, 0.135, 0.97, 0.15], True, 'upper left')
     plot_T_lines(update_time_id_list, ts_update_time, output_path + "/sts4.png",
                  '合并周期（${T}$）', '更新时间（$\mathrm{100ms}$）',
                  competitor_colors, competitor_markers, [0.975, 0.115, 0.97, 0.15], False, 'upper left')
@@ -366,13 +366,13 @@ def plot_grid_search_ts(input_path, output_path):
                      for j in range(competitor_len)]
     plot_T_lines(update_time_id_list, ts_pre_max_key_mae, output_path + "/ts1.png",
                  '合并周期（${T}$）', '空间密度预测误差',
-                 competitor_colors, competitor_markers, [0.975, 0.12, 0.97, 0.15], True, 'center left')
+                 competitor_colors, competitor_markers, [0.975, 0.12, 0.97, 0.15], False, 'center left')
     plot_T_lines(update_time_id_list, ts_true_max_key_mae, output_path + "/ts2.png",
                  '合并周期（${T}$）', '空间密度真实误差',
                  competitor_colors, competitor_markers, [0.975, 0.11, 0.97, 0.15], False, 'upper left')
     plot_T_lines(update_time_id_list, ts_retrain_avg_time, output_path + "/ts3.png",
                  '合并周期（${T}$）', '重训练平均时间（$\mathrm{s}$）',
-                 competitor_colors, competitor_markers, [0.975, 0.115, 0.97, 0.15], False, 'upper left')
+                 competitor_colors, competitor_markers, [0.975, 0.115, 0.97, 0.15], True, 'upper left')
     plot_T_lines(update_time_id_list, ts_update_time, output_path + "/ts4.png",
                  '合并周期（${T}$）', '更新时间（$\mathrm{100ms}$）',
                  competitor_colors, competitor_markers, [0.975, 0.095, 0.97, 0.15], False, 'upper left')
@@ -381,7 +381,7 @@ def plot_grid_search_ts(input_path, output_path):
                  competitor_colors, competitor_markers, [0.975, 0.115, 0.97, 0.15], False, 'upper left')
 
 
-def plot_compare(input_path, output_path):
+def plot_compare_size_query_update(input_path, output_path):
     xls = pd.ExcelFile(input_path)
     cp_result = pd.ExcelFile.parse(xls, sheet_name='compare', header=None)
     competitor_names = ['$\mathrm{IPUSLI-1}$', '$\mathrm{IPUSLI-2}$', '$\mathrm{DTUSLI}$', '$\mathrm{TSUSLI}$']
@@ -406,7 +406,7 @@ def plot_compare(input_path, output_path):
                           for i in range(24)]] for j in range(competitor_len)]
     plot_group_histogram(datasets, data_sizes, output_path + "/size1.png",
                          '数据集', '数据体积（$\mathrm{GB}$）', competitor_colors,
-                         [0.99, 0.12, 0.97, 0.15], [1.2, 2, 0.2], False, None, False)
+                         [0.99, 0.12, 0.97, 0.15], [1.2, 2, 0.2], True, 'upper left', False)
     plot_group_histogram(datasets, index_sizes, output_path + "/size2.png",
                          '数据集', '索引体积（$\mathrm{MB}$）', competitor_colors,
                          [0.99, 0.11, 0.97, 0.15], [0, 18, 3], False, None, False)
@@ -415,19 +415,19 @@ def plot_compare(input_path, output_path):
                          [0.99, 0.12, 0.97, 0.15], [1.2, 2, 0.2], False, None, False)
     plot_T_lines(update_time_id_list, update_sum_sizes, output_path + "/size4.png",
                  '合并周期（${T}$）', '存储成本（$\mathrm{GB}$）', competitor_colors, competitor_markers,
-                 [0.975, 0.12, 0.97, 0.15], False, 'upper left')
+                 [0.975, 0.12, 0.97, 0.15], True, 'center left')
     # query time
     err_ranges = [[competitor_names[j], [cp_result.iloc[34][30 + j + 4 * i] / 1000 for i in range(dataset_len)]]
                   for j in range(competitor_len)]
     plot_group_histogram(datasets, err_ranges, output_path + "/query1.png",
                          '数据集', '误差范围（$\mathrm{×1000}$）', competitor_colors,
-                         [0.99, 0.09, 0.97, 0.15], [0, 8, 2], False, None, False)
+                         [0.99, 0.09, 0.97, 0.15], [0, 8, 2], True, 'upper left', False)
     update_time_id_list = list(range(1, 25, 1))
     update_err_ranges = [[competitor_names[j], [cp_result.iloc[26 + i * 25][52 + j] / 1000 for i in range(24)]]
                          for j in range(competitor_len)]
     plot_T_lines(update_time_id_list, update_err_ranges, output_path + "/query2.png",
                  '合并周期（${T}$）', '误差范围（$\mathrm{×1000}$）',
-                 competitor_colors, competitor_markers, [0.975, 0.09, 0.97, 0.15], False, 'upper left')
+                 competitor_colors, competitor_markers, [0.975, 0.09, 0.97, 0.15], True, 'center left')
 
     query_times = [[competitor_names[j], [cp_result.iloc[17][30 + j + 4 * i] * 1000000 for i in range(dataset_len)]]
                    for j in range(competitor_len)]
@@ -453,7 +453,7 @@ def plot_compare(input_path, output_path):
                     for j in range(competitor_len)]
     plot_group_histogram(datasets, insert_times, output_path + "/update1.png",
                          '数据集', '定位时间（$\mathrm{μs}$）', competitor_colors,
-                         [0.99, 0.135, 0.97, 0.15], [], False, None, True)
+                         [0.99, 0.135, 0.97, 0.15], [], True, 'upper left', True)
     plot_group_histogram(datasets, adjust_times, output_path + "/update2.png",
                          '数据集', '调整时间（$\mathrm{μs}$）', competitor_colors,
                          [0.99, 0.12, 0.97, 0.15], [0, 60, 10], False, None, False)
@@ -469,9 +469,9 @@ if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     input_path = "./table/result_tsusli.xlsx"
     output_path = "./result_tsusli"
-    # plot_grid_search_f(input_path, output_path)
-    # plot_grid_search_bs(input_path, output_path)
-    # plot_grid_search_c(input_path, output_path)
-    # plot_grid_search_sts(input_path, output_path)
-    # plot_grid_search_ts(input_path, output_path)
-    plot_compare(input_path, output_path)
+    plot_grid_search_f(input_path, output_path)
+    plot_grid_search_bs(input_path, output_path)
+    plot_grid_search_c(input_path, output_path)
+    plot_grid_search_sts(input_path, output_path)
+    plot_grid_search_ts(input_path, output_path)
+    plot_compare_size_query_update(input_path, output_path)

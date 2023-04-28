@@ -182,7 +182,7 @@ def plot_histogram_and_line(x, y1, y2, model_path, x_title, y_title1, y_title2, 
     plt.close()
 
 
-def plot_grid_search_slbrin(input_path, output_path):
+def plot_grid_search_tn_ts(input_path, output_path):
     xls = pd.ExcelFile(input_path)
     # TN
     tn_result = pd.ExcelFile.parse(xls, sheet_name='slbrin', header=None)
@@ -234,7 +234,7 @@ def plot_grid_search_slbrin(input_path, output_path):
                             ts_query_time_color, ts_query_io_cost_color, [0.91, 0.12, 0.97, 0.15], is_legend=False)
 
 
-def plot_build_query_slbrin(input_path, output_path, names, colors, markers):
+def plot_compare_build_query(input_path, output_path, names, colors, markers):
     xls = pd.ExcelFile(input_path)
     result = pd.ExcelFile.parse(xls, sheet_name='build_query', header=None)
     competitor_ids = [0, 1, 2, 4, 5, 9]
@@ -313,11 +313,11 @@ def plot_build_query_slbrin(input_path, output_path, names, colors, markers):
                "${k}$", 'IO cost', competitor_colors, competitor_markers, [0.975, 0.135, 0.97, 0.15], False)
 
 
-def plot_update_slbrin(input_path, output_path, names, colors, markers):
+def plot_compare_update(input_path, output_path, names, colors, markers):
     xls = pd.ExcelFile(input_path)
     # update
     result = pd.ExcelFile.parse(xls, sheet_name='update', header=None)
-    update_point_percents = [10, 20, 32, 40, 50]
+    update_point_percents = [10, 20, 30, 40, 50]
     update_point_percent_len = len(update_point_percents)
     competitor_ids = [0, 1, 2, 4, 5, 9]
     competitor_colors = [colors[j] for j in competitor_ids]
@@ -480,6 +480,6 @@ if __name__ == '__main__':
     markers = ['v', 's', 'p', '*', '*', 'x', 'o', 'o', 'o', 'o']
     input_path = "./table/result_slbrin.xlsx"
     output_path = "./result_ijgi"
-    plot_grid_search_slbrin(input_path, output_path)
-    plot_build_query_slbrin(input_path, output_path, names, colors, markers)
-    plot_update_slbrin(input_path, output_path, names, colors, markers)
+    plot_grid_search_tn_ts(input_path, output_path)
+    plot_compare_build_query(input_path, output_path, names, colors, markers)
+    plot_compare_update(input_path, output_path, names, colors, markers)

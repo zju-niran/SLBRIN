@@ -4,7 +4,7 @@ import os
 import numpy as np
 import pandas
 
-from src.spatial_index.common_utils import Point, Region
+from src.spatial_index.common_utils import Point
 from src.spatial_index.geohash_utils import Geohash
 
 
@@ -33,21 +33,6 @@ def count_csv(path):
         return count
 
 
-def plot_data(data_path, png_path, lim):
-    from matplotlib import pyplot as plt
-    data_list = np.load(data_path, allow_pickle=True)
-    sample_key = np.random.randint(0, len(data_list), size=10000)
-    data_list = data_list[sample_key]
-    x = [data[0] for data in data_list]
-    y = [data[1] for data in data_list]
-    plt.scatter(x, y, s=8)
-    plt.xticks(fontsize=20)
-    plt.xlim(lim[2], lim[3])
-    plt.yticks(fontsize=20)
-    plt.ylim(lim[0], lim[1])
-    plt.gcf().subplots_adjust(right=0.965, left=0.1, top=0.97, bottom=0.1)
-    plt.savefig(png_path)
-    plt.close()
 
 def filter_row_in_region(input_path, output_path, range_limit):
     data_list = np.load(input_path, allow_pickle=True)
@@ -223,9 +208,6 @@ if __name__ == '__main__':
     # input_path = "./table/nyct_2.npy"
     # output_path = './table/nyct_2_10w.npy'
     # sample(input_path, output_path, 100000)
-    plot_data("./table/uniform_1_10w.npy", "../result/png/uniform_1_10w.png", [0, 1, 0, 1])
-    plot_data("./table/normal_1_10w.npy", "../result/png/normal_1_10w.png", [0, 1, 0, 1])
-    plot_data("./table/nyct_1_10w.npy", "../result/png/nyct_1_10w.png", [40.61, 40.87, -74.05, -73.76])
     # [Optional] 5. 生成不重复的数据
     # input_path = "./table/nyct_1_10w.npy"
     # output_path = "./table/nyct_1_10w_distinct.npy"
@@ -315,3 +297,15 @@ if __name__ == '__main__':
     # query_number_limit = 1000
     # n_list = [4, 8, 16, 32, 64]
     # create_knn_query(input_path, output_path, query_number_limit, n_list)
+    paths = ['./table/uniform_2_10w.npy', './table/uniform_2.npy',
+             './table/normal_2_10w.npy', './table/normal_2.npy',
+             './table/nyct_2_10w.npy', './table/nyct_2.npy']
+    end_time = 1362096000
+    for path in paths:
+        data_list = np.load(path, allow_pickle=True)
+        i = -1
+        while data_list[i][-2] >= end_time:
+            i -= 1
+        if i != -1:
+            data_list = data_list[:i + 1]
+            np.save(path, data_list)

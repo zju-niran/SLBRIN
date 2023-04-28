@@ -66,7 +66,7 @@ def plot_data_o(output_path):
         x = [(data[0] - region.left) / (region.right - region.left) for data in data_list]
         y = [(data[1] - region.bottom) / (region.up - region.bottom) for data in data_list]
         plot_scatter(x, y, output_path + "/data1_%s.png" % data_distribution.name,
-                     '${x}$（$\mathrm{\%}$）', '${y}$（$\mathrm{\%}$）', [0, 1, 0, 1], [0.13, 0.97, 0.12, 0.98])
+                     '${x}$', '${y}$', [0, 1, 0, 1], [0.13, 0.97, 0.12, 0.98])
 
 def plot_data_F_n(input_path, output_path):
     """
@@ -115,7 +115,7 @@ def plot_data_F_n(input_path, output_path):
         data_F = pd.read_csv(data_F_path, header=None).values
         plot_date_lines(time_id_list, data_F,
                         output_path + "/data2_%s_%s.png" % (cdf_width, data_distribution.name),
-                        '${t}$（${h}$）', '${F}$（$\mathrm{\%}$）', colors, None, [0.13, 0.97, 0.12, 0.98])
+                        '${t}$（${h}$）', '${F}$', colors, None, [0.13, 0.97, 0.12, 0.98])
         data_n = pd.read_csv(data_n_path, header=None).values
         plot_date_lines(time_id_list, data_n, output_path + "/data3_%s.png" % data_distribution.name,
                         '${t}$（${h}$）', '${n}$（$\mathrm{×10000}$）', colors, [0.0, 4.0, 1.0], [0.13, 0.97, 0.12, 0.98])
