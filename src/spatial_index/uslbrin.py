@@ -59,7 +59,8 @@ class USLBRIN(SLBRIN):
         # create the old_cdfs and old_max_keys for delta_model
         key_interval = hr.value_diff / self.cdf_width
         key_list = [int(hr.value + k * key_interval) for k in range(self.cdf_width)]
-        old_cdfs = [[] for k in range(self.time_id)]
+        # TODO: UNIFORM数据集中time_id可能为float
+        old_cdfs = [[] for k in range(int(self.time_id))]
         for tmp in data:
             old_cdfs[(tmp[3] - self.start_time) // self.time_interval].append(tmp[2])
         old_max_keys = [max(len(cdf) - 1, 0) for cdf in old_cdfs]
@@ -728,6 +729,9 @@ class USLBRIN(SLBRIN):
         ie_size
         """
         structure_size, ie_size = super(USLBRIN, self).size()
+        ie_size += sum([child.size
+                        for hr_append in self.history_ranges_append
+                        for child in hr_append.delta_index]) * ITEM_SIZE
         structure_size += os.path.getsize(os.path.join(self.model_path, "meta_append.npy")) - 128 + \
                           os.path.getsize(os.path.join(self.model_path, "delta_models.npy")) - 128
         return structure_size, ie_size
@@ -767,7 +771,7 @@ def retrain_model(model_path, model_key, inputs, hr,
 
 def main():
     load_index_from_json = True
-    load_index_from_json2 = False
+    load_index_from_json2 = True
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     model_path = "model/uslbrin_10w/"
     data_distribution = Distribution.NYCT_10W_SORTED

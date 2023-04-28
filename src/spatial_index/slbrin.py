@@ -826,7 +826,7 @@ class SLBRIN(SpatialIndex):
         return 19 + \
                hr_len * 16 + \
                os.path.getsize(os.path.join(self.model_path, "slbrin_models.npy")) - 128 + \
-               cr_len * 35, data_len * 28
+               cr_len * 35, data_len * ITEM_SIZE
 
     def model_clear(self):
         """
