@@ -644,6 +644,7 @@ class SLBRIN(SpatialIndex):
         1. get the nearest key of query point
         2. get the nn points to create range query window
         3. filter point by distance
+        4. filter cr by mbr
         耗时操作：knn_query_hr/nn predict/精确过滤: 6.1/30/40.5
         """
         x, y, k = knn
@@ -758,6 +759,25 @@ class SLBRIN(SpatialIndex):
                 tp_list.extend(tmp_list)
                 tp_list = sorted(tp_list)[:k]
                 dst = tp_list[-1][0]
+        # 4. filter cr by mbr
+        dst_pow = dst ** 0.5
+        window = [y - dst_pow, y + dst_pow, x - dst_pow, x + dst_pow]
+        for cr_key in range(self.meta.last_cr + 1):
+            cr = self.current_ranges[cr_key]
+            if cr.number:
+                pos = intersect(window, cr.value)
+                if pos == 0:
+                    continue
+                elif pos == 2:
+                    self.io_cost += math.ceil(cr.number / ITEMS_PER_PAGE)
+                    tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[4]]
+                                    for ie in self.index_entries[cr_key + 1 + self.meta.last_hr]])
+                else:
+                    self.io_cost += math.ceil(cr.number / ITEMS_PER_PAGE)
+                    tp_list.extend([[(ie[0] - x) ** 2 + (ie[1] - y) ** 2, ie[4]]
+                                    for ie in self.index_entries[cr_key + 1 + self.meta.last_hr]
+                                    if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
+        tp_list = sorted(tp_list)[:k]
         return [tp[1] for tp in tp_list]
 
     def save(self):
