@@ -7,8 +7,8 @@ import time
 import numpy as np
 
 from src.experiment.common_utils import load_data, Distribution, data_precision, data_region, load_query
-from src.spatial_index.learned.zm_index import Array
-from src.spatial_index.proposed.slbrin import SLBRIN, HistoryRange, NN, valid_position_funcs, range_position_funcs
+from src.sli.zm_index import Array
+from src.proposed_sli.slbrin import SLBRIN, HistoryRange, NN, valid_position_funcs, range_position_funcs
 from src.ts_predict import TimeSeriesModel
 from src.utils.common_utils import binary_search_less_max_duplicate, binary_search_less_max, merge_sorted_list, \
     biased_search_duplicate, binary_search_duplicate, biased_search_almost
@@ -62,7 +62,6 @@ class USLBRIN(SLBRIN):
         # create the old_cdfs and old_max_keys for delta_model
         key_interval = hr.value_diff / self.cdf_width
         key_list = [int(hr.value + k * key_interval) for k in range(self.cdf_width)]
-        # TODO: UNIFORM数据集中time_id可能为float
         old_cdfs = [[] for k in range(int(self.time_id))]
         for tmp in data:
             old_cdfs[(tmp[3] - self.start_time) // self.time_interval].append(tmp[2])
@@ -470,7 +469,7 @@ class USLBRIN(SLBRIN):
         3. get min_geohash and max_geohash of every hr for different relation
         4. predict min_key/max_key by nn
         5. filter all the point of scope[min_key/max_key] by range.contain(point)
-        主要耗时间：range_query_hr/nn predict/精确过滤: 15/24/37.6
+        耗时操作：range_query_hr/nn predict/精确过滤: 15/24/37.6
         """
         # 1. compute geohash of window_left and window_right
         gh1 = self.meta.geohash.encode(window[2], window[0])
@@ -537,7 +536,7 @@ class USLBRIN(SLBRIN):
         1. get the nearest key of query point
         2. get the nn points to create range query window
         3. filter point by distance
-        主要耗时间：knn_query_hr/nn predict/精确过滤: 6.1/30/40.5
+        耗时操作：knn_query_hr/nn predict/精确过滤: 6.1/30/40.5
         """
         x, y, k = knn
         k = int(k)
@@ -546,17 +545,16 @@ class USLBRIN(SLBRIN):
         qp_hr_key = self.point_query_hr(qp_g)
         qp_hr = self.history_ranges[qp_hr_key]
         qp_hr_data = self.index_entries[qp_hr_key]
-        # if hr is empty, TODO
         if qp_hr.number == 0:
-            return []
-        # if model, qp_ie_key = point_query(geohash)
+            qp_ie_key = 0
+            tp_ie_list = []
         else:
             pre = qp_hr.model_predict(qp_g)
             l_bound = max(pre - qp_hr.model.max_err, 0)
             r_bound = min(pre - qp_hr.model.min_err, qp_hr.max_key)
             qp_ie_key = biased_search_almost(qp_hr_data, 2, qp_g, pre, l_bound, r_bound)[0]
+            tp_ie_list = [qp_hr_data[qp_ie_key]]
         # 2. get the n points to create range query window
-        tp_ie_list = [qp_hr_data[qp_ie_key]]
         cur_ie_key = qp_ie_key + 1
         cur_hr_data = qp_hr_data
         cur_hr = qp_hr
@@ -594,11 +592,11 @@ class USLBRIN(SLBRIN):
                 cur_hr_data = self.index_entries[cur_hr_key]
                 cur_ie_key = self.history_ranges[cur_hr_key].number
         tp_list = sorted([[(tp_ie[0] - x) ** 2 + (tp_ie[1] - y) ** 2, tp_ie[4]] for tp_ie in tp_ie_list])[:k]
-        max_dist = tp_list[-1][0]
-        if max_dist == 0:
+        dst = tp_list[-1][0]
+        if dst == 0:
             return [tp[1] for tp in tp_list]
-        max_dist_pow = max_dist ** 0.5
-        window = [y - max_dist_pow, y + max_dist_pow, x - max_dist_pow, x + max_dist_pow]
+        dst_pow = dst ** 0.5
+        window = [y - dst_pow, y + dst_pow, x - dst_pow, x + dst_pow]
         # 处理超出边界的情况
         self.meta.geohash.region.clip_region(window, self.meta.geohash.data_precision)
         gh1 = self.meta.geohash.encode(window[2], window[0])
@@ -606,7 +604,7 @@ class USLBRIN(SLBRIN):
         tp_window_hrs = self.knn_query_hr(qp_hr_key, gh1, gh2, knn)
         tp_list = []
         for tp_window_hr in tp_window_hrs:
-            if tp_window_hr[2] > max_dist:
+            if tp_window_hr[2] > dst:
                 break
             hr_key = tp_window_hr[0]
             hr = self.history_ranges[hr_key]
@@ -662,7 +660,7 @@ class USLBRIN(SLBRIN):
             if len(tmp_list) > 0:
                 tp_list.extend(tmp_list)
                 tp_list = sorted(tp_list)[:k]
-                max_dist = tp_list[-1][0]
+                dst = tp_list[-1][0]
         return [tp[1] for tp in tp_list]
 
     def save(self):

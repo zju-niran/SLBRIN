@@ -10,9 +10,9 @@ from src.experiment.common_utils import load_data, Distribution, data_precision,
 from src.utils.common_utils import biased_search_duplicate, binary_search_less_max, binary_search_duplicate, \
     Region, binary_search_less_max_duplicate
 from src.utils.geohash_utils import Geohash
-from src.spatial_index.learned.zm_index import Node, Array
-from src.spatial_index.proposed.slibs import SLIBS
-from src.spatial_index.proposed.dtusli import retrain_model
+from src.sli.zm_index import Node, Array
+from src.proposed_sli.slibs import SLIBS
+from src.proposed_sli.dtusli import retrain_model
 from src.ts_predict import TimeSeriesModel
 
 PAGE_SIZE = 4096

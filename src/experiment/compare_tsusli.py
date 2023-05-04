@@ -5,9 +5,9 @@ import time
 
 from src.experiment.common_utils import load_data, Distribution, copy_dirs, load_query, filter_data_by_date, \
     group_data_by_date
-from src.spatial_index.proposed.dtusli import DTUSLI
-from src.spatial_index.proposed.ipusli import IPUSLI
-from src.spatial_index.proposed.tsusli import TSUSLI
+from src.proposed_sli.dtusli import DTUSLI
+from src.proposed_sli.ipusli import IPUSLI
+from src.proposed_sli.tsusli import TSUSLI
 
 """
 实验探究：TSUSLI的所有实验

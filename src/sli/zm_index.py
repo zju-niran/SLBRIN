@@ -9,7 +9,7 @@ import numpy as np
 from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
 from src.mlp import MLP
 from src.mlp_simple import MLPSimple
-from src.spatial_index.spatial_index import SpatialIndex
+from src.spatial_index import SpatialIndex
 from src.utils.common_utils import Region, biased_search_duplicate, normalize_input_minmax, \
     denormalize_output_minmax, binary_search_less_max, binary_search_duplicate, normalize_output, normalize_input, \
     relu, denormalize_outputs_minmax
@@ -66,7 +66,7 @@ class ZMIndex(SpatialIndex):
         model_hdf_dir = os.path.join(self.model_path, "hdf/")
         if os.path.exists(model_hdf_dir) is False:
             os.makedirs(model_hdf_dir)
-        model_png_dir = os.path.join(self.model_path, "png/")
+        model_png_dir = os.path.join(self.model_path, "../proposed_sli/png/")
         if os.path.exists(model_png_dir) is False:
             os.makedirs(model_png_dir)
         self.geohash = Geohash.init_by_precision(data_precision=data_precision, region=region)

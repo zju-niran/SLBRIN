@@ -6,7 +6,7 @@ import numpy as np
 from rtree import index
 
 from src.experiment.common_utils import load_data, Distribution, load_query
-from src.spatial_index.spatial_index import SpatialIndex
+from src.spatial_index import SpatialIndex
 
 PAGE_SIZE = 4096
 

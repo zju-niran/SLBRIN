@@ -7,7 +7,7 @@ import time
 import numpy as np
 
 from src.experiment.common_utils import Distribution, load_data
-from src.spatial_index.spatial_index import SpatialIndex
+from src.spatial_index import SpatialIndex
 
 DIM_NUM = 2
 PAGE_SIZE = 4096

@@ -4,8 +4,8 @@ import shutil
 import time
 
 from src.experiment.common_utils import Distribution, load_query, load_data, copy_dirs, group_data_by_date
-from src.spatial_index.proposed.tsusli import TSUSLI
-from src.spatial_index.proposed.uslbrin import USLBRIN
+from src.proposed_sli.tsusli import TSUSLI
+from src.proposed_sli.uslbrin import USLBRIN
 
 """
 实验探究：对比启用或不启用tcrm下uslbrin/tsusli的整体性能

@@ -10,9 +10,9 @@ import numpy as np
 from src.experiment.common_utils import load_data, Distribution, data_precision, data_region, load_query
 from src.mlp import MLP
 from src.mlp_simple import MLPSimple
-from src.spatial_index.spatial_index import SpatialIndex
+from src.spatial_index import SpatialIndex
 from src.utils.common_utils import Region, binary_search_less_max, relu, biased_search_almost, \
-    biased_search_duplicate, get_mbr_by_points, merge_sorted_list
+    biased_search_duplicate, get_mbr_by_points, merge_sorted_list, intersect, binary_search_duplicate
 from src.utils.geohash_utils import Geohash
 
 PAGE_SIZE = 4096
@@ -237,7 +237,7 @@ class SLBRIN(SpatialIndex):
         if self.meta.last_cr >= self.meta.threshold_merge:
             for cr in self.current_ranges[:self.meta.threshold_merge]:
                 cr.state = 2
-            self.post_merge_outdated_cr()
+            # self.post_merge_outdated_cr()
 
     def post_merge_outdated_cr(self):
         """
@@ -451,6 +451,14 @@ class SLBRIN(SpatialIndex):
             return tgt_geohash_dict
             # 前缀匹配太慢：时间复杂度=O(len(window对应的geohash个数)*(j-i))
 
+    def range_query_blk(self, window):
+        """
+        找到可能和window相交的cr及其空间关系(相交=1/window包含value=2)
+        包含关系可以加速查询，即包含意味着cr内所有数据都符合条件
+        """
+        return [[cr, intersect(window, cr.value)]
+                for cr in self.current_ranges]
+
     def knn_query_hr(self, center_hr_key, point1, point2, point3):
         """
         根据geohash1/geohash2找到之间所有hr的key以及和window的位置关系，并基于和point3距离排序
@@ -533,6 +541,7 @@ class SLBRIN(SpatialIndex):
         2. find hr within geohash by slbrin.point_query
         3. predict by leaf model
         4. biased search in scope [pre - max_err, pre + min_err]
+        5. filter cr by mbr
         """
         # 1. compute geohash from x/y of point
         gh = self.meta.geohash.encode(point[0], point[1])
@@ -540,7 +549,7 @@ class SLBRIN(SpatialIndex):
         hr_key = self.point_query_hr(gh)
         hr = self.history_ranges[hr_key]
         if hr.number == 0:
-            return None
+            result = []
         else:
             # 3. predict by leaf model
             pre = hr.model_predict(gh)
@@ -549,7 +558,15 @@ class SLBRIN(SpatialIndex):
             l_bound = max(pre - hr.model.max_err, 0)
             r_bound = min(pre - hr.model.min_err, hr.max_key)
             self.io_cost += math.ceil((r_bound - l_bound) / ITEMS_PER_PAGE)
-            return [target_ies[key][4] for key in biased_search_duplicate(target_ies, 2, gh, pre, l_bound, r_bound)]
+            result = [target_ies[key][4] for key in biased_search_duplicate(target_ies, 2, gh, pre, l_bound, r_bound)]
+        # 5. filter cr by mbr
+        for cr_key in range(self.meta.last_cr + 1):
+            cr = self.current_ranges[cr_key]
+            if cr.number and cr.value[0] <= point[1] <= cr.value[1] and cr.value[2] <= point[0] <= cr.value[3]:
+                self.io_cost += math.ceil(cr.number / ITEMS_PER_PAGE)
+                result.extend(binary_search_duplicate(self.index_entries[cr_key + 1 + self.meta.last_hr],
+                                                      2, gh, 0, cr.number - 1))
+        return result
 
     def range_query_single(self, window):
         """
@@ -558,7 +575,8 @@ class SLBRIN(SpatialIndex):
         3. get min_geohash and max_geohash of every hr for different relation
         4. predict min_key/max_key by nn
         5. filter all the point of scope[min_key/max_key] by range.contain(point)
-        主要耗时间：range_query_hr/nn predict/精确过滤: 15/24/37.6
+        6. filter cr by mbr
+        耗时操作：range_query_hr/nn predict/精确过滤: 15/24/37.6
         """
         # 1. compute geohash of window_left and window_right
         gh1 = self.meta.geohash.encode(window[2], window[0])
@@ -605,6 +623,20 @@ class SLBRIN(SpatialIndex):
                 # 优化: region.contain->compare_func不同位置的点做不同的判断: 638->474mil
                 result.extend([ie[4] for ie in hr_data[left_key:right_key] if compare_func(ie)])
                 self.io_cost += math.ceil((r_bound2 - l_bound1) / ITEMS_PER_PAGE)
+        # 6. filter cr by mbr
+        for cr_key in range(self.meta.last_cr + 1):
+            cr = self.current_ranges[cr_key]
+            if cr.number:
+                pos = intersect(window, cr.value)
+                if pos == 0:
+                    continue
+                elif pos == 2:
+                    self.io_cost += math.ceil(cr.number / ITEMS_PER_PAGE)
+                    result.extend([ie[-1] for ie in self.index_entries[cr_key + 1 + self.meta.last_hr]])
+                else:
+                    self.io_cost += math.ceil(cr.number / ITEMS_PER_PAGE)
+                    result.extend([ie[-1] for ie in self.index_entries[cr_key + 1 + self.meta.last_hr]
+                                   if window[0] <= ie[1] <= window[1] and window[2] <= ie[0] <= window[3]])
         return result
 
     def knn_query_single(self, knn):
@@ -612,7 +644,7 @@ class SLBRIN(SpatialIndex):
         1. get the nearest key of query point
         2. get the nn points to create range query window
         3. filter point by distance
-        主要耗时间：knn_query_hr/nn predict/精确过滤: 6.1/30/40.5
+        耗时操作：knn_query_hr/nn predict/精确过滤: 6.1/30/40.5
         """
         x, y, k = knn
         k = int(k)
@@ -622,7 +654,7 @@ class SLBRIN(SpatialIndex):
         qp_hr = self.history_ranges[qp_hr_key]
         qp_hr_data = self.index_entries[qp_hr_key]
         if qp_hr.number == 0:
-            qp_ie_key = -1
+            qp_ie_key = 0
             tp_ie_list = []
         else:
             pre = qp_hr.model_predict(qp_g)
@@ -631,10 +663,10 @@ class SLBRIN(SpatialIndex):
             qp_ie_key = biased_search_almost(qp_hr_data, 2, qp_g, pre, l_bound, r_bound)[0]
             tp_ie_list = [qp_hr_data[qp_ie_key]]
         # 2. get the n points to create range query window
-        # 初始结果集选取方法
+        # 三种初始结果集选取方法：
         # 1. 任意选k个
         # 2. 点查询得到p，在p前后选k/2个
-        # 3. 点查询得到p，在p前后选k个，dst变大，但是跳跃性的干扰变小（当前所选）
+        # 3. （当前所选方法）点查询得到p，在p前后选k个，dst（初始检索范围）变大，但是跳跃性的干扰变小
         cur_ie_key = qp_ie_key + 1
         cur_hr_data = qp_hr_data
         cur_hr = qp_hr
@@ -672,11 +704,11 @@ class SLBRIN(SpatialIndex):
                 cur_hr_data = self.index_entries[cur_hr_key]
                 cur_ie_key = self.history_ranges[cur_hr_key].number
         tp_list = sorted([[(tp_ie[0] - x) ** 2 + (tp_ie[1] - y) ** 2, tp_ie[4]] for tp_ie in tp_ie_list])[:k]
-        max_dist = tp_list[-1][0]
-        if max_dist == 0:
+        dst = tp_list[-1][0]
+        if dst == 0:
             return [tp[1] for tp in tp_list]
-        max_dist_pow = max_dist ** 0.5
-        window = [y - max_dist_pow, y + max_dist_pow, x - max_dist_pow, x + max_dist_pow]
+        dst_pow = dst ** 0.5
+        window = [y - dst_pow, y + dst_pow, x - dst_pow, x + dst_pow]
         # 处理超出边界的情况
         self.meta.geohash.region.clip_region(window, self.meta.geohash.data_precision)
         gh1 = self.meta.geohash.encode(window[2], window[0])
@@ -684,7 +716,7 @@ class SLBRIN(SpatialIndex):
         tp_window_hrs = self.knn_query_hr(qp_hr_key, gh1, gh2, knn)
         tp_list = []
         for tp_window_hr in tp_window_hrs:
-            if tp_window_hr[2] > max_dist:
+            if tp_window_hr[2] > dst:
                 break
             hr_key = tp_window_hr[0]
             hr = self.history_ranges[hr_key]
@@ -725,7 +757,7 @@ class SLBRIN(SpatialIndex):
             if len(tmp_list) > 0:
                 tp_list.extend(tmp_list)
                 tp_list = sorted(tp_list)[:k]
-                max_dist = tp_list[-1][0]
+                dst = tp_list[-1][0]
         return [tp[1] for tp in tp_list]
 
     def save(self):
@@ -1138,7 +1170,7 @@ def main():
         os.makedirs(model_path)
     index = SLBRIN(model_path=model_path)
     index_name = index.name
-    load_index_from_file = False
+    load_index_from_file = True
     if load_index_from_file:
         index.load()
     else:

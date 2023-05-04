@@ -4,11 +4,11 @@ import shutil
 import time
 
 from src.experiment.common_utils import Distribution, load_data, load_query, copy_dirs, group_data_by_date
-from src.spatial_index.normal.brin_spatial import BRINSpatial
-from src.spatial_index.normal.pr_quad_tree import PRQuadTree
-from src.spatial_index.normal.r_tree import RTree
-from src.spatial_index.proposed.tsusli import TSUSLI
-from src.spatial_index.proposed.uslbrin import USLBRIN
+from src.si.brin_spatial import BRINSpatial
+from src.si.pr_quad_tree import PRQuadTree
+from src.si.r_tree import RTree
+from src.proposed_sli.tsusli import TSUSLI
+from src.proposed_sli.uslbrin import USLBRIN
 
 """
 实验探究：对比RT/PRQT/BRINS/TSUSLI/USLBRIN的整体性能

@@ -3,20 +3,20 @@ import os
 import time
 
 import numpy as np
-from rtreelib import RTree as RTreeLib, Rect
+from rtreelib import RStarTree as RStarTreeLib, Rect
 
 from src.experiment.common_utils import load_data, Distribution
-from src.spatial_index.spatial_index import SpatialIndex
+from src.spatial_index import SpatialIndex
 
 
-class RTree(SpatialIndex):
+class RStarTree(SpatialIndex):
     """
-    R树（R-tree）
+    R星树（R*-tree）
     Implement from pypi: rtreelib
     """
 
     def __init__(self, model_path=None):
-        super(RTree, self).__init__("RTree")
+        super(RStarTree, self).__init__("RStarTree")
         self.model_path = model_path
         self.index = None
         logging.basicConfig(filename=os.path.join(self.model_path, "log.file"),
@@ -32,7 +32,7 @@ class RTree(SpatialIndex):
         return
 
     def build(self, data_list, threshold_number):
-        self.index = RTreeLib(max_entries=threshold_number)
+        self.index = RStarTreeLib(max_entries=threshold_number)
         self.insert(data_list)
 
     def point_query_single(self, point):
@@ -58,10 +58,10 @@ class RTree(SpatialIndex):
 
 def main():
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
-    model_path = "model/r_tree_lib_10w/"
+    model_path = "model/r_star_tree_lib_10w/"
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
-    index = RTree(model_path=model_path)
+    index = RStarTree(model_path=model_path)
     index_name = index.name
     load_index_from_file = False
     if load_index_from_file:
@@ -102,11 +102,11 @@ def main():
     search_time = (end_time - start_time) / len(knn_query_list)
     logging.info("KNN query time: %s" % search_time)
     np.savetxt(model_path + 'knn_query_result.csv', np.array(results, dtype=object), delimiter=',', fmt='%s')
-    update_data_list = load_data(Distribution.NYCT_10W, 1)
-    start_time = time.time()
-    index.insert(update_data_list)
-    end_time = time.time()
-    logging.info("Update time: %s" % (end_time - start_time))
+    # update_data_list = load_data(Distribution.NYCT_10W, 1)
+    # start_time = time.time()
+    # index.insert(update_data_list)
+    # end_time = time.time()
+    # logging.info("Update time: %s" % (end_time - start_time))
 
 
 if __name__ == '__main__':

@@ -6,7 +6,7 @@ import time
 import numpy as np
 
 from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
-from src.spatial_index.spatial_index import SpatialIndex
+from src.spatial_index import SpatialIndex
 from src.utils.common_utils import get_mbr_by_points, intersect, Region
 from src.utils.geohash_utils import Geohash
 
@@ -115,7 +115,7 @@ class BRINSpatial(SpatialIndex):
 
     def point_query_blk(self, point):
         """
-        找到可能包含xy的blk的key
+        找到可能包含xy的blk
         """
         return [blk
                 for blk in self.block_ranges
@@ -123,7 +123,7 @@ class BRINSpatial(SpatialIndex):
 
     def range_query_blk(self, window):
         """
-        找到可能和window相交的blk的key及其空间关系(相交=1/window包含value=2)
+        找到可能和window相交的blk及其空间关系(相交=1/window包含value=2)
         包含关系可以加速查询，即包含意味着blk内所有数据都符合条件
         """
         return [[blk, intersect(window, blk.value)]

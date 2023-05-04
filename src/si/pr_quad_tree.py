@@ -8,7 +8,7 @@ import time
 import numpy as np
 
 from src.experiment.common_utils import Distribution, load_data, data_precision, data_region
-from src.spatial_index.spatial_index import SpatialIndex
+from src.spatial_index import SpatialIndex
 from src.utils.common_utils import Region, Point
 
 PAGE_SIZE = 4096
@@ -203,7 +203,7 @@ class PRQuadTree(SpatialIndex):
         """
         return self.search(Point(point[0], point[1]))
 
-    def range_search(self, region, result, node=None):
+    def range_search_by_iter(self, region, result, node=None):
         node = self.root_node if node is None else node
         if node.region == region:
             tmp_result = []
@@ -241,11 +241,12 @@ class PRQuadTree(SpatialIndex):
 
     def range_query_single(self, window):
         result = []
-        self.range_search(region=Region(window[0], window[1], window[2], window[3]), result=result, node=None)
+        self.range_search_by_iter(region=Region(window[0], window[1], window[2], window[3]), result=result, node=None)
         return result
 
-    def knn_query_single_old(self, knn):
+    def knn_query_single_t2d(self, knn):
         """
+        自上而下
         代码参考：https://github.com/diana12333/QuadtreeNN
         1.用root node初始化stack，nearest_distance和point_heap分别为正无穷和空
         2.循环：当stack非空
@@ -279,10 +280,11 @@ class PRQuadTree(SpatialIndex):
 
     def knn_query_single(self, knn):
         """
+        自下而上
         1.先找到point所在的节点，初始化nearest_distance和point_heap
-        2.后续操作和knn_query_old一致，但是由于nearest_distance被初始化，后续遍历可以减少大量节点的距离判断
+        2.后续操作和自上而下一致，但是由于nearest_distance被初始化，后续遍历可以减少大量节点的距离判断
         检索时间从0.099225优化到0.006712
-        TODO: stack改成iter看下是否有加速
+        待优化: stack改成iter并测试可否进一步加速
         """
         point = Point(knn[0], knn[1])
         n = int(knn[2])

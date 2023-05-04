@@ -8,7 +8,7 @@ import numpy as np
 from src.experiment.common_utils import load_data, Distribution, load_query, data_precision, data_region
 from src.mlp import MLP
 from src.mlp_simple import MLPSimple
-from src.spatial_index.learned.zm_index import ZMIndex, Node, build_nn, Array
+from src.sli.zm_index import ZMIndex, Node, build_nn, Array
 from src.utils.geohash_utils import Geohash
 
 PAGE_SIZE = 4096
