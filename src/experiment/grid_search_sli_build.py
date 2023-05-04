@@ -5,8 +5,8 @@ import time
 import tensorflow as tf
 
 from src.experiment.common_utils import Distribution, load_data, data_precision, data_region
-from src.spatial_index.slbrin import SLBRIN
-from src.spatial_index.zm_index import ZMIndex
+from src.spatial_index.proposed.slbrin import SLBRIN
+from src.spatial_index.learned.zm_index import ZMIndex
 
 """
 实验探究：对比在多线程和GPU下ZM/SLIBS/SLBRIN的并发度

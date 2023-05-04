@@ -1,14 +1,13 @@
 import gc
 import heapq
 import logging
-import math
 import os
 import time
 
 import numpy as np
 
-from src.spatial_index.spatial_index import SpatialIndex
 from src.experiment.common_utils import Distribution, load_data
+from src.spatial_index.spatial_index import SpatialIndex
 
 DIM_NUM = 2
 PAGE_SIZE = 4096
@@ -16,196 +15,12 @@ NODE_SIZE = 1 + 4 + 4 * 2 + (8 * 2 + 4)  # 33
 NODES_PER_RA = int(PAGE_SIZE / NODE_SIZE)
 
 
-def distance_value(value1, value2):
-    return sum([(value1[d] - value2[d]) ** 2 for d in range(DIM_NUM)]) ** 0.5
-
-
-def equal_value(value1, value2):
-    return sum([value1[d] == value2[d] for d in range(DIM_NUM)]) == DIM_NUM
-
-
-def contain_value(window, value):
-    return sum([window[d * 2] <= value[d] <= window[d * 2 + 1] for d in range(DIM_NUM)]) == DIM_NUM
-
-
-# 2d下的函数效率要比多维快5倍
-def equal_value_2d(value1, value2):
-    return value1[0] == value2[0] and value1[1] == value2[1]
-
-
-def distance_value_2d(value1, value2):
-    return ((value1[0] - value2[0]) ** 2 + (value1[1] - value2[1]) ** 2) ** 0.5
-
-
-def contain_value_2d(window, value):
-    return window[0] <= value[0] <= window[1] and window[2] <= value[1] <= window[3]
-
-
-class KDNode:
-    def __init__(self, value=None, axis=0):
-        self.value = value
-        self.left = None
-        self.right = None
-        self.axis = axis
-        self.node_num = 1
-
-    def nearest_neighbor(self, value, n, result, nearest_distance):
-        """
-        Determine the `n` nearest node to `value` and their distances.
-        eg: self.nearest_neighbor(value, 4, result, float('-inf'))
-        """
-        dist = distance_value(value, self.value)
-        if len(result) < n:
-            heapq.heappush(result, (-dist, self.value[-1]))
-            nearest_distance = -heapq.nsmallest(1, result)[0][0]
-        elif dist < nearest_distance:
-            heapq.heappop(result)
-            heapq.heappush(result, (-dist, self.value[-1]))
-            nearest_distance = -heapq.nsmallest(1, result)[0][0]
-        if value[self.axis] + nearest_distance >= self.value[self.axis] and self.right:
-            nearest_distance = self.right.nearest_neighbor(value, n, result, nearest_distance)
-        if value[self.axis] - nearest_distance < self.value[self.axis] and self.left:
-            nearest_distance = self.left.nearest_neighbor(value, n, result, nearest_distance)
-        return nearest_distance
-
-    def insert(self, value):
-        """
-        Insert a value into the node.
-        """
-        # 重复数据处理：插入时先放到右侧
-        if value[self.axis] >= self.value[self.axis]:
-            if self.right is None:
-                axis = self.axis + 1 if self.axis + 1 < DIM_NUM else 0
-                self.right = KDNode(value=value, axis=axis)
-            else:
-                self.right = self.right.insert(value)
-        else:
-            if self.left is None:
-                axis = self.axis + 1 if self.axis + 1 < DIM_NUM else 0
-                self.left = KDNode(value=value, axis=axis)
-            else:
-                self.left = self.left.insert(value)
-        self.recalculate_nodes()
-        return self
-
-    def delete(self, value):
-        """
-        Delete a value from the node and return the new node.
-        Returns the same tree if the value was not found.
-        """
-        if np.all(self.value == value):
-            values = self.collect()
-            if len(values) > 1:
-                values.remove(value)
-                new_tree = KDNode.initialize(values, init_axis=self.axis)
-                return new_tree
-            return None
-        elif value[self.axis] >= self.value[self.axis]:
-            if self.right is None:
-                return self
-            else:
-                self.right = self.right.delete(value)
-                self.recalculate_nodes()
-                return self
-        else:
-            if self.left is None:
-                return self
-            else:
-                self.left = self.left.delete(value)
-                self.recalculate_nodes()
-                return self
-
-    def balance(self):
-        """
-        Balance the node if the secondary invariant is not satisfied.
-        """
-        if not self.invariant():
-            values = self.collect()
-            return KDNode.initialize(values, init_axis=self.axis)
-        return self
-
-    def invariant(self):
-        """
-        Verify that the node satisfies the secondary invariant.
-        """
-        ln, rn = 0, 0
-        if self.left:
-            ln = self.left.node_num
-        if self.right:
-            rn = self.right.node_num
-        return abs(ln - rn) <= DIM_NUM
-
-    def recalculate_nodes(self):
-        """
-        Recalculate the number of nodes of the node, assuming that the node's children are correctly calculated.
-        """
-        node_num = 0
-        if self.right:
-            node_num += self.right.node_num
-        if self.left:
-            node_num += self.left.node_num
-        self.node_num = node_num + 1
-
-    def collect(self):
-        """
-        Collect all values in the node as a list, ordered in a depth-first manner.
-        """
-        values = [self.value]
-        if self.right:
-            values += self.right.collect()
-        if self.left:
-            values += self.left.collect()
-        return values
-
-    @staticmethod
-    def _initialize_recursive(sorted_values, axis):
-        """
-        Internal recursive initialization based on an array of values presorted in all axes.
-        This function should not be called externally. Use `initialize` instead.
-        """
-        value_len = len(sorted_values[axis])
-        median = value_len // 2
-        median_value = sorted_values[axis][median]
-        median_mask = np.equal(sorted_values[:, :, 2], sorted_values[axis][median][2])
-        sorted_values = sorted_values[~median_mask].reshape((DIM_NUM, value_len - 1, 3))
-        node = KDNode(median_value, axis=axis)
-        right_values = sorted_values[axis][median:]
-        right_value_len = len(right_values)
-        left_value_len = value_len - 1 - right_value_len
-        right_mask = np.isin(sorted_values[:, :, 2], right_values[:, 2])
-        sorted_right_values = sorted_values[right_mask].reshape((DIM_NUM, right_value_len, 3))
-        sorted_left_values = sorted_values[~right_mask].reshape((DIM_NUM, left_value_len, 3))
-        axis = axis + 1 if axis + 1 < DIM_NUM else 0
-        if right_value_len > 0:
-            node.right = KDNode._initialize_recursive(sorted_right_values, axis)
-        if left_value_len > 0:
-            node.left = KDNode._initialize_recursive(sorted_left_values, axis)
-        node.recalculate_nodes()
-        return node
-
-    @staticmethod
-    def initialize(values, init_axis=0):
-        """
-        Initialize a node from a list of values by presorting `values` by each of the axes of discrimination.
-        Initialization attempts balancing by selecting the median along each axis of discrimination as the root.
-        """
-        sorted_values = []
-        for axis in range(DIM_NUM):
-            sorted_values.append(sorted(values, key=lambda x: x[axis]))
-        return KDNode._initialize_recursive(np.asarray(sorted_values), init_axis)
-
-    def visualize(self, depth=0, result=None):
-        """
-        Prints a visual representation of the KDTree.
-        """
-        result.append("value: %s, depth: %s, axis: %s, node_num: %s" % (self.value, depth, self.axis, self.node_num))
-        if self.left:
-            self.left.visualize(depth=depth + 1, result=result)
-        if self.right:
-            self.right.visualize(depth=depth + 1, result=result)
-
-
 class KDTree(SpatialIndex):
+    """
+    KD树（KD-tree）
+    Implement from Multidimensional binary search trees used for associative searching
+    """
+
     def __init__(self, model_path=None):
         super(KDTree, self).__init__("KDTree")
         self.model_path = model_path
@@ -422,6 +237,196 @@ class KDTree(SpatialIndex):
         ie_size = data_len * data_size
         structure_size = size - ie_size
         return structure_size, ie_size
+
+
+class KDNode:
+
+    def __init__(self, value=None, axis=0):
+        self.value = value
+        self.left = None
+        self.right = None
+        self.axis = axis
+        self.node_num = 1
+
+    def nearest_neighbor(self, value, n, result, nearest_distance):
+        """
+        Determine the `n` nearest node to `value` and their distances.
+        eg: self.nearest_neighbor(value, 4, result, float('-inf'))
+        """
+        dist = distance_value(value, self.value)
+        if len(result) < n:
+            heapq.heappush(result, (-dist, self.value[-1]))
+            nearest_distance = -heapq.nsmallest(1, result)[0][0]
+        elif dist < nearest_distance:
+            heapq.heappop(result)
+            heapq.heappush(result, (-dist, self.value[-1]))
+            nearest_distance = -heapq.nsmallest(1, result)[0][0]
+        if value[self.axis] + nearest_distance >= self.value[self.axis] and self.right:
+            nearest_distance = self.right.nearest_neighbor(value, n, result, nearest_distance)
+        if value[self.axis] - nearest_distance < self.value[self.axis] and self.left:
+            nearest_distance = self.left.nearest_neighbor(value, n, result, nearest_distance)
+        return nearest_distance
+
+    def insert(self, value):
+        """
+        Insert a value into the node.
+        """
+        # 重复数据处理：插入时先放到右侧
+        if value[self.axis] >= self.value[self.axis]:
+            if self.right is None:
+                axis = self.axis + 1 if self.axis + 1 < DIM_NUM else 0
+                self.right = KDNode(value=value, axis=axis)
+            else:
+                self.right = self.right.insert(value)
+        else:
+            if self.left is None:
+                axis = self.axis + 1 if self.axis + 1 < DIM_NUM else 0
+                self.left = KDNode(value=value, axis=axis)
+            else:
+                self.left = self.left.insert(value)
+        self.recalculate_nodes()
+        return self
+
+    def delete(self, value):
+        """
+        Delete a value from the node and return the new node.
+        Returns the same tree if the value was not found.
+        """
+        if np.all(self.value == value):
+            values = self.collect()
+            if len(values) > 1:
+                values.remove(value)
+                new_tree = KDNode.initialize(values, init_axis=self.axis)
+                return new_tree
+            return None
+        elif value[self.axis] >= self.value[self.axis]:
+            if self.right is None:
+                return self
+            else:
+                self.right = self.right.delete(value)
+                self.recalculate_nodes()
+                return self
+        else:
+            if self.left is None:
+                return self
+            else:
+                self.left = self.left.delete(value)
+                self.recalculate_nodes()
+                return self
+
+    def balance(self):
+        """
+        Balance the node if the secondary invariant is not satisfied.
+        """
+        if not self.invariant():
+            values = self.collect()
+            return KDNode.initialize(values, init_axis=self.axis)
+        return self
+
+    def invariant(self):
+        """
+        Verify that the node satisfies the secondary invariant.
+        """
+        ln, rn = 0, 0
+        if self.left:
+            ln = self.left.node_num
+        if self.right:
+            rn = self.right.node_num
+        return abs(ln - rn) <= DIM_NUM
+
+    def recalculate_nodes(self):
+        """
+        Recalculate the number of nodes of the node, assuming that the node's children are correctly calculated.
+        """
+        node_num = 0
+        if self.right:
+            node_num += self.right.node_num
+        if self.left:
+            node_num += self.left.node_num
+        self.node_num = node_num + 1
+
+    def collect(self):
+        """
+        Collect all values in the node as a list, ordered in a depth-first manner.
+        """
+        values = [self.value]
+        if self.right:
+            values += self.right.collect()
+        if self.left:
+            values += self.left.collect()
+        return values
+
+    @staticmethod
+    def _initialize_recursive(sorted_values, axis):
+        """
+        Internal recursive initialization based on an array of values presorted in all axes.
+        This function should not be called externally. Use `initialize` instead.
+        """
+        value_len = len(sorted_values[axis])
+        median = value_len // 2
+        median_value = sorted_values[axis][median]
+        median_mask = np.equal(sorted_values[:, :, 2], sorted_values[axis][median][2])
+        sorted_values = sorted_values[~median_mask].reshape((DIM_NUM, value_len - 1, 3))
+        node = KDNode(median_value, axis=axis)
+        right_values = sorted_values[axis][median:]
+        right_value_len = len(right_values)
+        left_value_len = value_len - 1 - right_value_len
+        right_mask = np.isin(sorted_values[:, :, 2], right_values[:, 2])
+        sorted_right_values = sorted_values[right_mask].reshape((DIM_NUM, right_value_len, 3))
+        sorted_left_values = sorted_values[~right_mask].reshape((DIM_NUM, left_value_len, 3))
+        axis = axis + 1 if axis + 1 < DIM_NUM else 0
+        if right_value_len > 0:
+            node.right = KDNode._initialize_recursive(sorted_right_values, axis)
+        if left_value_len > 0:
+            node.left = KDNode._initialize_recursive(sorted_left_values, axis)
+        node.recalculate_nodes()
+        return node
+
+    @staticmethod
+    def initialize(values, init_axis=0):
+        """
+        Initialize a node from a list of values by presorting `values` by each of the axes of discrimination.
+        Initialization attempts balancing by selecting the median along each axis of discrimination as the root.
+        """
+        sorted_values = []
+        for axis in range(DIM_NUM):
+            sorted_values.append(sorted(values, key=lambda x: x[axis]))
+        return KDNode._initialize_recursive(np.asarray(sorted_values), init_axis)
+
+    def visualize(self, depth=0, result=None):
+        """
+        Prints a visual representation of the KDTree.
+        """
+        result.append("value: %s, depth: %s, axis: %s, node_num: %s" % (self.value, depth, self.axis, self.node_num))
+        if self.left:
+            self.left.visualize(depth=depth + 1, result=result)
+        if self.right:
+            self.right.visualize(depth=depth + 1, result=result)
+
+
+def distance_value(value1, value2):
+    return sum([(value1[d] - value2[d]) ** 2 for d in range(DIM_NUM)]) ** 0.5
+
+
+def equal_value(value1, value2):
+    return sum([value1[d] == value2[d] for d in range(DIM_NUM)]) == DIM_NUM
+
+
+def contain_value(window, value):
+    return sum([window[d * 2] <= value[d] <= window[d * 2 + 1] for d in range(DIM_NUM)]) == DIM_NUM
+
+
+# 2d下的函数效率要比多维快5倍
+def equal_value_2d(value1, value2):
+    return value1[0] == value2[0] and value1[1] == value2[1]
+
+
+def distance_value_2d(value1, value2):
+    return ((value1[0] - value2[0]) ** 2 + (value1[1] - value2[1]) ** 2) ** 0.5
+
+
+def contain_value_2d(window, value):
+    return window[0] <= value[0] <= window[1] and window[2] <= value[1] <= window[3]
 
 
 def tree_to_list(node, node_list):

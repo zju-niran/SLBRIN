@@ -2,7 +2,7 @@ import os
 import time
 
 from src.experiment.common_utils import Distribution, load_data, data_precision, data_region
-from src.spatial_index.geohash_utils import Geohash
+from src.utils.geohash_utils import Geohash
 
 """
 实验探究：单独测试多维排序的时间

@@ -1,4 +1,4 @@
-import os  # 导入模块
+import os
 
 
 def rename(cur_path, old_name, new_name):
@@ -13,5 +13,5 @@ def rename(cur_path, old_name, new_name):
 
 
 if __name__ == '__main__':
-    path = r'E:\model'  # 运行程序前，记得修改主文件夹路径！
+    path = r'E:\model'
     rename(path, 'sbrin', 'slbrin')

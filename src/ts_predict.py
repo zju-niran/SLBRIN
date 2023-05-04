@@ -23,6 +23,13 @@ warnings.simplefilter('ignore', RuntimeWarning)
 
 # TODO: 只有ES和VAR完成了TCRM改造
 class TimeSeriesModel:
+    """
+    时空序列预测模型：statsmodels或Keras实现，服务于TSUM
+    1. F（cdf）的预测模型是时空序列预测（Spatial-Temporal Series Model，sts_model）
+    2. n（max_key）的预测模型是时空序列预测（Temporal Series Model，ts_model）
+    两者分别由多种不同的预测算法实现（TSResult的实现类）
+    """
+
     def __init__(self, key_list, model_path, cdfs, type_cdf, max_keys, type_max_key, data_len):
         # for compute
         self.key_list = key_list
@@ -151,7 +158,7 @@ class ESResult(TSResult):
         return self.predict(), 1
 
     def retrain(self, data, threshold_err):
-        data=self.init_data(data)
+        data = self.init_data(data)
         old_err = self.err
         self.err = self.get_err(data)
         if self.err <= threshold_err * old_err:

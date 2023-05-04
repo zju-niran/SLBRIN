@@ -3,45 +3,16 @@ import os
 
 import line_profiler
 
-# Node in BTree
 from src.experiment.common_utils import Distribution, load_data
-from src.spatial_index.common_utils import binary_search_less_max
+from src.utils.common_utils import binary_search_less_max
 
 
-class BTreeNode:
-    def __init__(self, degree=2, number_of_keys=0, is_leaf=True, items=None, children=None, index=None):
-        self.isLeaf = is_leaf
-        self.numberOfKeys = number_of_keys
-        self.index = index
-        if items:
-            self.items = items
-        else:
-            self.items = [None] * (degree * 2 - 1)
-        if children:
-            self.children = children
-        else:
-            self.children = [None] * degree * 2
-
-    def set_index(self, index):
-        self.index = index
-
-    def get_index(self):
-        return self.index
-
-    def search(self, b_tree, an_item):
-        i = 0
-        while i < self.numberOfKeys and an_item > self.items[i]:
-            i += 1
-        if i < self.numberOfKeys and an_item == self.items[i]:
-            return True, self.index, i
-        if self.isLeaf:
-            return False, self.index, i - 1
-        else:
-            return b_tree.get_node(self.children[i]).search(b_tree, an_item)
-
-
-# BTree Class
 class BTree:
+    """
+    B（B-tree）
+    Implement from github
+    """
+
     def __init__(self, degree=2, nodes=None, root_index=1, free_index=2):
         if nodes is None:
             nodes = {}
@@ -259,7 +230,38 @@ class BTree:
         self.nodes[index] = a_node
 
 
-# Value in Node
+class BTreeNode:
+    def __init__(self, degree=2, number_of_keys=0, is_leaf=True, items=None, children=None, index=None):
+        self.isLeaf = is_leaf
+        self.numberOfKeys = number_of_keys
+        self.index = index
+        if items:
+            self.items = items
+        else:
+            self.items = [None] * (degree * 2 - 1)
+        if children:
+            self.children = children
+        else:
+            self.children = [None] * degree * 2
+
+    def set_index(self, index):
+        self.index = index
+
+    def get_index(self):
+        return self.index
+
+    def search(self, b_tree, an_item):
+        i = 0
+        while i < self.numberOfKeys and an_item > self.items[i]:
+            i += 1
+        if i < self.numberOfKeys and an_item == self.items[i]:
+            return True, self.index, i
+        if self.isLeaf:
+            return False, self.index, i - 1
+        else:
+            return b_tree.get_node(self.children[i]).search(b_tree, an_item)
+
+
 class Item():
     def __init__(self, k, v):
         self.k = k
@@ -306,7 +308,7 @@ def b_tree_main():
         b.insert(Item(build_data_list[i][2], i))
     for i in range(l):
         x = i
-        # 二分比btree快
+        # 二分比B-Tree快
         pos = b.predict_less_max(x)  # 61221874.0
         pos1 = binary_search_less_max(build_data_list, 2, x, 0, l - 1)  # 14473453.0
         if pos1 != pos:

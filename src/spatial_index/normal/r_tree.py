@@ -5,13 +5,18 @@ import time
 import numpy as np
 from rtree import index
 
-from src.spatial_index.spatial_index import SpatialIndex
 from src.experiment.common_utils import load_data, Distribution, load_query
+from src.spatial_index.spatial_index import SpatialIndex
 
 PAGE_SIZE = 4096
 
 
 class RTree(SpatialIndex):
+    """
+    R树（R-tree）
+    Implement from pypi: rtree
+    """
+
     def __init__(self, model_path=None):
         super(RTree, self).__init__("RTree")
         self.model_path = model_path
@@ -44,7 +49,6 @@ class RTree(SpatialIndex):
         p.dat_extension = "data"
         p.idx_extension = "key"  # key文件好像是缓存文件，并非索引文件
         p.storage = index.RT_Disk
-        # TODO: 增大buffer可以提高查询效率，而且10w数据下build和insert影响不大，当前单位Byte
         if buffering_capacity:
             p.buffering_capacity = buffering_capacity
         p.pagesize = PAGE_SIZE

@@ -7,13 +7,13 @@ import time
 
 import numpy as np
 
+from src.experiment.common_utils import load_data, Distribution, data_precision, data_region, load_query
 from src.mlp import MLP
 from src.mlp_simple import MLPSimple
-from src.spatial_index.common_utils import Region, binary_search_less_max, relu, biased_search_almost, \
-    biased_search_duplicate, get_mbr_by_points, merge_sorted_list
-from src.spatial_index.geohash_utils import Geohash
 from src.spatial_index.spatial_index import SpatialIndex
-from src.experiment.common_utils import load_data, Distribution, data_precision, data_region, load_query
+from src.utils.common_utils import Region, binary_search_less_max, relu, biased_search_almost, \
+    biased_search_duplicate, get_mbr_by_points, merge_sorted_list
+from src.utils.geohash_utils import Geohash
 
 PAGE_SIZE = 4096
 HR_SIZE = 8 + 1 + 2 + 4 + 1  # 16
@@ -23,8 +23,14 @@ ITEM_SIZE = 8 * 3 + 4  # 28
 ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 
 
-# TODO 检索的时候要检索crs
 class SLBRIN(SpatialIndex):
+    """
+    空间块范围学习型索引（Spatial Learned Block Range Index，SLBRIN），论文见SLBRIN: A Spatial Learned Index Based on BRIN
+    1. 基本思路：在BRIN-Spatial的基础上解决空间分区问题和跳跃性问题
+    1.1. 提出空间等差分区方法（Spatial Equidistant Partitioning Method）优化块范围的分区结果
+    1.2. 结合空间位置码（Spatial Location Code）和学习索引（Learned Index）优化空间检索策略
+    """
+
     def __init__(self, model_path=None):
         super(SLBRIN, self).__init__("SLBRIN")
         self.index_entries = None
@@ -615,19 +621,20 @@ class SLBRIN(SpatialIndex):
         qp_hr_key = self.point_query_hr(qp_g)
         qp_hr = self.history_ranges[qp_hr_key]
         qp_hr_data = self.index_entries[qp_hr_key]
-        # if hr is empty, TODO
         if qp_hr.number == 0:
-            return []
-        # if model, qp_ie_key = point_query(geohash)
+            qp_ie_key = -1
+            tp_ie_list = []
         else:
             pre = qp_hr.model_predict(qp_g)
             l_bound = max(pre - qp_hr.model.max_err, 0)
             r_bound = min(pre - qp_hr.model.min_err, qp_hr.max_key)
             qp_ie_key = biased_search_almost(qp_hr_data, 2, qp_g, pre, l_bound, r_bound)[0]
+            tp_ie_list = [qp_hr_data[qp_ie_key]]
         # 2. get the n points to create range query window
-        # TODO: 两种策略，一种是左右找一半，但是如果跳跃了，window很大；
-        #  还有一种是两边找n，减少跳跃，使window变小，当前是第二种
-        tp_ie_list = [qp_hr_data[qp_ie_key]]
+        # 初始结果集选取方法
+        # 1. 任意选k个
+        # 2. 点查询得到p，在p前后选k/2个
+        # 3. 点查询得到p，在p前后选k个，dst变大，但是跳跃性的干扰变小（当前所选）
         cur_ie_key = qp_ie_key + 1
         cur_hr_data = qp_hr_data
         cur_hr = qp_hr

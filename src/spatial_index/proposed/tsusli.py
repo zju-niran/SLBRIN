@@ -7,15 +7,14 @@ import time
 import numpy as np
 
 from src.experiment.common_utils import load_data, Distribution, data_precision, data_region, load_query
-from src.spatial_index.common_utils import biased_search_duplicate, binary_search_less_max, binary_search_duplicate, \
+from src.utils.common_utils import biased_search_duplicate, binary_search_less_max, binary_search_duplicate, \
     Region, binary_search_less_max_duplicate
-from src.spatial_index.geohash_utils import Geohash
-from src.spatial_index.zm_index import Node, Array
-from src.spatial_index.slibs import SLIBS
-from src.spatial_index.dtusli import retrain_model
-from src.ts_model import TimeSeriesModel
+from src.utils.geohash_utils import Geohash
+from src.spatial_index.learned.zm_index import Node, Array
+from src.spatial_index.proposed.slibs import SLIBS
+from src.spatial_index.proposed.dtusli import retrain_model
+from src.ts_predict import TimeSeriesModel
 
-# 预设pagesize=4096, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
 PAGE_SIZE = 4096
 MODEL_SIZE = 2000
 ITEM_SIZE = 8 * 3 + 4  # 28
@@ -24,6 +23,13 @@ ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 
 
 class TSUSLI(SLIBS):
+    """
+    时空预测学习型索引（Tempo-Spatial updatable Spatial Learned Index，TSUSLI）
+    1. 基本思路：提出时空预测更新方法（Tempo-Spatial predicted Update Method，TSUM），应用于SLIBS
+    2. TSUM的间接预测：
+    2.1. 空间分布分解为排列F（cdf）和密度n（max_key），分别用时空序列预测和时间序列预测完成预测，
+    2.2. 将预测结果组合未来空间分布，改造增量区的数据结构，提供类似哈希索引的方法来检索其上的增量数据
+    """
     def __init__(self, model_path=None):
         super().__init__(model_path)
         # for update

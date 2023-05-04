@@ -1,18 +1,18 @@
 import math
-import os.path
 
 import numpy as np
 import tensorflow as tf
 
-"""
-区别于MLP:
-1. 不做任何的中间数据持久化，包括日志/checkpoint
-2. 不使用retrain和threshold来提高单个模型的精度
-3. 模型fit后只使用最后一个epoch的参数，而不是最优参数
-"""
-
 
 class MLPSimple:
+    """
+    基于MLP的学习模型（Learned Model）：Keras实现
+    区别于MLP:
+    1. 不做任何的中间数据持久化，包括日志/checkpoint
+    2. 不使用retrain和threshold来提高单个模型的精度
+    3. 模型fit后只使用最后一个epoch的参数，而不是最优参数
+    """
+
     def __init__(self, train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
                  weight, core, train_step, batch_size, learning_rate):
         # common
@@ -68,7 +68,7 @@ class MLPSimple:
 
     def get_epochs(self):
         return len(self.model.history.epoch) if self.model.history else 0
-    
+
     def get_matrices(self):
         return self.model.get_weights()
 

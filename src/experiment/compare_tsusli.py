@@ -5,9 +5,9 @@ import time
 
 from src.experiment.common_utils import load_data, Distribution, copy_dirs, load_query, filter_data_by_date, \
     group_data_by_date
-from src.spatial_index.dtusli import ZMIndexDeltaInsert
-from src.spatial_index.ipusli import ZMIndexInPlaceInsert
-from src.spatial_index.tsusli import TSUSLI
+from src.spatial_index.proposed.dtusli import DTUSLI
+from src.spatial_index.proposed.ipusli import IPUSLI
+from src.spatial_index.proposed.tsusli import TSUSLI
 
 """
 实验探究：TSUSLI的所有实验
@@ -96,8 +96,8 @@ if __name__ == '__main__':
             logging.info("*************start %s %s************" % (index_info[0], data_distribution.name))
             start_time = time.time()
             if index_info[0].startswith("dtusli"):
-                index = ZMIndexDeltaInsert(model_path=target_model_path)
-                super(ZMIndexDeltaInsert, index).load()
+                index = DTUSLI(model_path=target_model_path)
+                super(DTUSLI, index).load()
                 index.build_append(time_interval=60 * 60,
                                    start_time=1356998400,
                                    end_time=1359676799,
@@ -134,8 +134,8 @@ if __name__ == '__main__':
                                    is_save_delta=index_info[8],
                                    is_build=index_info[-1])
             else:
-                index = ZMIndexInPlaceInsert(model_path=target_model_path)
-                super(ZMIndexInPlaceInsert, index).load()
+                index = IPUSLI(model_path=target_model_path)
+                super(IPUSLI, index).load()
                 index.build_append(time_interval=60 * 60,
                                    start_time=1356998400,
                                    end_time=1359676799,

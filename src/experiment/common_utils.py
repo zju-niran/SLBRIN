@@ -5,7 +5,7 @@ from enum import Enum
 
 import numpy as np
 
-from src.spatial_index.common_utils import Region
+from src.utils.common_utils import Region
 
 
 class Distribution(Enum):

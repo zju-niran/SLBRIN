@@ -7,9 +7,9 @@ import time
 
 import numpy as np
 
-from src.spatial_index.spatial_index import SpatialIndex
-from src.spatial_index.common_utils import Region, Point
 from src.experiment.common_utils import Distribution, load_data, data_precision, data_region
+from src.spatial_index.spatial_index import SpatialIndex
+from src.utils.common_utils import Region, Point
 
 PAGE_SIZE = 4096
 NODE_SIZE = 1 + 1 + 8 * 4 + 4 * 4 + 4 * 2  # 58
@@ -18,28 +18,12 @@ NODES_PER_PAGE = int(PAGE_SIZE / NODE_SIZE)
 ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 
 
-class QuadTreeNode:
-    def __init__(self, region, depth=1, is_leaf=1, LB=None, RB=None, LU=None, RU=None, items=None):
-        self.depth = depth
-        self.is_leaf = is_leaf
-        self.region = region
-        self.LB = LB
-        self.RB = RB
-        self.LU = LU
-        self.RU = RU
-        self.items = items if items else []
-
-    def get_all_items(self, result):
-        if self.is_leaf == 1:
-            result.append(self.items)
-        else:
-            self.LB.get_all_items(result)
-            self.RB.get_all_items(result)
-            self.LU.get_all_items(result)
-            self.RU.get_all_items(result)
-
-
 class PRQuadTree(SpatialIndex):
+    """
+    点分四叉树（Point Range Quadtree，PR Quadtree）
+    Implement from the paper The quadtree and related hierarchical data structures
+    """
+
     def __init__(self, model_path=None, root_node=None):
         super(PRQuadTree, self).__init__("PRQuadTree")
         self.root_node = root_node
@@ -65,7 +49,6 @@ class PRQuadTree(SpatialIndex):
         3.未过载的直接添加
         :param node:
         :param point:
-        todo 使用元素原地址，避免重新分配内存造成的效率浪费
         """
         if node.is_leaf == 1:
             if len(node.items) >= self.threshold_number and node.depth < self.max_depth:
@@ -111,7 +94,7 @@ class PRQuadTree(SpatialIndex):
     def create_child_node(self, node, bottom, up, left, right):
         depth = node.depth + 1
         region = Region(bottom, up, left, right)
-        child_node = QuadTreeNode(region=region, depth=depth)
+        child_node = Node(region=region, depth=depth)
         return child_node
 
     def delete(self, point, node=None):
@@ -210,7 +193,7 @@ class PRQuadTree(SpatialIndex):
     def build(self, data_list, region, threshold_number, data_precision):
         self.threshold_number = threshold_number
         self.max_depth = region.get_max_depth_by_region_and_precision(precision=data_precision)
-        self.root_node = QuadTreeNode(region=region)
+        self.root_node = Node(region=region)
         self.insert(data_list)
 
     def point_query_single(self, point):
@@ -372,6 +355,27 @@ class PRQuadTree(SpatialIndex):
                os.path.getsize(os.path.join(self.model_path, "prquadtree_item.npy")) - 128
 
 
+class Node:
+    def __init__(self, region, depth=1, is_leaf=1, LB=None, RB=None, LU=None, RU=None, items=None):
+        self.depth = depth
+        self.is_leaf = is_leaf
+        self.region = region
+        self.LB = LB
+        self.RB = RB
+        self.LU = LU
+        self.RU = RU
+        self.items = items if items else []
+
+    def get_all_items(self, result):
+        if self.is_leaf == 1:
+            result.append(self.items)
+        else:
+            self.LB.get_all_items(result)
+            self.RB.get_all_items(result)
+            self.LU.get_all_items(result)
+            self.RU.get_all_items(result)
+
+
 def tree_to_list(node, node_list, item_list):
     if node is None:
         return
@@ -401,7 +405,7 @@ def list_to_tree(node_list, item_list, key=None):
     item = node_list[key]
     region = Region(item[8], item[9], item[10], item[11])
     items = [Point(point[0], point[1], key=point[2]) for point in item_list[item[6]:item[7]]]
-    node = QuadTreeNode(region, item[4], item[5], None, None, None, None, items)
+    node = Node(region, item[4], item[5], None, None, None, None, items)
     if item[0]:
         node.LB = list_to_tree(node_list, item_list, item[0])
     if item[1]:

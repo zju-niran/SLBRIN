@@ -5,11 +5,16 @@ import time
 import numpy as np
 from rtreelib import RTree as RTreeLib, Rect
 
-from src.spatial_index.spatial_index import SpatialIndex
 from src.experiment.common_utils import load_data, Distribution
+from src.spatial_index.spatial_index import SpatialIndex
 
 
 class RTree(SpatialIndex):
+    """
+    R树（R-tree）
+    Implement from pypi: rtreelib
+    """
+
     def __init__(self, model_path=None):
         super(RTree, self).__init__("RTree")
         self.model_path = model_path

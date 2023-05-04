@@ -5,13 +5,12 @@ import time
 
 import numpy as np
 
+from src.experiment.common_utils import load_data, Distribution, load_query, data_precision, data_region
 from src.mlp import MLP
 from src.mlp_simple import MLPSimple
-from src.experiment.common_utils import load_data, Distribution, load_query, data_precision, data_region
-from src.spatial_index.geohash_utils import Geohash
-from src.spatial_index.zm_index import ZMIndex, Node, build_nn, Array
+from src.spatial_index.learned.zm_index import ZMIndex, Node, build_nn, Array
+from src.utils.geohash_utils import Geohash
 
-# 预设pagesize=4096, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
 PAGE_SIZE = 4096
 MODEL_SIZE = 2000
 ITEM_SIZE = 8 * 3 + 4  # 28
@@ -20,6 +19,14 @@ ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 
 
 class SLIBS(ZMIndex):
+    """
+    空间学习型索引基础框架（Spatial Learned Index Based Structure，SLIBS）
+    1. 基本思路：先降维+后RMI
+    2. 其他改进：在训练集中采用最大最小值归一化方法和分区边界控制方法，保证分段CDF在段间的单调性
+    2.1. 分区边界提取过程见get_leaf_bound
+    2.2. 分区边界加入过程见p115~123
+    """
+
     def __init__(self, model_path=None):
         super(SLIBS, self).__init__(model_path)
 
@@ -107,8 +114,6 @@ class SLIBS(ZMIndex):
                 # 1. add the key bound into the inputs of each leaf node
                 key_left_bounds = self.get_leaf_bound()
                 for j in range(task_size):
-                    # if j <= 548:
-                    #     continue
                     inputs = [data[2] for data in train_input[j]]
                     left_bound = key_left_bounds[j]
                     right_bound = key_left_bounds[j + 1] if j + 1 < task_size else 1 << self.geohash.sum_bits
@@ -162,7 +167,7 @@ class SLIBS(ZMIndex):
 class NN(MLP):
     def __init__(self, model_path, model_key, train_x, train_y, is_new, weight, core, train_step, batch_size,
                  learning_rate, use_threshold, threshold, retrain_time_limit):
-        self.name = "ZMO NN"
+        self.name = "SLIBS NN"
         # train_x的是有序的，归一化不需要计算最大最小值
         train_x_min = train_x[0]
         train_x_max = train_x[-1]
@@ -177,7 +182,7 @@ class NN(MLP):
 
 class NNSimple(MLPSimple):
     def __init__(self, train_x, train_y, weight, core, train_step, batch_size, learning_rate):
-        self.name = "ZMO NN"
+        self.name = "SLIBS NN"
         # train_x的是有序的，归一化不需要计算最大最小值
         train_x_min = train_x[0]
         train_x_max = train_x[-1]

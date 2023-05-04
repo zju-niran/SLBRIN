@@ -3,12 +3,12 @@ import os
 import time
 
 from src.experiment.common_utils import Distribution, load_data, load_query, data_region, data_precision
-from src.spatial_index.brin_spatial import BRINSpatial
-from src.spatial_index.kd_tree import KDTree
-from src.spatial_index.pr_quad_tree import PRQuadTree
-from src.spatial_index.r_tree import RTree
-from src.spatial_index.slibs import SLIBS
-from src.spatial_index.zm_index import ZMIndex
+from src.spatial_index.normal.brin_spatial import BRINSpatial
+from src.spatial_index.normal.kd_tree import KDTree
+from src.spatial_index.normal.pr_quad_tree import PRQuadTree
+from src.spatial_index.normal.r_tree import RTree
+from src.spatial_index.proposed.slibs import SLIBS
+from src.spatial_index.learned.zm_index import ZMIndex
 
 """
 实验探究：对比不同超参下RT/PRQT/KDT/BRINS/ZM/SLIBS的构建性能、存储成本和检索时间

@@ -7,10 +7,9 @@ import time
 import numpy as np
 
 from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
-from src.spatial_index.slibs import SLIBS, NN
-from src.spatial_index.zm_index import Array
+from src.spatial_index.proposed.slibs import SLIBS, NN
+from src.spatial_index.learned.zm_index import Array
 
-# 预设pagesize=4096, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
 PAGE_SIZE = 4096
 MODEL_SIZE = 2000
 ITEM_SIZE = 8 * 3 + 4  # 28
@@ -18,9 +17,13 @@ MODELS_PER_PAGE = int(PAGE_SIZE / MODEL_SIZE)
 ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 
 
-class ZMIndexDeltaInsert(SLIBS):
+class DTUSLI(SLIBS):
+    """
+    增量更新空间学习型索引（Delta Update Spatial Learned Index，DTUSLI）
+    1. 基本思路：在SLIBS的基础上应用FITing-tree（Fiting-tree: A data-aware index structure）的增量更新方法（Delta Update Method，DTUM）
+    """
     def __init__(self, model_path=None):
-        super(ZMIndexDeltaInsert, self).__init__(model_path)
+        super(DTUSLI, self).__init__(model_path)
         # for update
         self.start_time = None
         self.time_id = None
@@ -147,7 +150,7 @@ class ZMIndexDeltaInsert(SLIBS):
         self.logging.info("Error bound: %s" % self.model_err())
 
     def save(self):
-        super(ZMIndexDeltaInsert, self).save()
+        super(DTUSLI, self).save()
         meta_append = np.array((self.start_time, self.time_id, self.time_interval,
                                 self.initial_length, self.is_init, self.threshold_err),
                                dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'), ("3", 'i4'), ("4", 'i1'), ("5", 'f8')])
@@ -157,7 +160,7 @@ class ZMIndexDeltaInsert(SLIBS):
         np.save(os.path.join(self.model_path, 'compute.npy'), compute)
 
     def load(self):
-        super(ZMIndexDeltaInsert, self).load()
+        super(DTUSLI, self).load()
         meta_append = np.load(os.path.join(self.model_path, 'meta_append.npy'), allow_pickle=True).item()
         self.start_time = meta_append[0]
         self.time_id = meta_append[1]
@@ -176,7 +179,7 @@ class ZMIndexDeltaInsert(SLIBS):
         structure_size += meta_append.npy
         ie_size
         """
-        structure_size, ie_size = super(ZMIndexDeltaInsert, self).size()
+        structure_size, ie_size = super(DTUSLI, self).size()
         structure_size += os.path.getsize(os.path.join(self.model_path, "meta_append.npy")) - 128
         return structure_size, ie_size
 
@@ -217,10 +220,10 @@ def main():
     data_distribution = Distribution.NYCT_10W_SORTED
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
-    index = ZMIndexDeltaInsert(model_path=model_path)
+    index = DTUSLI(model_path=model_path)
     index_name = index.name
     if load_index_from_json:
-        super(ZMIndexDeltaInsert, index).load()
+        super(DTUSLI, index).load()
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()

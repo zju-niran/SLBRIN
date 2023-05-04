@@ -4,8 +4,8 @@ import os
 import numpy as np
 import pandas
 
-from src.spatial_index.common_utils import Point
-from src.spatial_index.geohash_utils import Geohash
+from src.utils.common_utils import Point
+from src.utils.geohash_utils import Geohash
 
 
 class MyError(Exception):
@@ -31,7 +31,6 @@ def count_csv(path):
         for line in reader:
             count += 1
         return count
-
 
 
 def filter_row_in_region(input_path, output_path, range_limit):

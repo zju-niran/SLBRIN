@@ -6,12 +6,12 @@ import time
 
 import numpy as np
 
-from src.spatial_index.common_utils import binary_search_less_max_duplicate, binary_search_less_max, merge_sorted_list, \
-    biased_search_duplicate, binary_search_duplicate, biased_search_almost
 from src.experiment.common_utils import load_data, Distribution, data_precision, data_region, load_query
-from src.spatial_index.slbrin import SLBRIN, HistoryRange, NN, valid_position_funcs, range_position_funcs
-from src.spatial_index.zm_index import Array
-from src.ts_model import TimeSeriesModel
+from src.spatial_index.learned.zm_index import Array
+from src.spatial_index.proposed.slbrin import SLBRIN, HistoryRange, NN, valid_position_funcs, range_position_funcs
+from src.ts_predict import TimeSeriesModel
+from src.utils.common_utils import binary_search_less_max_duplicate, binary_search_less_max, merge_sorted_list, \
+    biased_search_duplicate, binary_search_duplicate, biased_search_almost
 
 PAGE_SIZE = 4096
 HR_SIZE = 8 + 1 + 2 + 4 + 1  # 16
@@ -22,6 +22,11 @@ ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 
 
 class USLBRIN(SLBRIN):
+    """
+    动态空间块范围学习型索引（Updatable Spatial Learned Block Range Index，USLBRIN）
+    1. 基本思路：结合SBRIN和TSUM
+    """
+
     def __init__(self, model_path=None):
         super().__init__(model_path)
         # for update

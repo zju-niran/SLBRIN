@@ -10,6 +10,10 @@ from matplotlib import pyplot as plt
 
 
 class MLP:
+    """
+    基于MLP的学习模型（Learned Model）：Keras实现
+    """
+
     def __init__(self, model_path, model_key, train_x, train_x_min, train_x_max, train_y, train_y_min, train_y_max,
                  is_new, weight, core, train_step, batch_size, learning_rate,
                  use_threshold, threshold, retrain_time_limit):

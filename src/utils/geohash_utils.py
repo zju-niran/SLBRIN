@@ -3,7 +3,7 @@ from math import log10
 
 import pandas as pd
 
-from src.spatial_index.common_utils import Point, Region
+from src.utils.common_utils import Point, Region
 
 
 class Geohash:
@@ -165,8 +165,8 @@ class Geohash:
 
 class Geohash2:
     """
-    source code from pypi:python-geohash
-    里头的encode：如果找不到c的geohash，就执行encode_base32的代码
+    source code from pypi: python-geohash
+    encode：如果找不到c的geohash，就执行encode_base32的代码
     原理：和四叉树一样，经度和维度直接位运算转二进制序列，然后合并
     """
 
@@ -281,7 +281,7 @@ class Geohash3:
     def encode(self, lng: float, lat: float, precision: int = 60) -> str:
         """
         Encode lng-lat pair to geohash
-        :param lng: lnggitude
+        :param lng: Longitude
         :param lat: Latitude
         :param precision: Bits of precision.
         :return: Geohash string
@@ -372,6 +372,7 @@ class Geohash4:
 
 def compare_with_python_geohash():
     """
+    测试六种Geohash的性能：
     Python-Geohash C create time  9.574317932128907e-07
     My geohash create time  4.040763378143311e-06
     Python-Geohash encode32 create time  7.69151210784912e-06
@@ -404,7 +405,6 @@ def compare_with_python_geohash():
     print(hashcode)
     search_time = (end_time - start_time) / len(train_set_point)
     print("My geohash create time ", search_time)
-
     # python geohash encode32
     start_time = time.time()
     for ind in range(len(train_set_point)):
@@ -421,7 +421,6 @@ def compare_with_python_geohash():
     print(hashcode)
     search_time = (end_time - start_time) / len(train_set_point)
     print("Python-Geohash create time ", search_time)
-
     # Geohash3
     start_time = time.time()
     for ind in range(len(train_set_point)):
@@ -430,7 +429,6 @@ def compare_with_python_geohash():
     print(hashcode)
     search_time = (end_time - start_time) / len(train_set_point)
     print("Geohash3 create time ", search_time)
-
     # Geohash4
     start_time = time.time()
     for ind in range(len(train_set_point)):
@@ -459,9 +457,4 @@ if __name__ == '__main__':
     # print(Geohash(60).neighbors('0011'))
     # print(Geohash3().neighbors('0011'))
     # print(pygeohash.neighbors('023cp0pv4yxb'))
-    # compare_with_python_geohash()
-    geohash = Geohash(6)
-    a = geohash.merge_bits(1, 2)
-    geohash.geohash_template = ['0'] * 6
-    b = geohash.merge_bits1(1, 2)
-    print(1)
+    compare_with_python_geohash()

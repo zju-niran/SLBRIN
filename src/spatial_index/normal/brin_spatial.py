@@ -5,15 +5,10 @@ import time
 
 import numpy as np
 
-from src.spatial_index.common_utils import get_mbr_by_points, intersect, Region
-from src.spatial_index.geohash_utils import Geohash
-from src.spatial_index.spatial_index import SpatialIndex
 from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
-
-"""
-前提条件:
-1. tmp blk永远有一个，新数据插入只会插入tmp blk，tmp blk满了就转为blk同时创建新的tmp blk
-"""
+from src.spatial_index.spatial_index import SpatialIndex
+from src.utils.common_utils import get_mbr_by_points, intersect, Region
+from src.utils.geohash_utils import Geohash
 
 PAGE_SIZE = 4096
 RANGE_SIZE = 8 * 4 + 4  # 36
@@ -22,6 +17,11 @@ ITEM_SIZE = 8 * 2 + 4  # 20
 
 
 class BRINSpatial(SpatialIndex):
+    """
+    空间块范围索引（BRIN-Spatial）
+    Implement from Indexing the pickup and drop-off locations of NYC taxi trips in PostgreSQL - lessons from the road
+    """
+
     def __init__(self, model_path=None, meta=None, block_ranges=None):
         super(BRINSpatial, self).__init__("BRIN Spatial")
         self.index_entries = None

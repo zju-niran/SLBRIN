@@ -6,12 +6,11 @@ import time
 
 import numpy as np
 
-from src.spatial_index.common_utils import biased_search_less_max_duplicate, biased_search_duplicate
+from src.utils.common_utils import biased_search_less_max_duplicate, biased_search_duplicate
 from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
-from src.spatial_index.slibs import SLIBS
-from src.spatial_index.dtusli import retrain_model
+from src.spatial_index.proposed.slibs import SLIBS
+from src.spatial_index.proposed.dtusli import retrain_model
 
-# 预设pagesize=4096, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
 PAGE_SIZE = 4096
 MODEL_SIZE = 2000
 ITEM_SIZE = 8 * 3 + 4  # 28
@@ -19,9 +18,13 @@ MODELS_PER_PAGE = int(PAGE_SIZE / MODEL_SIZE)
 ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 
 
-class ZMIndexInPlaceInsert(SLIBS):
+class IPUSLI(SLIBS):
+    """
+    就地更新空间学习型索引（In-place Update Spatial Learned Index，IPUSLI）
+    1. 基本思路：在SLIBS的基础上应用FITing-tree（Fiting-tree: A data-aware index structure）的就地更新方法（In-place Update Method，IPUM）
+    """
     def __init__(self, model_path=None):
-        super(ZMIndexInPlaceInsert, self).__init__(model_path)
+        super(IPUSLI, self).__init__(model_path)
         # for update
         self.start_time = None
         self.time_id = None
@@ -265,7 +268,7 @@ class ZMIndexInPlaceInsert(SLIBS):
         return result
 
     def save(self):
-        super(ZMIndexInPlaceInsert, self).save()
+        super(IPUSLI, self).save()
         meta_append = np.array((self.start_time, self.time_id, self.time_interval,
                                 self.empty_ratio, self.is_init, self.threshold_err),
                                dtype=[("0", 'i4'), ("1", 'i4'), ("2", 'i4'),
@@ -276,7 +279,7 @@ class ZMIndexInPlaceInsert(SLIBS):
         np.save(os.path.join(self.model_path, 'compute.npy'), compute)
 
     def load(self):
-        super(ZMIndexInPlaceInsert, self).load()
+        super(IPUSLI, self).load()
         meta_append = np.load(os.path.join(self.model_path, 'meta_append.npy'), allow_pickle=True).item()
         self.start_time = meta_append[0]
         self.time_id = meta_append[1]
@@ -314,10 +317,10 @@ def main():
     data_distribution = Distribution.NYCT_10W_SORTED
     if os.path.exists(model_path) is False:
         os.makedirs(model_path)
-    index = ZMIndexInPlaceInsert(model_path=model_path)
+    index = IPUSLI(model_path=model_path)
     index_name = index.name
     if load_index_from_json:
-        super(ZMIndexInPlaceInsert, index).load()
+        super(IPUSLI, index).load()
     else:
         index.logging.info("*************start %s************" % index_name)
         start_time = time.time()

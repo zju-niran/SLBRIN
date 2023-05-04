@@ -6,16 +6,15 @@ import time
 
 import numpy as np
 
+from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
 from src.mlp import MLP
 from src.mlp_simple import MLPSimple
-from src.spatial_index.common_utils import Region, biased_search_duplicate, normalize_input_minmax, \
+from src.spatial_index.spatial_index import SpatialIndex
+from src.utils.common_utils import Region, biased_search_duplicate, normalize_input_minmax, \
     denormalize_output_minmax, binary_search_less_max, binary_search_duplicate, normalize_output, normalize_input, \
     relu, denormalize_outputs_minmax
-from src.spatial_index.geohash_utils import Geohash
-from src.spatial_index.spatial_index import SpatialIndex
-from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
+from src.utils.geohash_utils import Geohash
 
-# 预设pagesize=4096, size(model)=2000, size(pointer)=4, size(x/y/geohash)=8
 PAGE_SIZE = 4096
 MODEL_SIZE = 2000
 ITEM_SIZE = 8 * 3 + 4  # 28
@@ -24,6 +23,11 @@ ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 
 
 class ZMIndex(SpatialIndex):
+    """
+    Z曲线学习型索引（Z-order model，ZM）
+    Implement from Learned index for spatial queries
+    """
+
     def __init__(self, model_path=None):
         super(ZMIndex, self).__init__("ZM Index")
         self.geohash = None
