@@ -1,25 +1,23 @@
 import logging
 import os
 import shutil
-import sys
 import time
 
-sys.path.append('/home/zju/wlj/SLBRIN')
-from src.spatial_index.tsusli import TSUSLI
-from src.spatial_index.dtusli import ZMIndexDeltaInsert
-from src.spatial_index.ipusli import ZMIndexInPlaceInsert
 from src.experiment.common_utils import load_data, Distribution, copy_dirs, load_query, filter_data_by_date, \
     group_data_by_date
+from src.spatial_index.dtusli import ZMIndexDeltaInsert
+from src.spatial_index.ipusli import ZMIndexInPlaceInsert
+from src.spatial_index.tsusli import TSUSLI
 
+"""
+实验探究：TSUSLI的所有实验
+1. 对比不同预测步长f、溢出桶初始化大小bs、空间粒度c下，TSUSLI的整体性能
+2. 对比IPUSLI/DTUSLI/TSUSLI的整体性能
+"""
 if __name__ == '__main__':
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-    import tensorflow as tf
-
-    gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
-    for gpu in gpus:
-        tf.config.experimental.set_memory_growth(gpu, True)
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     origin_path = "model/origin/"
     target_path = "model/compare_tsusli/"
@@ -155,7 +153,7 @@ if __name__ == '__main__':
             structure_size, ie_size = index.size()
             logging.info("Structure size: %s" % structure_size)
             logging.info("Index entry size: %s" % ie_size)
-            logging.info("Model precision avg: %s" % index.model_err())
+            logging.info("Error bound: %s" % index.model_err())
             for update_data in update_data_list:
                 index.insert(update_data)
                 logging.info("Update data num: %s" % len(update_data))

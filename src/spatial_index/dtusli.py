@@ -2,12 +2,10 @@ import logging
 import math
 import multiprocessing
 import os
-import sys
 import time
 
 import numpy as np
 
-sys.path.append('/home/zju/wlj/SLBRIN')
 from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
 from src.spatial_index.slibs import SLIBS, NN
 from src.spatial_index.zm_index import Array
@@ -146,7 +144,7 @@ class ZMIndexDeltaInsert(SLIBS):
                 models.extend([node.model for node in stage])
             np.save(os.path.join(time_model_path, 'models.npy'), models)
         self.logging.info("Index entry size: %s" % (index_len * ITEM_SIZE))
-        self.logging.info("Model precision avg: %s" % self.model_err())
+        self.logging.info("Error bound: %s" % self.model_err())
 
     def save(self):
         super(ZMIndexDeltaInsert, self).save()
@@ -270,7 +268,7 @@ def main():
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
     io_cost = 0
-    logging.info("Model precision avg: %s" % index.model_err())
+    logging.info("Error bound: %s" % index.model_err())
     point_query_list = load_query(data_distribution, 0).tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)

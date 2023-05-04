@@ -2,12 +2,10 @@ import logging
 import math
 import multiprocessing
 import os
-import sys
 import time
 
 import numpy as np
 
-sys.path.append('/home/zju/wlj/SLBRIN')
 from src.spatial_index.common_utils import binary_search_less_max_duplicate, binary_search_less_max, merge_sorted_list, \
     biased_search_duplicate, binary_search_duplicate, biased_search_almost
 from src.experiment.common_utils import load_data, Distribution, data_precision, data_region, load_query
@@ -427,8 +425,8 @@ class USLBRIN(SLBRIN):
         self.logging.info("Retrain delta model max_key mae: %s" % retrain_delta_model_mae2)
         self.logging.info("Retrain delta model time: %s" % retrain_delta_model_time)
         self.logging.info("Retrain delta model io: %s" % retrain_delta_model_io)
-        self.logging.info("Retrain Index entry size: %s" % (index_len * ITEM_SIZE))
-        self.logging.info("Retrain Model precision avg: %s" % self.model_err())
+        self.logging.info("Retrain index entry size: %s" % (index_len * ITEM_SIZE))
+        self.logging.info("Retrain error bound: %s" % self.model_err())
 
     def point_query_single(self, point):
         """
@@ -847,7 +845,7 @@ def main():
     logging.info("Model num: %s" % model_num)
     model_precisions = [(hr.model.max_err - hr.model.min_err) for hr in index.history_ranges]
     model_precisions_avg = sum(model_precisions) / model_num
-    logging.info("Model precision avg: %s" % model_precisions_avg)
+    logging.info("Error bound: %s" % model_precisions_avg)
     point_query_list = load_query(data_distribution, 0).tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)

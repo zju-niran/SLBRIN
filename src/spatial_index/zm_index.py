@@ -2,12 +2,10 @@ import logging
 import math
 import multiprocessing
 import os
-import sys
 import time
 
 import numpy as np
 
-sys.path.append('/home/zju/wlj/SLBRIN')
 from src.mlp import MLP
 from src.mlp_simple import MLPSimple
 from src.spatial_index.common_utils import Region, biased_search_duplicate, normalize_input_minmax, \
@@ -737,7 +735,7 @@ def main():
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
     io_cost = 0
-    logging.info("Model precision avg: %s" % index.model_err())
+    logging.info("Error bound: %s" % index.model_err())
     point_query_list = load_query(data_distribution, 0).tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)

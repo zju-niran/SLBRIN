@@ -1,8 +1,6 @@
 import logging
-import os
-import sys
+import oserror bound
 
-sys.path.append('/home/zju/wlj/SLBRIN')
 from src.experiment.common_utils import Distribution, data_precision, data_region, load_data
 from src.spatial_index.slbrin import SLBRIN
 
@@ -41,7 +39,7 @@ def train_tn():
         logging.info("Model num: %s" % model_num)
         model_precisions = [(hr.model.max_err - hr.model.min_err) for hr in index.history_ranges]
         model_precisions_avg = sum(model_precisions) / model_num
-        logging.info("Model precision avg: %s" % model_precisions_avg)
+        logging.info("Error bound: %s" % model_precisions_avg)
 
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))

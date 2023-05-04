@@ -3,12 +3,10 @@ import heapq
 import logging
 import math
 import os
-import sys
 import time
 
 import numpy as np
 
-sys.path.append('/home/zju/wlj/SLBRIN')
 from src.spatial_index.spatial_index import SpatialIndex
 from src.experiment.common_utils import Distribution, load_data
 

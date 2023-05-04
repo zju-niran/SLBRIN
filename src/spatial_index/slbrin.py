@@ -3,12 +3,10 @@ import logging
 import math
 import multiprocessing
 import os
-import sys
 import time
 
 import numpy as np
 
-sys.path.append('/home/zju/wlj/SLBRIN')
 from src.mlp import MLP
 from src.mlp_simple import MLPSimple
 from src.spatial_index.common_utils import Region, binary_search_less_max, relu, biased_search_almost, \
@@ -1180,7 +1178,7 @@ def main():
     logging.info("Model num: %s" % model_num)
     model_precisions = [(hr.model.max_err - hr.model.min_err) for hr in index.history_ranges]
     model_precisions_avg = sum(model_precisions) / model_num
-    logging.info("Model precision avg: %s" % model_precisions_avg)
+    logging.info("Error bound: %s" % model_precisions_avg)
     point_query_list = load_query(data_distribution, 0).tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)
@@ -1220,7 +1218,7 @@ def main():
     logging.info("Model num: %s" % model_num)
     model_precisions = [(hr.model.max_err - hr.model.min_err) for hr in index.history_ranges]
     model_precisions_avg = sum(model_precisions) / model_num
-    logging.info("Model precision avg: %s" % model_precisions_avg)
+    logging.info("Error bound: %s" % model_precisions_avg)
     update_time = end_time - start_time - \
                   index.sum_up_full_cr_time - index.merge_outdated_cr_time - index.retrain_inefficient_model_time
     logging.info("Update time: %s" % update_time)

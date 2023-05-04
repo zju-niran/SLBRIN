@@ -129,16 +129,16 @@ def load_query(distribution, type):
 
 
 def copy_dirs(from_file, to_file, ignore_file=None):
-    if not os.path.exists(to_file):  # 如不存在目标目录则创建
+    if not os.path.exists(to_file):
         os.makedirs(to_file)
-    files = os.listdir(from_file)  # 获取文件夹中文件和目录列表
+    files = os.listdir(from_file)
     for f in files:
         if f == ignore_file:
             continue
-        if os.path.isdir(from_file + '/' + f):  # 判断是否是文件夹
-            copy_dirs(from_file + '/' + f, to_file + '/' + f)  # 递归调用本函数
+        if os.path.isdir(from_file + '/' + f):
+            copy_dirs(from_file + '/' + f, to_file + '/' + f)
         else:
-            shutil.copy(from_file + '/' + f, to_file + '/' + f)  # 拷贝文件
+            shutil.copy(from_file + '/' + f, to_file + '/' + f)
 
 
 def test_point_query(index, data_distribution):

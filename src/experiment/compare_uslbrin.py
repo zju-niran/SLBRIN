@@ -1,17 +1,18 @@
 import logging
 import os
 import shutil
-import sys
 import time
 
-sys.path.append('/home/zju/wlj/SLBRIN')
-from src.spatial_index.r_tree import RTree
-from src.spatial_index.pr_quad_tree import PRQuadTree
+from src.experiment.common_utils import Distribution, load_data, load_query, copy_dirs, group_data_by_date
 from src.spatial_index.brin_spatial import BRINSpatial
+from src.spatial_index.pr_quad_tree import PRQuadTree
+from src.spatial_index.r_tree import RTree
 from src.spatial_index.tsusli import TSUSLI
 from src.spatial_index.uslbrin import USLBRIN
-from src.experiment.common_utils import Distribution, load_data, load_query, copy_dirs, group_data_by_date
 
+"""
+实验探究：对比RT/PRQT/BRINS/TSUSLI/USLBRIN的整体性能
+"""
 if __name__ == '__main__':
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     origin_path = "model/"
@@ -22,15 +23,14 @@ if __name__ == '__main__':
                         level=logging.INFO,
                         format="%(message)s")
     index_infos = [
-        # (RTree, "rtree/%s", "rtree/%s/fill_factor_0.8"),
-        # (PRQuadTree, "prquadtree/%s", "prquadtree/%s/n_500"),
-        # (BRINSpatial, "brinspatial/%s", "brinspatial/%s/ppr_sorted_64"),
-        (TSUSLI, "tsusli/%s", "slibs/%s/stage2_num_1000"),
-        (USLBRIN, "uslbrin/%s", "slbrin/%s/tn_10000"),
+        (RTree, "rtree/%s_0.8", "rtree/%s"),
+        (PRQuadTree, "prquadtree/%s_500", "prquadtree/%s"),
+        (BRINSpatial, "brinspatial/%s_SORTED_sorted_64", "brinspatial/%s"),
+        (TSUSLI, "slibs/%s_SORTED_1000", "tsusli/%s"),
+        (USLBRIN, "slbrin/%s_SORTED_10000", "uslbrin/%s"),
     ]
     data_distributions = [Distribution.NYCT_SORTED, Distribution.NORMAL_SORTED, Distribution.UNIFORM_SORTED]
     for data_distribution in data_distributions:
-        origin_model_path = origin_path + data_distribution.name
         point_query_list = load_query(data_distribution, 0).tolist()
         range_query_list = load_query(data_distribution, 1).tolist()[2000:3000]
         knn_query_list = load_query(data_distribution, 2).tolist()[2000:3000]
@@ -38,8 +38,8 @@ if __name__ == '__main__':
         update_data_list = group_data_by_date(update_data_list, 1359676800, 60 * 60 * 4)
         for index_info in index_infos:
             # 拷贝目标索引磁盘文件
-            origin_model_path = origin_path + index_info[2] % data_distribution.name
-            target_model_path = target_path + index_info[1] % data_distribution.name
+            origin_model_path = origin_path + index_info[1] % data_distribution.name
+            target_model_path = target_path + index_info[2] % data_distribution.name
             if os.path.exists(target_model_path):
                 shutil.rmtree(target_model_path)
             copy_dirs(origin_model_path, target_model_path)
@@ -87,7 +87,7 @@ if __name__ == '__main__':
                 structure_size, ie_size = index.size()
                 logging.info("Structure size: %s" % structure_size)
                 logging.info("Index entry size: %s" % ie_size)
-                # 查询跑多次，避免算力波动的影响
+                # 查询跑5次，舍弃最慢和最快，剩余三个取平均，避免算力波动的影响
                 search_time_list = [0] * 5
                 search_io_cost_list = [0] * 5
                 for k in range(0, 5):

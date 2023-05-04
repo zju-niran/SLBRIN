@@ -2,12 +2,10 @@ import logging
 import math
 import multiprocessing
 import os
-import sys
 import time
 
 import numpy as np
 
-sys.path.append('/home/zju/wlj/SLBRIN')
 from src.spatial_index.common_utils import biased_search_less_max_duplicate, biased_search_duplicate
 from src.experiment.common_utils import load_data, Distribution, data_region, data_precision, load_query
 from src.spatial_index.slibs import SLIBS
@@ -247,7 +245,7 @@ class ZMIndexInPlaceInsert(SLIBS):
             self.logging.info("Retrain model time: %s" % retrain_model_time)
             self.logging.info("Retrain model io: %s" % retrain_model_io)
         self.logging.info("Index entry size: %s" % (index_len * ITEM_SIZE))
-        self.logging.info("Model precision avg: %s" % self.model_err())
+        self.logging.info("Error bound: %s" % self.model_err())
 
     def point_query_single(self, point):
         """
@@ -367,7 +365,7 @@ def main():
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
     io_cost = 0
-    logging.info("Model precision avg: %s" % index.model_err())
+    logging.info("Error bound: %s" % index.model_err())
     point_query_list = load_query(data_distribution, 0).tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)

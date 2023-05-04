@@ -1,12 +1,10 @@
 import logging
 import multiprocessing
 import os
-import sys
 import time
 
 import numpy as np
 
-sys.path.append('/home/zju/wlj/SLBRIN')
 from src.mlp import MLP
 from src.mlp_simple import MLPSimple
 from src.experiment.common_utils import load_data, Distribution, load_query, data_precision, data_region
@@ -230,7 +228,7 @@ def main():
     logging.info("Structure size: %s" % structure_size)
     logging.info("Index entry size: %s" % ie_size)
     io_cost = 0
-    logging.info("Model precision avg: %s" % index.model_err())
+    logging.info("Error bound: %s" % index.model_err())
     point_query_list = load_query(data_distribution, 0).tolist()
     start_time = time.time()
     results = index.point_query(point_query_list)

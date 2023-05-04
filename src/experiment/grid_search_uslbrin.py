@@ -1,23 +1,21 @@
 import logging
 import os
 import shutil
-import sys
 import time
 
-sys.path.append('/home/zju/wlj/SLBRIN')
 from src.experiment.common_utils import Distribution, load_query, load_data, copy_dirs, group_data_by_date
 from src.spatial_index.tsusli import TSUSLI
 from src.spatial_index.uslbrin import USLBRIN
 
+"""
+实验探究：对比启用或不启用tcrm下uslbrin/tsusli的整体性能
+1. 误差阈值控制机制：不同误差阈值（tel、tef、ten）下，学习模型和预测模型的性能对比
+2. 历史增量学习机制：以随机初始化权重和历史模型为起点，学习模型的性能变化
+"""
 if __name__ == '__main__':
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-    import tensorflow as tf
-
-    gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
-    for gpu in gpus:
-        tf.config.experimental.set_memory_growth(gpu, True)
     os.chdir(os.path.dirname(os.path.realpath(__file__)))
     origin_path = "model/"
     target_path = "model/compare_uslbrin/"
@@ -107,7 +105,7 @@ if __name__ == '__main__':
             structure_size, ie_size = index.size()
             logging.info("Structure size: %s" % structure_size)
             logging.info("Index entry size: %s" % ie_size)
-            logging.info("Model precision avg: %s" % index.model_err())
+            logging.info("Error bound: %s" % index.model_err())
             for update_data in update_data_list:
                 index.insert(update_data)
                 logging.info("Update data num: %s" % len(update_data))
