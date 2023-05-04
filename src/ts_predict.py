@@ -21,7 +21,6 @@ warnings.simplefilter('ignore', UserWarning)
 warnings.simplefilter('ignore', RuntimeWarning)
 
 
-# TODO: 只有ES和VAR完成了TCRM改造
 class TimeSeriesModel:
     """
     时空序列预测模型：statsmodels或Keras实现，服务于TSUM
@@ -137,14 +136,13 @@ class ESResult(TSResult):
         return np.array(data)
 
     def build(self, data, trend, seasonal, is_plot=False):
-        model = ExponentialSmoothing(data, seasonal_periods=self.lag, trend=trend, seasonal=seasonal).fit()
-        self.model = model
+        self.model = ExponentialSmoothing(data, seasonal_periods=self.lag, trend=trend, seasonal=seasonal).fit()
         self.err = self.get_err(data)
         if is_plot:
             if os.path.exists(self.model_path) is False:
                 os.makedirs(self.model_path)
             plt.plot(data)
-            plt.plot(model.predict(0, len(data) - 1))
+            plt.plot(self.model.predict(0, data.size - 1))
             plt.savefig(
                 self.model_path + "%s_%s_%s.png" % (trend, seasonal, self.err))
             plt.close()
@@ -173,7 +171,8 @@ class ESResult(TSResult):
                    for err in correct_max_key(self.model.predict(0, data.size - 1)) - data]) / data.size
         return mae
 
-    def grid_search(self, thread=1, start_num=0):
+    def grid_search(self, data, thread=1, start_num=0):
+        data = self.init_data(data)
         trends = ["add", "mul", "additive", "multiplicative", None]
         seasonals = ["add", "mul", "additive", "multiplicative", None]
         pool = multiprocessing.Pool(processes=thread)
@@ -182,7 +181,7 @@ class ESResult(TSResult):
             for seasonal in seasonals:
                 i += 1
                 if i > start_num:
-                    pool.apply_async(self.build, (trend, seasonal, True))
+                    pool.apply_async(self.build, (data, trend, seasonal, True))
         pool.close()
         pool.join()
         self.print_grid_search_result()
@@ -199,43 +198,65 @@ class SARIMAResult(TSResult):
     2. 季节：PQD
     """
 
-    def __init__(self, data, lag, predict_step, model_path):
+    def __init__(self, lag, predict_step, model_path):
         super().__init__()
-        self.data = np.array(data)
         self.lag = lag
         self.predict_step = predict_step
         self.model_path = model_path + 'sarima/'
+        self.model = None
+        self.err = 0
 
-    def build(self, p, d, q, P, Q, D, is_plot=False):
-        model = SARIMAX(self.data, order=(p, d, q), seasonal_order=(P, D, Q, self.lag),
-                        enforce_stationarity=False,
-                        enforce_invertibility=False).fit(disp=False)
-        pre = correct_max_key(model.forecast(steps=self.predict_step)).tolist()
-        # mse = model.mse
-        mae = sum(
-            [abs(data) for data in correct_max_key(model.predict(0, self.data.size - 1)) - self.data]) / self.data.size
+    def init_data(self, data):
+        return np.array(data)
+
+    def build(self, data, p, d, q, P, Q, D, is_plot=False):
+        self.model = SARIMAX(data, order=(p, d, q), seasonal_order=(P, D, Q, self.lag),
+                             enforce_stationarity=False,
+                             enforce_invertibility=False).fit(disp=False)
+        self.err = self.get_err(data)
         if is_plot:
             if os.path.exists(self.model_path) is False:
                 os.makedirs(self.model_path)
-            plt.plot(self.data)
-            plt.plot(model.predict(0, self.data.size - 1))
+            plt.plot(data)
+            plt.plot(self.model.predict(0, data.size - 1))
             plt.savefig(
-                self.model_path + "%s_%s_%s_%s_%s_%s_%s.png" % (p, d, q, P, D, Q, mae))
+                self.model_path + "%s_%s_%s_%s_%s_%s_%s.png" % (p, d, q, P, D, Q, self.err))
             plt.close()
-        return pre, mae
 
-    def train(self):
-        return self.build(p=3, d=1, q=0, P=2, D=0, Q=3)
+    def predict(self):
+        return correct_max_key(self.model.forecast(steps=self.predict_step)).tolist()
 
-    def grid_search(self, thread=1, start_num=0):
+    def train(self, data):
+        data = self.init_data(data)
+        self.build(data, p=3, d=1, q=0, P=2, D=0, Q=3)
+        return self.predict(), 1
+
+    def retrain(self, data, threshold_err):
+        data = self.init_data(data)
+        old_err = self.err
+        self.err = self.get_err(data)
+        if self.err <= threshold_err * old_err:
+            return self.predict(), 0
+        else:
+            self.build(data, p=3, d=1, q=0, P=2, D=0, Q=3)
+            return self.predict(), 1
+
+    def get_err(self, data):
+        # mse = model.mse
+        mae = sum(
+            [abs(data) for data in correct_max_key(self.model.predict(0, data.size - 1)) - data]) / data.size
+        return mae
+
+    def grid_search(self, data, thread=1, start_num=0):
         # from statsmodels.tsa.stattools import acf, pacf
-        # acf_list = acf(self.data, nlags=10)
-        # pacf_list = pacf(self.data, nlags=10)
+        # acf_list = acf(data, nlags=10)
+        # pacf_list = pacf(data, nlags=10)
         #       AR(p)         MA(q)            ARMA(p,q)
         # ACF   拖尾           截尾+q阶后为0     拖尾+q阶后为0
         # PACF  截尾+p阶后为0   拖尾             拖尾+p阶后为0
-        # plot_acf(self.data, lags=10).show()
-        # plot_pacf(self.data, lags=10).show()
+        # plot_acf(data, lags=10).show()
+        # plot_pacf(data, lags=10).show()
+        data = self.init_data(data)
         ps = ds = qs = [0, 1, 2, 3]
         Ps = Ds = Qs = [0, 1, 2, 3]
         pool = multiprocessing.Pool(processes=thread)
@@ -248,7 +269,7 @@ class SARIMAResult(TSResult):
                             for Q in Qs:
                                 i += 1
                                 if i > start_num:
-                                    pool.apply_async(self.build, (p, d, q, P, D, Q, True))
+                                    pool.apply_async(self.build, (data, p, d, q, P, D, Q, True))
         pool.close()
         pool.join()
         self.print_grid_search_result()
@@ -262,28 +283,32 @@ class RNNResult(TSResult):
     2. 训练参数：学习率、批大小
     """
 
-    def __init__(self, data, lag, predict_step, model_path):
+    def __init__(self, lag, predict_step, model_path):
         super().__init__()
-        group_num = len(data) - lag - predict_step + 1
-        k = int(0.7 * group_num)
-        if k:  # if data is enough, split into train_data and test_data
-            self.train_x = np.array([data[i:i + lag] for i in range(0, k)])
-            self.train_y = np.array([data[i + lag:i + lag + predict_step] for i in range(0, k)])
-            self.test_x = np.array([data[i:i + lag] for i in range(k, group_num)])
-            self.test_y = np.array([data[i + lag:i + lag + predict_step] for i in range(k, group_num)])
-        else:  # if data is not enough, keep the same between train_data and test_data
-            self.train_x = np.array([data[i:i + lag] for i in range(0, group_num)])
-            self.train_y = np.array([data[i + lag:i + lag + predict_step] for i in range(0, group_num)])
-            self.test_x = self.train_x
-            self.test_y = self.train_y
-        self.pre_x = np.expand_dims(np.array(data[-lag:]), 0)
         self.lag = lag
         self.predict_step = predict_step
         self.model_path = model_path + 'rnn/'
 
-    def build(self, activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size, is_plot=False):
+    def init_data(self, data):
+        group_num = len(data) - self.lag - self.predict_step + 1
+        k = int(0.7 * group_num)
+        if k:  # if data is enough, split into train_data and test_data
+            train_x = np.array([data[i:i + self.lag] for i in range(0, k)])
+            train_y = np.array([data[i + self.lag:i + self.lag + self.predict_step] for i in range(0, k)])
+            test_x = np.array([data[i:i + self.lag] for i in range(k, group_num)])
+            test_y = np.array([data[i + self.lag:i + self.lag + self.predict_step] for i in range(k, group_num)])
+        else:  # if data is not enough, keep the same between train_data and test_data
+            train_x = np.array([data[i:i + self.lag] for i in range(0, group_num)])
+            train_y = np.array([data[i + self.lag:i + self.lag + self.predict_step] for i in range(0, group_num)])
+            test_x = train_x
+            test_y = train_y
+        pre_x = np.expand_dims(np.array(data[-self.lag:]), 0)
+        return train_x, train_y, test_x, test_y, pre_x
+
+    def build(self, train_x, train_y, test_x, test_y,
+              activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size, is_plot=False):
         start_time = time.time()
-        model = Sequential([
+        self.model = Sequential([
             SimpleRNN(activation=activation, units=unit1, input_shape=(self.lag, 1), return_sequences=True),
             # Dropout(dropout1),
             SimpleRNN(activation=activation, units=unit2, return_sequences=False),
@@ -291,18 +316,13 @@ class RNNResult(TSResult):
             Dense(units=self.predict_step)
         ])
         optimizer = Adam(learning_rate=learning_rate)
-        model.compile(optimizer=optimizer, loss='mse')
+        self.model.compile(optimizer=optimizer, loss='mse')
         early_stopping = EarlyStopping(monitor="loss", patience=10, min_delta=0.001, verbose=0)
         # reduce_lr = ReduceLROnPlateau(monitor="loss", patience=5, verbose=0)
-        history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x, self.test_y),
-                            epochs=100, batch_size=batch_size,
-                            callbacks=[early_stopping], verbose=0)
-        pre = correct_max_key(model.predict(self.pre_x)[0]).tolist()
-        # ERROR: loss里的mse和实际计算的mse有差距
-        mae = sum(sum([abs(pre - true)
-                       for pre, true in
-                       zip(correct_max_key(model.predict(self.test_x)), self.test_y)])) / self.test_y.size
-        # mse = history.history['val_loss'][-1]
+        history = self.model.fit(train_x, train_y, validation_data=(test_x, test_y),
+                                 epochs=100, batch_size=batch_size,
+                                 callbacks=[early_stopping], verbose=0)
+        self.err = self.get_err(test_x, test_y)
         end_time = time.time()
         if is_plot:
             if os.path.exists(self.model_path) is False:
@@ -312,16 +332,41 @@ class RNNResult(TSResult):
             plt.savefig(
                 self.model_path + "%s_%s_%s_%s_%s_%s_%s_%s_%s.png" % (
                     activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size,
-                    end_time - start_time, mae))
+                    end_time - start_time, self.err))
             plt.close()
-        return pre, mae
 
-    def train(self):
-        return self.build(activation='relu', unit1=128, unit2=256, dropout1=0.0, dropout2=0.0,
-                          learning_rate=0.01, batch_size=4)
+    def predict(self, pre_x):
+        return correct_max_key(self.model.predict(pre_x)[0]).tolist()
 
-    def grid_search(self, thread=1, start_num=0):
-        # TODO
+    def train(self, data):
+        train_x, train_y, test_x, test_y, pre_x = self.init_data(data)
+        self.build(train_x, train_y, test_x, test_y,
+                   activation='relu', unit1=128, unit2=256, dropout1=0.0, dropout2=0.0, learning_rate=0.01,
+                   batch_size=4)
+        return self.predict(pre_x), 1
+
+    def retrain(self, data, threshold_err):
+        train_x, train_y, test_x, test_y, pre_x = self.init_data(data)
+        old_err = self.err
+        self.err = self.get_err(test_x, test_y)
+        if self.err <= threshold_err * old_err:
+            return self.predict(pre_x), 0
+        else:
+            self.build(train_x, train_y, test_x, test_y,
+                       activation='relu', unit1=128, unit2=256, dropout1=0.0, dropout2=0.0, learning_rate=0.01,
+                       batch_size=4)
+            return self.predict(pre_x), 1
+
+    def get_err(self, test_x, test_y):
+        # ERROR: loss里的mse和实际计算的mse有差距
+        mae = sum(sum([abs(pre - true)
+                       for pre, true in
+                       zip(correct_max_key(self.model.predict(test_x)), test_y)])) / test_y.size
+        # mse = history.history['val_loss'][-1]
+        return mae
+
+    def grid_search(self, data, thread=1, start_num=0):
+        train_x, train_y, test_x, test_y, pre_x = self.init_data(data)
         # activations = ['relu', 'leaky_relu', 'tanh']
         activations = ['relu']
         # unit1s = [32, 64, 128, 256, 516]
@@ -348,7 +393,8 @@ class RNNResult(TSResult):
                                     i += 1
                                     if i > start_num:
                                         pool.apply_async(self.build,
-                                                         (activation, unit1, unit2, dropout1, dropout2, learning_rate,
+                                                         (train_x, train_y, test_x, test_y,
+                                                          activation, unit1, unit2, dropout1, dropout2, learning_rate,
                                                           batch_size, True))
         pool.close()
         pool.join()
@@ -363,28 +409,32 @@ class LSTMResult(TSResult):
     2. 训练参数：学习率、批大小
     """
 
-    def __init__(self, data, lag, predict_step, model_path):
+    def __init__(self, lag, predict_step, model_path):
         super().__init__()
-        group_num = len(data) - lag - predict_step + 1
-        k = int(0.7 * group_num)
-        if k:  # if data is enough, split into train_data and test_data
-            self.train_x = np.array([data[i:i + lag] for i in range(0, k)])
-            self.train_y = np.array([data[i + lag:i + lag + predict_step] for i in range(0, k)])
-            self.test_x = np.array([data[i:i + lag] for i in range(k, group_num)])
-            self.test_y = np.array([data[i + lag:i + lag + predict_step] for i in range(k, group_num)])
-        else:  # if data is not enough, keep the same between train_data and test_data
-            self.train_x = np.array([data[i:i + lag] for i in range(0, group_num)])
-            self.train_y = np.array([data[i + lag:i + lag + predict_step] for i in range(0, group_num)])
-            self.test_x = self.train_x
-            self.test_y = self.train_y
-        self.pre_x = np.expand_dims(np.array(data[-lag:]), 0)
         self.lag = lag
         self.predict_step = predict_step
         self.model_path = model_path + 'lstm/'
 
-    def build(self, activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size, is_plot=False):
+    def init_data(self, data):
+        group_num = len(data) - self.lag - self.predict_step + 1
+        k = int(0.7 * group_num)
+        if k:  # if data is enough, split into train_data and test_data
+            train_x = np.array([data[i:i + self.lag] for i in range(0, k)])
+            train_y = np.array([data[i + self.lag:i + self.lag + self.predict_step] for i in range(0, k)])
+            test_x = np.array([data[i:i + self.lag] for i in range(k, group_num)])
+            test_y = np.array([data[i + self.lag:i + self.lag + self.predict_step] for i in range(k, group_num)])
+        else:  # if data is not enough, keep the same between train_data and test_data
+            train_x = np.array([data[i:i + self.lag] for i in range(0, group_num)])
+            train_y = np.array([data[i + self.lag:i + self.lag + self.predict_step] for i in range(0, group_num)])
+            test_x = train_x
+            test_y = train_y
+        pre_x = np.expand_dims(np.array(data[-self.lag:]), 0)
+        return train_x, train_y, test_x, test_y, pre_x
+
+    def build(self, train_x, train_y, test_x, test_y,
+              activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size, is_plot=False):
         start_time = time.time()
-        model = Sequential([
+        self.model = Sequential([
             LSTM(activation=activation, units=unit1, input_shape=(self.lag, 1), return_sequences=True),
             # Dropout(dropout1),
             LSTM(activation=activation, units=unit2, return_sequences=False),
@@ -392,18 +442,13 @@ class LSTMResult(TSResult):
             Dense(units=self.predict_step)
         ])
         optimizer = Adam(learning_rate=learning_rate)
-        model.compile(optimizer=optimizer, loss='mse')
+        self.model.compile(optimizer=optimizer, loss='mse')
         early_stopping = EarlyStopping(monitor="loss", patience=10, min_delta=0.001, verbose=0)
         # reduce_lr = ReduceLROnPlateau(monitor="loss", patience=5, verbose=0)
-        history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x, self.test_y),
-                            epochs=100, batch_size=batch_size,
-                            callbacks=[early_stopping], verbose=0)
-        pre = correct_max_key(model.predict(self.pre_x)[0]).tolist()
-        # ERROR: loss里的mse和实际计算的mse有差距
-        mae = sum(sum([abs(pre - true)
-                       for pre, true in
-                       zip(correct_max_key(model.predict(self.test_x)), self.test_y)])) / self.test_y.size
-        # mse = history.history['val_loss'][-1]
+        history = self.model.fit(train_x, train_y, validation_data=(test_x, test_y),
+                                 epochs=100, batch_size=batch_size,
+                                 callbacks=[early_stopping], verbose=0)
+        self.err = self.get_err(test_x, test_y)
         end_time = time.time()
         if is_plot:
             if os.path.exists(self.model_path) is False:
@@ -413,15 +458,41 @@ class LSTMResult(TSResult):
             plt.savefig(
                 self.model_path + "%s_%s_%s_%s_%s_%s_%s_%s_%s.png" % (
                     activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size,
-                    end_time - start_time, mae))
+                    end_time - start_time, self.err))
             plt.close()
-        return pre, mae
 
-    def train(self):
-        return self.build(activation='relu', unit1=128, unit2=256, dropout1=0.0, dropout2=0.0,
-                          learning_rate=0.01, batch_size=4)
+    def predict(self, pre_x):
+        return correct_max_key(self.model.predict(pre_x)[0]).tolist()
 
-    def grid_search(self, thread=1, start_num=0):
+    def train(self, data):
+        train_x, train_y, test_x, test_y, pre_x = self.init_data(data)
+        self.build(train_x, train_y, test_x, test_y,
+                   activation='relu', unit1=128, unit2=256, dropout1=0.0, dropout2=0.0, learning_rate=0.01,
+                   batch_size=4)
+        return self.predict(pre_x), 1
+
+    def retrain(self, data, threshold_err):
+        train_x, train_y, test_x, test_y, pre_x = self.init_data(data)
+        old_err = self.err
+        self.err = self.get_err(test_x, test_y)
+        if self.err <= threshold_err * old_err:
+            return self.predict(pre_x), 0
+        else:
+            self.build(train_x, train_y, test_x, test_y,
+                       activation='relu', unit1=128, unit2=256, dropout1=0.0, dropout2=0.0, learning_rate=0.01,
+                       batch_size=4)
+            return self.predict(pre_x), 1
+
+    def get_err(self, test_x, test_y):
+        # ERROR: loss里的mse和实际计算的mse有差距
+        mae = sum(sum([abs(pre - true)
+                       for pre, true in
+                       zip(correct_max_key(self.model.predict(test_x)), test_y)])) / test_y.size
+        # mse = history.history['val_loss'][-1]
+        return mae
+
+    def grid_search(self, data, thread=1, start_num=0):
+        train_x, train_y, test_x, test_y, pre_x = self.init_data(data)
         # activations = ['relu', 'leaky_relu', 'tanh']
         activations = ['relu']
         # unit1s = [32, 64, 128, 256, 516]
@@ -448,7 +519,8 @@ class LSTMResult(TSResult):
                                     i += 1
                                     if i > start_num:
                                         pool.apply_async(self.build,
-                                                         (activation, unit1, unit2, dropout1, dropout2, learning_rate,
+                                                         (train_x, train_y, test_x, test_y,
+                                                          activation, unit1, unit2, dropout1, dropout2, learning_rate,
                                                           batch_size, True))
         pool.close()
         pool.join()
@@ -463,28 +535,32 @@ class GRUResult(TSResult):
     2. 训练参数：学习率、批大小
     """
 
-    def __init__(self, data, lag, predict_step, model_path):
+    def __init__(self, lag, predict_step, model_path):
         super().__init__()
-        group_num = len(data) - lag - predict_step + 1
-        k = int(0.7 * group_num)
-        if k:  # if data is enough, split into train_data and test_data
-            self.train_x = np.array([data[i:i + lag] for i in range(0, k)])
-            self.train_y = np.array([data[i + lag:i + lag + predict_step] for i in range(0, k)])
-            self.test_x = np.array([data[i:i + lag] for i in range(k, group_num)])
-            self.test_y = np.array([data[i + lag:i + lag + predict_step] for i in range(k, group_num)])
-        else:  # if data is not enough, keep the same between train_data and test_data
-            self.train_x = np.array([data[i:i + lag] for i in range(0, group_num)])
-            self.train_y = np.array([data[i + lag:i + lag + predict_step] for i in range(0, group_num)])
-            self.test_x = self.train_x
-            self.test_y = self.train_y
-        self.pre_x = np.expand_dims(np.array(data[-lag:]), 0)
         self.lag = lag
         self.predict_step = predict_step
         self.model_path = model_path + 'gru/'
 
-    def build(self, activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size, is_plot=False):
+    def init_data(self, data):
+        group_num = len(data) - self.lag - self.predict_step + 1
+        k = int(0.7 * group_num)
+        if k:  # if data is enough, split into train_data and test_data
+            train_x = np.array([data[i:i + self.lag] for i in range(0, k)])
+            train_y = np.array([data[i + self.lag:i + self.lag + self.predict_step] for i in range(0, k)])
+            test_x = np.array([data[i:i + self.lag] for i in range(k, group_num)])
+            test_y = np.array([data[i + self.lag:i + self.lag + self.predict_step] for i in range(k, group_num)])
+        else:  # if data is not enough, keep the same between train_data and test_data
+            train_x = np.array([data[i:i + self.lag] for i in range(0, group_num)])
+            train_y = np.array([data[i + self.lag:i + self.lag + self.predict_step] for i in range(0, group_num)])
+            test_x = train_x
+            test_y = train_y
+        pre_x = np.expand_dims(np.array(data[-self.lag:]), 0)
+        return train_x, train_y, test_x, test_y, pre_x
+
+    def build(self, train_x, train_y, test_x, test_y,
+              activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size, is_plot=False):
         start_time = time.time()
-        model = Sequential([
+        self.model = Sequential([
             GRU(activation=activation, units=unit1, input_shape=(self.lag, 1), return_sequences=True),
             # Dropout(dropout1),
             GRU(activation=activation, units=unit2, return_sequences=False),
@@ -492,18 +568,13 @@ class GRUResult(TSResult):
             Dense(units=self.predict_step)
         ])
         optimizer = Adam(learning_rate=learning_rate)
-        model.compile(optimizer=optimizer, loss='mse')
+        self.model.compile(optimizer=optimizer, loss='mse')
         early_stopping = EarlyStopping(monitor="loss", patience=10, min_delta=0.001, verbose=0)
         # reduce_lr = ReduceLROnPlateau(monitor="loss", patience=5, verbose=0)
-        history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x, self.test_y),
-                            epochs=100, batch_size=batch_size,
-                            callbacks=[early_stopping], verbose=0)
-        pre = correct_max_key(model.predict(self.pre_x)[0]).tolist()
-        # ERROR: loss里的mse和实际计算的mse有差距
-        mae = sum(sum([abs(pre - true)
-                       for pre, true in
-                       zip(correct_max_key(model.predict(self.test_x)), self.test_y)])) / self.test_y.size
-        # mse = history.history['val_loss'][-1]
+        history = self.model.fit(train_x, train_y, validation_data=(test_x, test_y),
+                                 epochs=100, batch_size=batch_size,
+                                 callbacks=[early_stopping], verbose=0)
+        self.err = self.get_err(test_x, test_y)
         end_time = time.time()
         if is_plot:
             if os.path.exists(self.model_path) is False:
@@ -513,16 +584,41 @@ class GRUResult(TSResult):
             plt.savefig(
                 self.model_path + "%s_%s_%s_%s_%s_%s_%s_%s_%s.png" % (
                     activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size,
-                    end_time - start_time, mae))
+                    end_time - start_time, self.err))
             plt.close()
-        return pre, mae
 
-    def train(self):
-        return self.build(activation='relu', unit1=128, unit2=256, dropout1=0.0, dropout2=0.0,
-                          learning_rate=0.01, batch_size=4)
+    def predict(self, pre_x):
+        return correct_max_key(self.model.predict(pre_x)[0]).tolist()
 
-    def grid_search(self, thread=1, start_num=0):
-        # TODO
+    def train(self, data):
+        train_x, train_y, test_x, test_y, pre_x = self.init_data(data)
+        self.build(train_x, train_y, test_x, test_y,
+                   activation='relu', unit1=128, unit2=256, dropout1=0.0, dropout2=0.0, learning_rate=0.01,
+                   batch_size=4)
+        return self.predict(pre_x), 1
+
+    def retrain(self, data, threshold_err):
+        train_x, train_y, test_x, test_y, pre_x = self.init_data(data)
+        old_err = self.err
+        self.err = self.get_err(test_x, test_y)
+        if self.err <= threshold_err * old_err:
+            return self.predict(pre_x), 0
+        else:
+            self.build(train_x, train_y, test_x, test_y,
+                       activation='relu', unit1=128, unit2=256, dropout1=0.0, dropout2=0.0, learning_rate=0.01,
+                       batch_size=4)
+            return self.predict(pre_x), 1
+
+    def get_err(self, test_x, test_y):
+        # ERROR: loss里的mse和实际计算的mse有差距
+        mae = sum(sum([abs(pre - true)
+                       for pre, true in
+                       zip(correct_max_key(self.model.predict(test_x)), test_y)])) / test_y.size
+        # mse = history.history['val_loss'][-1]
+        return mae
+
+    def grid_search(self, data, thread=1, start_num=0):
+        train_x, train_y, test_x, test_y, pre_x = self.init_data(data)
         # activations = ['relu', 'leaky_relu', 'tanh']
         activations = ['relu']
         # unit1s = [32, 64, 128, 256, 516]
@@ -549,7 +645,8 @@ class GRUResult(TSResult):
                                     i += 1
                                     if i > start_num:
                                         pool.apply_async(self.build,
-                                                         (activation, unit1, unit2, dropout1, dropout2, learning_rate,
+                                                         (train_x, train_y, test_x, test_y,
+                                                          activation, unit1, unit2, dropout1, dropout2, learning_rate,
                                                           batch_size, True))
         pool.close()
         pool.join()
@@ -590,16 +687,15 @@ class VARResult(TSResult):
         except ValueError:
             # 数据异常，只能放弃趋势
             try:
-                model = VAR(train_data).fit(maxlags=self.lag, verbose=False, trend='n')
+                self.model = VAR(train_data).fit(maxlags=self.lag, verbose=False, trend='n')
             except LinAlgError:
-                model = VAR(train_data[1:]).fit(maxlags=self.lag, verbose=False, trend='n')
-        self.model = model
+                self.model = VAR(train_data[1:]).fit(maxlags=self.lag, verbose=False, trend='n')
         self.err = self.get_err(test_data)
         if is_plot:
             if os.path.exists(self.model_path) is False:
                 os.makedirs(self.model_path)
             plt.plot(test_data[-1])
-            plt.plot(model.forecast(test_data[-self.lag:], steps=1))
+            plt.plot(self.model.forecast(test_data[-self.lag:], steps=1))
             plt.savefig(
                 self.model_path + "default_%s.png" % self.err)
             plt.close()
@@ -623,26 +719,18 @@ class VARResult(TSResult):
             return self.predict(test_data[-self.lag:]), 1
 
     def get_err(self, data):
-        # 训练集的mae
-        # train_group_num = len(self.train_data) - self.lag - self.predict_step + 1
-        # mae = sum([sum([abs(err)
-        #                 for l in (correct_cdf(self.model.forecast(self.train_data[i:i + self.lag], steps=self.predict_step))
-        #                           - self.train_data[self.lag: i + self.lag + self.predict_step])
-        #                 for err in l])
-        #            for i in range(train_group_num)]) / (train_group_num * self.width * self.predict_step)
-        # 验证集的mae
         test_group_num = len(data) - self.lag - self.predict_step + 1
         mae = sum([sum([abs(err)
-                        for l in (correct_cdf(self.model.forecast(data[i:i + self.lag],
-                                                                  steps=self.predict_step))
+                        for l in (correct_cdf(self.model.forecast(data[i:i + self.lag], steps=self.predict_step))
                                   - data[i + self.lag: i + self.lag + self.predict_step])
                         for err in l])
                    for i in range(test_group_num)]) / (test_group_num * self.width * self.predict_step)
         return mae
 
-    def grid_search(self, thread=1, start_num=0):
+    def grid_search(self, data, thread=1, start_num=0):
+        train_data, test_data = self.init_data(data)
         pool = multiprocessing.Pool(processes=thread)
-        pool.apply_async(self.build, (None, True))
+        pool.apply_async(self.build, (train_data, test_data, None, True))
         pool.close()
         pool.join()
         self.print_grid_search_result()
@@ -655,60 +743,74 @@ class VSARIMAResult(TSResult):
     2. VARMA(p, q)：有趋势，无季节性
     grid search:
     1. 趋势：pq
-    TODO: ERROR: data.shape是[31,100]时报错，但[31,2]时不报错
+    ERROR: data.shape是[31,100]时报错，但[31,2]时不报错
     grid search:
     """
 
-    def __init__(self, data, lag, predict_step, width, model_path):
+    def __init__(self, lag, predict_step, width, model_path):
         super().__init__()
-        data = np.array(data)
-        k = int(0.7 * len(data))
-        if len(data) - k >= lag + predict_step:  # if data is enough, split into train_data and test_data
-            self.train_data = data[:k]
-            self.test_data = data[k:]
-        else:  # if data is not enough, keep the same between train_data and test_data
-            self.train_data = data
-            self.test_data = data
         self.predict_step = predict_step
         self.lag = lag
         self.width = width
         self.model_path = model_path + 'vsarima/'
+        self.model = None
+        self.err = 0
 
-    def build(self, p, q, is_plot=False):
-        model = VARMAX(self.train_data, order=(p, q),
-                       error_cov_type='error_cov_type',
-                       enforce_stationarity=False,
-                       enforce_invertibility=False).fit(disp=False)
-        pre = correct_cdf(model.forecast(self.test_data[-self.lag:], steps=self.predict_step)).tolist()
-        # 训
-        # train_group_num = len(self.train_data) - self.lag - self.predict_step + 1
-        # mae = sum([sum([abs(err)
-        #                 for l in (correct_cdf(model.forecast(self.train_data[i:i + self.lag], steps=self.predict_step))
-        #                           - self.train_data[self.lag: i + self.lag + self.predict_step])
-        #                 for err in l])
-        #            for i in range(train_group_num)]) / (train_group_num * self.width * self.predict_step)
-        # mse = model.mse
-        # 验证集的mae
-        test_group_num = len(self.test_data) - self.lag - self.predict_step + 1
-        mae = sum([sum([abs(err)
-                        for l in (correct_cdf(model.forecast(self.test_data[i:i + self.lag], steps=self.predict_step))
-                                  - self.test_data[i + self.lag: i + self.lag + self.predict_step])
-                        for err in l])
-                   for i in range(test_group_num)]) / (test_group_num * self.width * self.predict_step)
+    def init_data(self, data):
+        data = np.array(data)
+        k = int(0.7 * len(data))
+        if len(data) - k >= self.lag + self.predict_step:  # if data is enough, split into train_data and test_data
+            train_data = data[:k]
+            test_data = data[k:]
+        else:  # if data is not enough, keep the same between train_data and test_data
+            train_data = data
+            test_data = data
+        return train_data, test_data
+
+    def build(self, train_data, test_data, p, q, is_plot=False):
+        self.model = VARMAX(train_data, order=(p, q),
+                            error_cov_type='error_cov_type',
+                            enforce_stationarity=False,
+                            enforce_invertibility=False).fit(disp=False)
+        self.err = self.get_err(test_data)
         if is_plot:
             if os.path.exists(self.model_path) is False:
                 os.makedirs(self.model_path)
-            plt.plot(self.test_data[-1])
-            plt.plot(model.forecast(self.test_data[-self.lag:], steps=1))
+            plt.plot(test_data[-1])
+            plt.plot(self.model.forecast(test_data[-self.lag:], steps=1))
             plt.savefig(
-                self.model_path + "%s_%s_%s.png" % (p, q, mae))
+                self.model_path + "%s_%s_%s.png" % (p, q, self.err))
             plt.close()
-        return pre, mae
 
-    def train(self):
-        return self.build(p=2, q=0)
+    def predict(self, data):
+        return correct_cdf(self.model.forecast(data, steps=self.predict_step)).tolist()
 
-    def grid_search(self, thread=1, start_num=0):
+    def train(self, data):
+        train_data, test_data = self.init_data(data)
+        self.build(train_data, test_data, p=2, q=0)
+        return self.predict(test_data[-self.lag:]), 1
+
+    def retrain(self, data, threshold_err):
+        train_data, test_data = self.init_data(data)
+        old_err = self.err
+        self.err = self.get_err(test_data)
+        if self.err <= threshold_err * old_err:
+            return self.predict(test_data[-self.lag:]), 0
+        else:
+            self.build(train_data, test_data, p=2, q=0)
+            return self.predict(test_data[-self.lag:]), 1
+
+    def get_err(self, data):
+        test_group_num = len(data) - self.lag - self.predict_step + 1
+        mae = sum([sum([abs(err)
+                        for l in (correct_cdf(self.model.forecast(data[i:i + self.lag], steps=self.predict_step))
+                                  - data[i + self.lag: i + self.lag + self.predict_step])
+                        for err in l])
+                   for i in range(test_group_num)]) / (test_group_num * self.width * self.predict_step)
+        return mae
+
+    def grid_search(self, data, thread=1, start_num=0):
+        train_data, test_data = self.init_data(data)
         ps = qs = [0, 1, 2, 3]
         pool = multiprocessing.Pool(processes=thread)
         i = 0
@@ -716,7 +818,7 @@ class VSARIMAResult(TSResult):
             for q in qs:
                 i += 1
                 if i > start_num:
-                    pool.apply_async(self.build, (p, q, True))
+                    pool.apply_async(self.build, (train_data, test_data, p, q, True))
         pool.close()
         pool.join()
         self.print_grid_search_result()
@@ -730,31 +832,37 @@ class FCLSTMResult(TSResult):
     2. 训练参数：学习率、批大小
     """
 
-    def __init__(self, data, lag, predict_step, width, model_path):
+    def __init__(self, lag, predict_step, width, model_path):
         super().__init__()
-        group_num = len(data) - lag - predict_step + 1
-        k = int(0.7 * group_num)
-        if k:  # if data is enough, split into train_data and test_data
-            self.train_x = np.array([data[i:i + lag] for i in range(0, k)])
-            self.train_y = np.array([data[i + lag:i + lag + predict_step] for i in range(0, k)])
-            self.train_y = self.train_y.reshape(self.train_y.shape[0], predict_step * width)
-            self.test_x = np.array([data[i:i + lag] for i in range(k, group_num)])
-            self.test_y = np.array([data[i + lag:i + lag + predict_step] for i in range(k, group_num)])
-            self.test_y = self.test_y.reshape(self.test_y.shape[0], predict_step * width)
-        else:  # if data is not enough, keep the same between train_data and test_data
-            self.train_x = np.array([data[i:i + lag] for i in range(0, group_num)])
-            self.train_y = np.array([data[i + lag:i + lag + predict_step] for i in range(0, group_num)])
-            self.train_y = self.train_y.reshape(self.train_y.shape[0], predict_step * width)
-            self.test_x = self.train_x
-            self.test_y = self.train_y
-        self.pre_x = np.expand_dims(np.array(data[-lag:]), 0)
         self.lag = lag
         self.predict_step = predict_step
         self.width = width
         self.model_path = model_path + 'fclstm/'
+        self.model = None
+        self.err = 0
 
-    def build(self, activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size, is_plot=False):
-        model = Sequential([
+    def init_data(self, data):
+        group_num = len(data) - self.lag - self.predict_step + 1
+        k = int(0.7 * group_num)
+        if k:  # if data is enough, split into train_data and test_data
+            train_x = np.array([data[i:i + self.lag] for i in range(0, k)])
+            train_y = np.array([data[i + self.lag:i + self.lag + self.predict_step] for i in range(0, k)])
+            train_y = train_y.reshape(train_y.shape[0], self.predict_step * self.width)
+            test_x = np.array([data[i:i + self.lag] for i in range(k, group_num)])
+            test_y = np.array([data[i + self.lag:i + self.lag + self.predict_step] for i in range(k, group_num)])
+            test_y = test_y.reshape(test_y.shape[0], self.predict_step * self.width)
+        else:  # if data is not enough, keep the same between train_data and test_data
+            train_x = np.array([data[i:i + self.lag] for i in range(0, group_num)])
+            train_y = np.array([data[i + self.lag:i + self.lag + self.predict_step] for i in range(0, group_num)])
+            train_y = train_y.reshape(train_y.shape[0], self.predict_step * self.width)
+            test_x = train_x
+            test_y = train_y
+        pre_x = np.expand_dims(np.array(data[-self.lag:]), 0)
+        return train_x, train_y, test_x, test_y, pre_x
+
+    def build(self, train_x, train_y, test_x, test_y,
+              activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size, is_plot=False):
+        self.model = Sequential([
             LSTM(activation=activation, units=unit1, input_shape=(self.lag, self.width), return_sequences=True),
             # Dropout(dropout1),
             LSTM(activation=activation, units=unit2, return_sequences=False),
@@ -762,18 +870,13 @@ class FCLSTMResult(TSResult):
             Dense(units=self.predict_step * self.width)
         ])
         optimizer = Adam(learning_rate=learning_rate)
-        model.compile(optimizer=optimizer, loss='mse')
+        self.model.compile(optimizer=optimizer, loss='mse')
         early_stopping = EarlyStopping(monitor="loss", patience=10, min_delta=0.0005, verbose=0)
         # reduce_lr = ReduceLROnPlateau(monitor="loss", patience=5, verbose=0)
-        history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x, self.test_y),
-                            epochs=100, batch_size=batch_size,
-                            callbacks=[early_stopping], verbose=0)
-        pre = correct_cdf(model.predict(self.pre_x).reshape(self.predict_step, self.width)).tolist()
-        # ERROR: loss里的mse和实际计算的mse有差距
-        # mse = history.history['val_loss'][-1]
-        pres = correct_cdf(model.predict(self.test_x).reshape(self.test_x.shape[0] * self.predict_step, self.width))
-        trues = self.test_y.reshape(self.test_x.shape[0] * self.predict_step, self.width)
-        mae = np.sum(np.abs(pres - trues)) / self.test_y.size
+        history = self.model.fit(train_x, train_y, validation_data=(test_x, test_y),
+                                 epochs=100, batch_size=batch_size,
+                                 callbacks=[early_stopping], verbose=0)
+        self.err = self.get_err(test_x, test_y)
         if is_plot:
             if os.path.exists(self.model_path) is False:
                 os.makedirs(self.model_path)
@@ -781,15 +884,41 @@ class FCLSTMResult(TSResult):
             plt.plot(history.history['val_loss'], label='test')
             plt.savefig(
                 self.model_path + "%s_%s_%s_%s_%s_%s_%s_%s.png" % (
-                    activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size, mae))
+                    activation, unit1, unit2, dropout1, dropout2, learning_rate, batch_size, self.err))
             plt.close()
-        return pre, mae
 
-    def train(self):
-        return self.build(activation='relu', unit1=128, unit2=256, dropout1=0.0, dropout2=0.0,
-                          learning_rate=0.01, batch_size=4)
+    def predict(self, data):
+        return correct_cdf(self.model.predict(data).reshape(self.predict_step, self.width)).tolist()
 
-    def grid_search(self, thread=1, start_num=0):
+    def train(self, data):
+        train_x, train_y, test_x, test_y, pre_x = self.init_data(data)
+        self.build(train_x, train_y, test_x, test_y,
+                   activation='relu', unit1=128, unit2=256, dropout1=0.0, dropout2=0.0,
+                   learning_rate=0.01, batch_size=4)
+        return self.predict(pre_x), 1
+
+    def retrain(self, data, threshold_err):
+        train_x, train_y, test_x, test_y, pre_x = self.init_data(data)
+        old_err = self.err
+        self.err = self.get_err(test_x, test_y)
+        if self.err <= threshold_err * old_err:
+            return self.predict(pre_x), 1
+        else:
+            self.build(train_x, train_y, test_x, test_y,
+                       activation='relu', unit1=128, unit2=256, dropout1=0.0, dropout2=0.0,
+                       learning_rate=0.01, batch_size=4)
+            return self.predict(pre_x), 1
+
+    def get_err(self, test_x, test_y):
+        # ERROR: loss里的mse和实际计算的mse有差距
+        # mse = history.history['val_loss'][-1]
+        pres = correct_cdf(self.model.predict(test_x).reshape(test_x.shape[0] * self.predict_step, self.width))
+        trues = test_y.reshape(test_x.shape[0] * self.predict_step, self.width)
+        mae = np.sum(np.abs(pres - trues)) / test_y.size
+        return mae
+
+    def grid_search(self, data, thread=1, start_num=0):
+        train_x, train_y, test_x, test_y, pre_x = self.init_data(data)
         # activations = ['relu', 'leaky_relu', 'tanh']
         activations = ['relu']
         # unit1s = [32, 64, 128, 256, 516]
@@ -816,7 +945,8 @@ class FCLSTMResult(TSResult):
                                     i += 1
                                     if i > start_num:
                                         pool.apply_async(self.build,
-                                                         (activation, unit1, unit2, dropout1, dropout2, learning_rate,
+                                                         (train_x, train_y, test_x, test_y,
+                                                          activation, unit1, unit2, dropout1, dropout2, learning_rate,
                                                           batch_size, True))
         pool.close()
         pool.join()
@@ -831,33 +961,39 @@ class ConvLSTMResult(TSResult):
     2. 训练参数：学习率、批大小
     """
 
-    def __init__(self, data, lag, predict_step, width, model_path):
+    def __init__(self, lag, predict_step, width, model_path):
         super().__init__()
-        group_num = len(data) - lag - predict_step + 1
-        k = int(0.7 * group_num)
-        if k:  # if data is enough, split into train_data and test_data
-            self.train_x = np.expand_dims(np.array([data[i:i + lag]
-                                                    for i in range(0, k)]), -1)
-            self.train_y = np.expand_dims(np.array([data[i + lag:i + lag + predict_step]
-                                                    for i in range(0, k)]), -1)
-            self.test_x = np.expand_dims(np.array([data[i:i + lag]
-                                                   for i in range(k, group_num)]), -1)
-            self.test_y = np.expand_dims(np.array([data[i + lag:i + lag + predict_step]
-                                                   for i in range(k, group_num)]), -1)
-        else:  # if data is not enough, keep the same between train_data and test_data
-            self.train_x = np.expand_dims(np.array([data[i:i + lag]
-                                                    for i in range(0, group_num)]), -1)
-            self.train_y = np.expand_dims(np.array([data[i + lag:i + lag + predict_step]
-                                                    for i in range(0, group_num)]), -1)
-            self.test_x = self.train_x
-            self.test_y = self.train_y
-        self.pre_x = np.expand_dims(np.array(data[-lag:]), 0)
         self.lag = lag
         self.predict_step = predict_step
         self.width = width
         self.model_path = model_path + 'convlstm/'
+        self.model = None
+        self.err = 0
 
-    def build(self, activation1, activation2, filter1, filter2, dropout1, dropout2, kernal_size,
+    def init_data(self, data):
+        group_num = len(data) - self.lag - self.predict_step + 1
+        k = int(0.7 * group_num)
+        if k:  # if data is enough, split into train_data and test_data
+            train_x = np.expand_dims(np.array([data[i:i + self.lag]
+                                               for i in range(0, k)]), -1)
+            train_y = np.expand_dims(np.array([data[i + self.lag:i + self.lag + self.predict_step]
+                                               for i in range(0, k)]), -1)
+            test_x = np.expand_dims(np.array([data[i:i + self.lag]
+                                              for i in range(k, group_num)]), -1)
+            test_y = np.expand_dims(np.array([data[i + self.lag:i + self.lag + self.predict_step]
+                                              for i in range(k, group_num)]), -1)
+        else:  # if data is not enough, keep the same between train_data and test_data
+            train_x = np.expand_dims(np.array([data[i:i + self.lag]
+                                               for i in range(0, group_num)]), -1)
+            train_y = np.expand_dims(np.array([data[i + self.lag:i + self.lag + self.predict_step]
+                                               for i in range(0, group_num)]), -1)
+            test_x = train_x
+            test_y = train_y
+        pre_x = np.expand_dims(np.array(data[-self.lag:]), 0)
+        return train_x, train_y, test_x, test_y, pre_x
+
+    def build(self, train_x, train_y, test_x, test_y,
+              activation1, activation2, filter1, filter2, dropout1, dropout2, kernal_size,
               learning_rate, batch_size, is_plot=False):
         """
         filters: 卷积核数量
@@ -869,7 +1005,7 @@ class ConvLSTMResult(TSResult):
         start_time = time.time()
         # 1. ConvLSTM编码-LSTM+Dense解码
         # ConvLSTM1D编码，Flatten压扁后RepeatVector重复predict_step次，LSTM给重复次数之间施加时间特征，Dense还原每次的shape
-        # model = Sequential([
+        # self.model = Sequential([
         #     ConvLSTM1D(activation=activation1, filters=filter1, kernel_size=kernal_size, strides=1,
         #                input_shape=(self.lag, self.width, 1), padding='same', return_sequences=True),
         #     ConvLSTM1D(activation=activation1, filters=filter1, kernel_size=kernal_size, strides=1,
@@ -882,8 +1018,8 @@ class ConvLSTMResult(TSResult):
         #     TimeDistributed(Dense(self.width))
         # ])
 
-        # 3. ConvLSTM编码-Reshape+Conv2D解码
-        model = Sequential([
+        # 2. ConvLSTM编码-Reshape+Conv2D解码
+        self.model = Sequential([
             ConvLSTM1D(activation=activation1, filters=filter1, kernel_size=kernal_size, strides=1,
                        input_shape=(self.lag, self.width, 1), padding='same', return_sequences=False),
             # BatchNormalization(),
@@ -899,18 +1035,13 @@ class ConvLSTMResult(TSResult):
                    padding='same', data_format='channels_last')
         ])
         optimizer = Adam(learning_rate=learning_rate)
-        model.compile(optimizer=optimizer, loss='mse')
+        self.model.compile(optimizer=optimizer, loss='mse')
         early_stopping = EarlyStopping(monitor="loss", patience=10, min_delta=0.0005, verbose=0)
         # reduce_lr = ReduceLROnPlateau(monitor="loss", patience=5, verbose=0)
-        history = model.fit(self.train_x, self.train_y, validation_data=(self.test_x, self.test_y),
-                            epochs=100, batch_size=batch_size,
-                            callbacks=[early_stopping], verbose=0)
-        pre = correct_cdf(model.predict(self.pre_x)[0, :, :, 0]).tolist()
-        # ERROR: loss里的mse和实际计算的mse有差距
-        # mse = history.history['val_loss'][-1]
-        pres = model.predict(self.test_x).reshape(self.test_x.shape[0] * self.predict_step, self.width)
-        trues = self.test_y.reshape(self.test_x.shape[0] * self.predict_step, self.width)
-        mae = np.sum(np.abs(pres - trues)) / self.test_y.size
+        history = self.model.fit(train_x, train_y, validation_data=(test_x, test_y),
+                                 epochs=100, batch_size=batch_size,
+                                 callbacks=[early_stopping], verbose=0)
+        self.err = self.get_err(test_x, test_y)
         end_time = time.time()
         if is_plot:
             if os.path.exists(self.model_path) is False:
@@ -920,17 +1051,41 @@ class ConvLSTMResult(TSResult):
             plt.savefig(
                 self.model_path + "%s_%s_%s_%s_%s_%s_%s_%s_%s_%s_%s.png" % (
                     activation1, activation2, filter1, filter2, dropout1, dropout2,
-                    kernal_size, learning_rate, batch_size, end_time - start_time, mae))
+                    kernal_size, learning_rate, batch_size, end_time - start_time, self.err))
             plt.close()
-        return pre, mae
 
-    def train(self):
-        return self.build(activation1='tanh', activation2='tanh',
-                          filter1=8, filter2=8,
-                          dropout1=0.0, dropout2=0.0, kernal_size=9,
-                          learning_rate=0.01, batch_size=32)
+    def predict(self, data):
+        return correct_cdf(self.model.predict(data)[0, :, :, 0]).tolist()
 
-    def grid_search(self, thread=1, start_num=0):
+    def train(self, data):
+        train_x, train_y, test_x, test_y, pre_x = self.init_data(data)
+        self.build(train_x, train_y, test_x, test_y, activation1='tanh', activation2='tanh',
+                   filter1=8, filter2=8, dropout1=0.0, dropout2=0.0, kernal_size=9,
+                   learning_rate=0.01, batch_size=32)
+        return self.predict(pre_x), 1
+
+    def retrain(self, data, threshold_err):
+        train_x, train_y, test_x, test_y, pre_x = self.init_data(data)
+        old_err = self.err
+        self.err = self.get_err(test_x, test_y)
+        if self.err <= threshold_err * old_err:
+            return self.predict(pre_x), 1
+        else:
+            self.build(train_x, train_y, test_x, test_y, activation1='tanh', activation2='tanh',
+                       filter1=8, filter2=8, dropout1=0.0, dropout2=0.0, kernal_size=9,
+                       learning_rate=0.01, batch_size=32)
+            return self.predict(pre_x), 1
+
+    def get_err(self, test_x, test_y):
+        # ERROR: loss里的mse和实际计算的mse有差距
+        # mse = history.history['val_loss'][-1]
+        pres = self.model.predict(test_x).reshape(test_x.shape[0] * self.predict_step, self.width)
+        trues = test_y.reshape(test_x.shape[0] * self.predict_step, self.width)
+        mae = np.sum(np.abs(pres - trues)) / test_y.size
+        return mae
+
+    def grid_search(self, data, thread=1, start_num=0):
+        train_x, train_y, test_x, test_y, pre_x = self.init_data(data)
         # activation1s = ['relu', 'leaky_relu', 'tanh']
         activation1s = ['tanh']
         # activation2s = ['relu', 'leaky_relu', 'tanh']
@@ -963,7 +1118,8 @@ class ConvLSTMResult(TSResult):
                                             i += 1
                                             if i > start_num:
                                                 pool.apply_async(self.build,
-                                                                 (activation1, activation2, filter1, filter2,
+                                                                 (train_x, train_y, test_x, test_y,
+                                                                  activation1, activation2, filter1, filter2,
                                                                   dropout1, dropout2, kernal_size,
                                                                   learning_rate, batch_size, True))
         pool.close()
