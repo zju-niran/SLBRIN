@@ -20,7 +20,7 @@ ITEMS_PER_PAGE = int(PAGE_SIZE / ITEM_SIZE)
 
 class SLIBS(ZMIndex):
     """
-    空间学习型索引基础框架（Spatial Learned Index Based Structure，SLIBS）
+    空间学习型索引基础框架（Basic Structure for Spatial Learned Index，SLIBS）
     1. 基本思路：先降维+后RMI
     2. 其他改进：在训练集中采用最大最小值归一化方法和分区边界控制方法，保证分段CDF在段间的单调性
     2.1. 分区边界提取过程见get_leaf_bound
